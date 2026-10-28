@@ -1,0 +1,247 @@
+// Runs one reviewer pass as a one-shot agent process (or a Cline SDK session)
+// and reports how it ended. The caller parses the output.
+import { type ChildProcess, type SpawnOptions, spawn } from "node:child_process";
+import treeKill from "tree-kill";
+
+import type { ClineTaskSessionService } from "../cline-sdk/cline-task-session-service";
+import { getRuntimeAgentCatalogEntry, isRuntimeAgentLaunchSupported } from "../core/agent-catalog";
+import type { RuntimeAgentId, RuntimeTaskSessionSummary } from "../core/api-contract";
+
+const MAX_CAPTURED_OUTPUT_CHARS = 1024 * 1024;
+
+export type ReviewerRunOutcome =
+	| { kind: "completed"; output: string }
+	| { kind: "timeout" }
+	| { kind: "crashed"; error: string }
+	| { kind: "cancelled" }
+	| { kind: "unavailable"; reason: string };
+
+export interface ReviewerRunHandle {
+	done: Promise<ReviewerRunOutcome>;
+	cancel(): void;
+}
+
+export interface ReviewerCommand {
+	binary: string;
+	args: string[];
+	promptVia: "stdin" | "arg";
+}
+
+type SpawnReviewer = (command: string, args: string[], options: SpawnOptions) => ChildProcess;
+
+type ReviewerClineService = Pick<
+	ClineTaskSessionService,
+	"onSummary" | "startTaskSession" | "stopTaskSession" | "getSummary"
+>;
+
+export interface StartReviewerRunInput {
+	agentId: RuntimeAgentId;
+	cwd: string;
+	prompt: string;
+	timeoutMs: number;
+	isAgentInstalled(agentId: RuntimeAgentId): boolean;
+	clineService?: ReviewerClineService;
+	/** Session key for Cline runs: "agent-review:<taskId>". Never the task's own id. */
+	reviewKey: string;
+	spawnImpl?: SpawnReviewer;
+}
+
+/** Returns null when the agent has no confirmed non-interactive mode. */
+export function buildReviewerCommand(agentId: RuntimeAgentId): ReviewerCommand | null {
+	const entry = getRuntimeAgentCatalogEntry(agentId);
+	if (!entry || !isRuntimeAgentLaunchSupported(agentId)) {
+		return null;
+	}
+	switch (agentId) {
+		case "claude":
+			return {
+				binary: entry.binary,
+				args: [
+					"-p",
+					"--output-format",
+					"text",
+					"--disallowedTools",
+					"Edit",
+					"Write",
+					"NotebookEdit",
+					"--allowedTools",
+					"Bash",
+					"Read",
+					"Grep",
+					"Glob",
+				],
+				promptVia: "stdin",
+			};
+		case "codex":
+			return { binary: entry.binary, args: ["exec", "-", ...entry.autonomousArgs], promptVia: "stdin" };
+		case "droid":
+			return { binary: entry.binary, args: ["exec", ...entry.autonomousArgs], promptVia: "arg" };
+		case "kiro":
+			return { binary: entry.binary, args: ["chat", "--no-interactive", "--trust-all-tools"], promptVia: "arg" };
+		default:
+			return null;
+	}
+}
+
+function settledHandle(outcome: ReviewerRunOutcome): ReviewerRunHandle {
+	return { done: Promise.resolve(outcome), cancel: () => {} };
+}
+
+export function startReviewerRun(input: StartReviewerRunInput): ReviewerRunHandle {
+	if (!isRuntimeAgentLaunchSupported(input.agentId)) {
+		return settledHandle({ kind: "unavailable", reason: `Agent "${input.agentId}" is not launch-supported.` });
+	}
+	if (!input.isAgentInstalled(input.agentId)) {
+		return settledHandle({ kind: "unavailable", reason: `Agent "${input.agentId}" is not installed.` });
+	}
+	if (input.agentId === "cline") {
+		if (!input.clineService) {
+			return settledHandle({ kind: "unavailable", reason: "Cline session service is not available." });
+		}
+		return startClineReviewerRun(input.clineService, input);
+	}
+	const command = buildReviewerCommand(input.agentId);
+	if (!command) {
+		return settledHandle({
+			kind: "unavailable",
+			reason: `Agent "${input.agentId}" has no non-interactive mode for reviews.`,
+		});
+	}
+	return startProcessReviewerRun(command, input);
+}
+
+function startProcessReviewerRun(command: ReviewerCommand, input: StartReviewerRunInput): ReviewerRunHandle {
+	let resolveDone: (outcome: ReviewerRunOutcome) => void = () => {};
+	const done = new Promise<ReviewerRunOutcome>((resolve) => {
+		resolveDone = resolve;
+	});
+	let stopReason: "timeout" | "cancelled" | null = null;
+	let settled = false;
+	let output = "";
+
+	const settle = (outcome: ReviewerRunOutcome) => {
+		if (settled) {
+			return;
+		}
+		settled = true;
+		clearTimeout(timer);
+		resolveDone(outcome);
+	};
+
+	const args = command.promptVia === "arg" ? [...command.args, input.prompt] : command.args;
+	const child = (input.spawnImpl ?? spawn)(command.binary, args, {
+		cwd: input.cwd,
+		env: process.env,
+		detached: true,
+		stdio: [command.promptVia === "stdin" ? "pipe" : "ignore", "pipe", "pipe"],
+	});
+
+	const capture = (chunk: Buffer) => {
+		output += chunk.toString("utf8");
+		if (output.length > MAX_CAPTURED_OUTPUT_CHARS) {
+			output = output.slice(-MAX_CAPTURED_OUTPUT_CHARS);
+		}
+	};
+	child.stdout?.on("data", capture);
+	child.stderr?.on("data", capture);
+
+	if (command.promptVia === "stdin" && child.stdin) {
+		// The agent may exit before reading stdin; that shows up in the exit code, not here.
+		child.stdin.on("error", () => {});
+		child.stdin.end(input.prompt);
+	}
+
+	const killTree = (reason: "timeout" | "cancelled") => {
+		if (settled || stopReason) {
+			return;
+		}
+		stopReason = reason;
+		if (typeof child.pid !== "number") {
+			settle({ kind: reason });
+			return;
+		}
+		treeKill(child.pid, "SIGKILL", () => {
+			// "close" settles the run once every process holding the output pipes is gone.
+		});
+	};
+
+	const timer = setTimeout(() => killTree("timeout"), input.timeoutMs);
+
+	child.on("error", (error) => {
+		settle(stopReason ? { kind: stopReason } : { kind: "crashed", error: error.message });
+	});
+	child.on("close", (code, signal) => {
+		if (stopReason) {
+			settle({ kind: stopReason });
+			return;
+		}
+		if (code === 0 || output.trim().length > 0) {
+			settle({ kind: "completed", output });
+			return;
+		}
+		settle({
+			kind: "crashed",
+			error: signal ? `Reviewer was killed by ${signal}.` : `Reviewer exited with code ${code}.`,
+		});
+	});
+
+	return { done, cancel: () => killTree("cancelled") };
+}
+
+function startClineReviewerRun(service: ReviewerClineService, input: StartReviewerRunInput): ReviewerRunHandle {
+	const key = input.reviewKey;
+	let resolveDone: (outcome: ReviewerRunOutcome) => void = () => {};
+	const done = new Promise<ReviewerRunOutcome>((resolve) => {
+		resolveDone = resolve;
+	});
+	let started = false;
+	let settled = false;
+
+	const stopSession = () => {
+		void service.stopTaskSession(key).catch(() => null);
+	};
+
+	const settle = (outcome: ReviewerRunOutcome) => {
+		if (settled) {
+			return;
+		}
+		settled = true;
+		clearTimeout(timer);
+		unsubscribe();
+		if (started) {
+			stopSession();
+		}
+		resolveDone(outcome);
+	};
+
+	const handleSummary = (summary: RuntimeTaskSessionSummary | null) => {
+		if (!started || !summary || summary.taskId !== key || summary.state === "running") {
+			return;
+		}
+		if (summary.state === "failed") {
+			settle({ kind: "crashed", error: summary.warningMessage ?? "Cline reviewer session failed." });
+			return;
+		}
+		settle({ kind: "completed", output: summary.latestHookActivity?.finalMessage ?? "" });
+	};
+
+	const unsubscribe = service.onSummary(handleSummary);
+	const timer = setTimeout(() => settle({ kind: "timeout" }), input.timeoutMs);
+
+	service
+		.startTaskSession({ taskId: key, cwd: input.cwd, prompt: input.prompt, mode: "act" })
+		.then((summary) => {
+			started = true;
+			if (settled) {
+				// Cancelled or timed out while the session was starting.
+				stopSession();
+				return;
+			}
+			handleSummary(service.getSummary(key) ?? summary);
+		})
+		.catch((error: unknown) => {
+			settle({ kind: "crashed", error: error instanceof Error ? error.message : String(error) });
+		});
+
+	return { done, cancel: () => settle({ kind: "cancelled" }) };
+}
