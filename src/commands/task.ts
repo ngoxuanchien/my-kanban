@@ -1,6 +1,6 @@
 import { createTRPCProxyClient, httpBatchLink } from "@trpc/client";
 import type { Command } from "commander";
-
+import { isRuntimeAgentLaunchSupported, RUNTIME_LAUNCH_SUPPORTED_AGENT_IDS } from "../core/agent-catalog";
 import type {
 	RuntimeAgentId,
 	RuntimeBoardCard,
@@ -91,9 +91,9 @@ function parseAutoReviewMode(value: string | undefined): "commit" | "pr" | undef
 	throw new Error(`Invalid auto review mode "${value}". Expected: commit, pr.`);
 }
 
-const VALID_AGENT_IDS = runtimeAgentIdSchema.options;
+const VALID_AGENT_IDS_TEXT = RUNTIME_LAUNCH_SUPPORTED_AGENT_IDS.join(" | ");
 
-function parseAgentId(value: string | undefined): RuntimeAgentId | null | undefined {
+export function parseAgentId(value: string | undefined): RuntimeAgentId | null | undefined {
 	if (value === undefined) {
 		return undefined;
 	}
@@ -101,10 +101,13 @@ function parseAgentId(value: string | undefined): RuntimeAgentId | null | undefi
 		return null;
 	}
 	const result = runtimeAgentIdSchema.safeParse(value);
-	if (result.success) {
+	if (result.success && isRuntimeAgentLaunchSupported(result.data)) {
 		return result.data;
 	}
-	throw new Error(`Invalid agent ID "${value}". Expected one of: ${VALID_AGENT_IDS.join(", ")}, default.`);
+	const reason = result.success ? "is not supported for task launch" : "is not a known agent";
+	throw new Error(
+		`Invalid agent ID "${value}": ${reason}. Expected one of: ${RUNTIME_LAUNCH_SUPPORTED_AGENT_IDS.join(", ")}, default.`,
+	);
 }
 
 function parseOptionalStringOrDefault(value: string | undefined): string | null | undefined {
@@ -1091,7 +1094,7 @@ export function registerTaskCommand(program: Command): void {
 		.option("--agent-review-enabled [value]", "Enable agent review (true|false). Flag-only implies true.")
 		.option("--auto-review-enabled [value]", "Enable auto-review behavior (true|false). Flag-only implies true.")
 		.option("--auto-review-mode <mode>", "Auto-review mode: commit | pr.", parseAutoReviewMode)
-		.option("--agent-id <id>", "Agent override: cline | claude | codex | droid | gemini | opencode | default.")
+		.option("--agent-id <id>", `Agent override: ${VALID_AGENT_IDS_TEXT} | default.`)
 		.option(
 			"--cline-provider <id>",
 			'Cline provider override (e.g. anthropic, openai, cline). Use "default" for workspace default.',
@@ -1157,10 +1160,7 @@ export function registerTaskCommand(program: Command): void {
 		.option("--agent-review-enabled [value]", "Enable agent review (true|false). Flag-only implies true.")
 		.option("--auto-review-enabled [value]", "Enable auto-review behavior (true|false). Flag-only implies true.")
 		.option("--auto-review-mode <mode>", "Auto-review mode: commit | pr.", parseAutoReviewMode)
-		.option(
-			"--agent-id <id>",
-			'Agent override: cline | claude | codex | droid | gemini | opencode. Use "default" to clear.',
-		)
+		.option("--agent-id <id>", `Agent override: ${VALID_AGENT_IDS_TEXT}. Use "default" to clear.`)
 		.option(
 			"--cline-provider <id>",
 			'Cline provider override (e.g. anthropic, openai, cline). Use "default" to clear.',
