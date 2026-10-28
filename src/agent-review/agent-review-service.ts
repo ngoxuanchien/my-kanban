@@ -54,6 +54,8 @@ export interface AgentReviewServiceDeps {
 	loadRuntimeConfig(): Promise<RuntimeConfigState>;
 	resolveTaskCwd(taskId: string, baseRef: string): Promise<string>;
 	doneDeps: CompleteTaskToDoneDeps;
+	/** Relaunches a task agent that is not running (after a restart) with `prompt`. Resolves true when it started. */
+	resumeTask(card: RuntimeBoardCard, prompt: string): Promise<boolean>;
 	broadcastStateUpdated(): Promise<void>;
 	/** Reports errors the loop recovers from (it keeps running). */
 	warn?: (message: string) => void;
@@ -282,7 +284,8 @@ export function createAgentReviewService(deps: AgentReviewServiceDeps): AgentRev
 					baseRef: card.baseRef,
 					templates: config,
 				});
-				if (!(await sendToTask(card, prompt)).ok) {
+				// After a restart the task agent is not running; relaunch it with the commit prompt.
+				if (!(await sendToTask(card, prompt)).ok && !(await deps.resumeTask(card, prompt))) {
 					await applyEvent(card.id, { type: "commit_finished", ok: false });
 					return;
 				}

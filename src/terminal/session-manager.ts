@@ -86,6 +86,8 @@ export interface StartTaskSessionRequest {
 	images?: RuntimeTaskImage[];
 	startInPlanMode?: boolean;
 	resumeFromTrash?: boolean;
+	/** Continue the previous conversation like resumeFromTrash, but run `prompt` instead of waiting for input. */
+	resumeFromPersistence?: boolean;
 	cols?: number;
 	rows?: number;
 	env?: Record<string, string | undefined>;
@@ -331,7 +333,8 @@ export class TerminalSessionManager implements TerminalSessionService {
 			prompt: request.prompt,
 			images: request.images,
 			startInPlanMode: request.startInPlanMode,
-			resumeFromTrash: request.resumeFromTrash,
+			// Adapters read resumeFromTrash as "continue the previous conversation".
+			resumeFromTrash: request.resumeFromTrash || request.resumeFromPersistence,
 			env: request.env,
 			workspaceId: request.workspaceId,
 		});

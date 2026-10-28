@@ -278,7 +278,11 @@ export function reduceAgentReview(input: AgentReviewReducerInput): AgentReviewRe
 							effects: [{ type: "complete_done" }],
 						};
 					}
-					return toNeedsUser(state, "commit_failed", null, now);
+					// The commit step died with the runtime: run it again.
+					return {
+						state: { ...state, updatedAt: now },
+						effects: [{ type: "send_commit", action: input.autoReviewEnabled ? input.autoReviewMode : "commit" }],
+					};
 				case "fixing":
 					return event.taskSessionRunning ? unchanged : toNeedsUser(state, "task_agent_not_running", null, now);
 				default:

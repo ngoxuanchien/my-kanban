@@ -47,6 +47,7 @@ import { createWorkspaceApi } from "../trpc/workspace-api";
 import { createAgentReviewRegistry } from "./agent-review-registry";
 import { getWebUiDir, normalizeRequestPath, readAsset } from "./assets";
 import { handleHttpRequest, handleSocketUpgrade } from "./middleware";
+import { resumeInterruptedTasks } from "./resume-interrupted-tasks";
 import type { RuntimeStateHub } from "./runtime-state-hub";
 import type { WorkspaceRegistry } from "./workspace-registry";
 
@@ -79,6 +80,8 @@ export interface CreateRuntimeServerDependencies {
 
 export interface RuntimeServer {
 	url: string;
+	/** Relaunches In Progress task agents left by the previous runtime, on every registered board. */
+	resumeInterruptedTasks: () => Promise<void>;
 	/** Picks up agent-review work left on any registered board, including non-active workspaces. */
 	startAgentReviewForRegisteredWorkspaces: () => Promise<void>;
 	close: () => Promise<void>;
@@ -171,14 +174,15 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 		void disposeClineTaskSessionServiceAsync(workspaceId);
 	};
 	let internalRuntimeApi: RuntimeTrpcContext["runtimeApi"] | null = null;
+	const getInternalRuntimeApi = (): RuntimeTrpcContext["runtimeApi"] => {
+		internalRuntimeApi ??= createRuntimeApi(runtimeApiDependencies);
+		return internalRuntimeApi;
+	};
 	const agentReviewRegistry = createAgentReviewRegistry({
 		ensureTerminalManagerForWorkspace: deps.ensureTerminalManagerForWorkspace,
 		getScopedClineTaskSessionService,
 		loadScopedRuntimeConfig: deps.workspaceRegistry.loadScopedRuntimeConfig,
-		getRuntimeApi: () => {
-			internalRuntimeApi ??= createRuntimeApi(runtimeApiDependencies);
-			return internalRuntimeApi;
-		},
+		getRuntimeApi: getInternalRuntimeApi,
 		broadcastRuntimeWorkspaceStateUpdated: deps.runtimeStateHub.broadcastRuntimeWorkspaceStateUpdated,
 		broadcastRuntimeProjectsUpdated: deps.runtimeStateHub.broadcastRuntimeProjectsUpdated,
 		warn: deps.warn,
@@ -520,6 +524,9 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 
 	return {
 		url,
+		resumeInterruptedTasks: async () => {
+			await resumeInterruptedTasks({ startTaskSession: getInternalRuntimeApi().startTaskSession, warn: deps.warn });
+		},
 		startAgentReviewForRegisteredWorkspaces: agentReviewRegistry.startAgentReviewForRegisteredWorkspaces,
 		close: async () => {
 			await agentReviewRegistry.disposeAll();

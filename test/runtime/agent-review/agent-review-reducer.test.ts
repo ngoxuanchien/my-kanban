@@ -356,10 +356,10 @@ describe("reduceAgentReview", () => {
 			expect(effects).toEqual([{ type: "complete_done" }]);
 		});
 
-		it("fails the commit for committing with a dirty worktree", () => {
-			const { state, effects } = reduce(makeState({ status: "committing" }), restarted(true, false));
-			expect(state).toMatchObject({ status: "needs_user", reason: "commit_failed" });
-			expect(effects).toEqual([{ type: "move_card", to: "user_review" }]);
+		it("re-runs the commit step for committing with a dirty worktree", () => {
+			const { state, effects } = reduce(makeState({ status: "committing" }), restarted(false, false));
+			expect(state).toMatchObject({ status: "committing" });
+			expect(effects).toEqual([{ type: "send_commit", action: "commit" }]);
 		});
 
 		it("sends fixing without a running session to user_review", () => {

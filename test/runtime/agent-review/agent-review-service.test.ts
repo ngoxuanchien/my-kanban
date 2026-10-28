@@ -181,6 +181,8 @@ describe.sequential("AgentReviewService", () => {
 	let broadcasts: number;
 	let deletedCardAtWorktreeDelete: RuntimeBoardCard | null;
 	let configLoadError: Error | null;
+	let taskAgentRunning: boolean;
+	let resumedTasks: Array<{ taskId: string; prompt: string }>;
 
 	beforeEach(() => {
 		const home = createTempDir("kanban-home-");
@@ -206,6 +208,8 @@ describe.sequential("AgentReviewService", () => {
 		broadcasts = 0;
 		deletedCardAtWorktreeDelete = null;
 		configLoadError = null;
+		taskAgentRunning = true;
+		resumedTasks = [];
 	});
 
 	afterEach(async () => {
@@ -243,6 +247,9 @@ describe.sequential("AgentReviewService", () => {
 		},
 		getSummary: (taskId: string) => liveSummaries.get(taskId) ?? null,
 		sendTaskSessionInput: async (taskId: string, text: string) => {
+			if (!taskAgentRunning) {
+				return null;
+			}
 			sentPrompts.push({ taskId, text });
 			return summary(taskId, {});
 		},
@@ -289,6 +296,10 @@ describe.sequential("AgentReviewService", () => {
 					deletedCardAtWorktreeDelete = await findCard(taskId, "trash");
 					return { removed: true };
 				},
+			},
+			resumeTask: async (card, prompt) => {
+				resumedTasks.push({ taskId: card.id, prompt });
+				return true;
 			},
 			broadcastStateUpdated: async () => {
 				broadcasts += 1;
@@ -729,6 +740,22 @@ describe.sequential("AgentReviewService", () => {
 		expect(reviewerInputs[0]?.prompt).toContain("Review round: 3");
 		expect(reviewerInputs[0]?.prompt).toContain("1. a\n2. b");
 		expect(sentPrompts[0]?.text.startsWith("[Kanban agent review — fix round 3/3]")).toBe(true);
+	});
+
+	it("restart recovery re-runs a commit step that was committing by resuming the stopped task agent", async () => {
+		addChange();
+		taskAgentRunning = false;
+		await startService([
+			{
+				card: createCard("A", { agentReview: reviewState({ status: "committing", round: 1 }) }),
+				columnId: "review",
+			},
+		]);
+
+		await vi.waitFor(() => expect(resumedTasks).toHaveLength(1), { timeout: 5000 });
+		expect(resumedTasks[0]?.taskId).toBe("A");
+		expect(resumedTasks[0]?.prompt).toContain("Commit the work on top of main");
+		await waitForReview("A", { status: "committing", round: 1 });
 	});
 
 	it("tasks without agentReviewEnabled are never touched", async () => {

@@ -593,6 +593,32 @@ describe("prepareAgentLaunch hook strategies", () => {
 		expect(clineLaunch.args).toContain("--continue");
 	});
 
+	it("resumes each agent's previous conversation with a continue prompt so it does not sit idle", async () => {
+		setupTempHome();
+		const prompt = "Kanban was restarted; continue the task where you left off.";
+		const cases = [
+			{ agentId: "claude", binary: "claude", args: [], resumeArgs: ["--continue"] },
+			{ agentId: "codex", binary: "codex", args: [], resumeArgs: ["resume", "--last"] },
+			{ agentId: "opencode", binary: "opencode", args: [], resumeArgs: ["--continue", "--prompt"] },
+			{ agentId: "cline", binary: "cline", args: [], resumeArgs: ["--continue"] },
+			{ agentId: "droid", binary: "droid", args: [], resumeArgs: ["--resume"] },
+			{ agentId: "kiro", binary: "kiro-cli", args: ["chat"], resumeArgs: ["--resume"] },
+		] as const;
+		for (const { agentId, binary, args, resumeArgs } of cases) {
+			const launch = await prepareAgentLaunch({
+				taskId: `task-${agentId}`,
+				agentId,
+				binary,
+				args: [...args],
+				cwd: "/tmp",
+				prompt,
+				resumeFromTrash: true,
+			});
+			expect(launch.args, agentId).toEqual(expect.arrayContaining([...resumeArgs]));
+			expect([...launch.args, launch.deferredStartupInput ?? ""].join(" "), agentId).toContain(prompt);
+		}
+	});
+
 	it("places Codex hook config before the resume subcommand", async () => {
 		setupTempHome();
 		const launch = await prepareAgentLaunch({

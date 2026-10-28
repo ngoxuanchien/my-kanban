@@ -15,6 +15,7 @@ import type { TerminalSessionManager } from "../terminal/session-manager";
 import type { RuntimeTrpcContext, RuntimeTrpcWorkspaceScope } from "../trpc/app-router";
 import { columnCanHaveLiveTaskSession } from "../workspace/complete-task-to-done";
 import { deleteTaskWorktree, resolveTaskCwd } from "../workspace/task-worktree";
+import { resumeTaskSession } from "./resume-interrupted-tasks";
 
 export interface CreateAgentReviewRegistryDependencies {
 	ensureTerminalManagerForWorkspace: (workspaceId: string, repoPath: string) => Promise<TerminalSessionManager>;
@@ -111,6 +112,13 @@ export function createAgentReviewRegistry(deps: CreateAgentReviewRegistryDepende
 					return { removed: deleted.removed, error: deleted.ok ? undefined : deleted.error };
 				},
 				notifyStateUpdated: broadcastStateUpdated,
+			},
+			resumeTask: async (card, prompt) => {
+				const resumed = await resumeTaskSession(deps.getRuntimeApi().startTaskSession, scope, card, prompt);
+				if (!resumed.ok) {
+					deps.warn(`[agent-review] Could not resume task ${card.id}: ${resumed.error ?? "unknown error"}`);
+				}
+				return resumed.ok;
 			},
 			broadcastStateUpdated,
 			warn: deps.warn,

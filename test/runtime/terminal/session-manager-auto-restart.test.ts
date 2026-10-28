@@ -49,6 +49,30 @@ describe("TerminalSessionManager auto-restart", () => {
 		}));
 	});
 
+	it("resumeFromPersistence continues the previous conversation and runs the prompt", async () => {
+		ptySessionSpawnMock.mockImplementation((request: MockSpawnRequest) => createMockPtySession(111, request));
+
+		const manager = new TerminalSessionManager();
+		const summary = await manager.startTaskSession({
+			taskId: "task-1",
+			agentId: "opencode",
+			binary: "opencode",
+			args: [],
+			cwd: "/tmp/task-1",
+			prompt: "Kanban was restarted; continue the task where you left off.",
+			resumeFromPersistence: true,
+		});
+
+		expect(prepareAgentLaunchMock).toHaveBeenCalledWith(
+			expect.objectContaining({
+				resumeFromTrash: true,
+				prompt: "Kanban was restarted; continue the task where you left off.",
+			}),
+		);
+		expect(summary.state).toBe("running");
+		expect(summary.reviewReason).toBeNull();
+	});
+
 	it("restarts an attached agent session after it exits", async () => {
 		const spawnedSessions: Array<ReturnType<typeof createMockPtySession>> = [];
 		ptySessionSpawnMock.mockImplementation((request: MockSpawnRequest) => {

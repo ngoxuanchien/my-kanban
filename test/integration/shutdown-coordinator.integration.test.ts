@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
@@ -8,6 +8,7 @@ import type { RuntimeBoardData, RuntimeTaskSessionSummary } from "../../src/core
 import { shutdownRuntimeServer } from "../../src/server/shutdown-coordinator";
 import { loadWorkspaceState, saveWorkspaceState } from "../../src/state/workspace-state";
 import type { TerminalSessionManager } from "../../src/terminal/session-manager";
+import { ensureTaskWorktreeIfDoesntExist } from "../../src/workspace/task-worktree";
 import { createGitTestEnv } from "../utilities/git-env";
 import { createTempDir } from "../utilities/temp-dir";
 
@@ -34,15 +35,36 @@ async function withTemporaryHome<T>(run: () => Promise<T>): Promise<T> {
 	}
 }
 
-function initGitRepository(path: string): void {
-	const init = spawnSync("git", ["init"], {
+function runGit(path: string, args: string[]): void {
+	const result = spawnSync("git", args, {
 		cwd: path,
 		stdio: "ignore",
 		env: createGitTestEnv(),
 	});
-	if (init.status !== 0) {
-		throw new Error(`Failed to initialize git repository at ${path}`);
+	if (result.status !== 0) {
+		throw new Error(`git ${args.join(" ")} failed in ${path}`);
 	}
+}
+
+function initGitRepository(path: string): void {
+	runGit(path, ["init", "-b", "main"]);
+	writeFileSync(join(path, "README.md"), "hello\n");
+	runGit(path, ["add", "-A"]);
+	runGit(path, ["commit", "-m", "init"]);
+}
+
+async function createTaskWorktreeWithUncommittedFile(repoPath: string, taskId: string): Promise<string> {
+	const ensured = await ensureTaskWorktreeIfDoesntExist({ cwd: repoPath, taskId, baseRef: "main" });
+	if (!ensured.ok) {
+		throw new Error(ensured.error ?? `Could not create worktree for ${taskId}`);
+	}
+	const filePath = join(ensured.path, "uncommitted.txt");
+	writeFileSync(filePath, `work in progress for ${taskId}\n`);
+	return filePath;
+}
+
+function columnTaskIds(board: RuntimeBoardData, columnId: string): string[] {
+	return (board.columns.find((column) => column.id === columnId)?.cards ?? []).map((card) => card.id).sort();
 }
 
 function createCard(taskId: string) {
@@ -95,7 +117,7 @@ function createSession(taskId: string, state: "running" | "awaiting_review" | "i
 }
 
 describe.sequential("shutdown coordinator integration", () => {
-	it("moves all in-progress and review cards to trash for every indexed project on shutdown", async () => {
+	it("stops agents but keeps every card in its column and every task worktree on disk", async () => {
 		await withTemporaryHome(async () => {
 			const { path: sandboxRoot, cleanup } = createTempDir("kanban-shutdown-scope-");
 			try {
@@ -106,12 +128,13 @@ describe.sequential("shutdown coordinator integration", () => {
 				initGitRepository(managedProjectPath);
 				initGitRepository(indexedProjectPath);
 
+				const managedBoard = createBoard({
+					inProgress: ["managed-running", "managed-missing-session"],
+					review: ["managed-idle"],
+				});
 				const managedInitial = await loadWorkspaceState(managedProjectPath);
 				await saveWorkspaceState(managedProjectPath, {
-					board: createBoard({
-						inProgress: ["managed-running", "managed-missing-session"],
-						review: ["managed-idle"],
-					}),
+					board: managedBoard,
 					sessions: {
 						"managed-running": createSession("managed-running", "running"),
 						"managed-idle": createSession("managed-idle", "idle"),
@@ -119,30 +142,38 @@ describe.sequential("shutdown coordinator integration", () => {
 					expectedRevision: managedInitial.revision,
 				});
 
+				const indexedBoard = createBoard({
+					inProgress: ["indexed-missing-session"],
+					review: ["indexed-awaiting-review"],
+				});
 				const indexedInitial = await loadWorkspaceState(indexedProjectPath);
 				await saveWorkspaceState(indexedProjectPath, {
-					board: createBoard({
-						inProgress: ["indexed-missing-session"],
-						review: ["indexed-awaiting-review"],
-					}),
+					board: indexedBoard,
 					sessions: {
 						"indexed-awaiting-review": createSession("indexed-awaiting-review", "awaiting_review"),
 					},
 					expectedRevision: indexedInitial.revision,
 				});
 
+				const uncommittedFiles = [
+					...(await Promise.all(
+						["managed-running", "managed-missing-session", "managed-idle"].map((taskId) =>
+							createTaskWorktreeWithUncommittedFile(managedProjectPath, taskId),
+						),
+					)),
+					...(await Promise.all(
+						["indexed-missing-session", "indexed-awaiting-review"].map((taskId) =>
+							createTaskWorktreeWithUncommittedFile(indexedProjectPath, taskId),
+						),
+					)),
+				];
+
+				let stopAllCalls = 0;
 				let didCloseRuntimeServer = false;
 				const managedTerminalManager = {
-					markInterruptedAndStopAll: () => [createSession("managed-running", "running")],
-					listSummaries: () => [createSession("managed-running", "running")],
-					getSummary: (taskId: string) => {
-						if (taskId === "managed-running") {
-							return createSession("managed-running", "running");
-						}
-						if (taskId === "managed-idle") {
-							return createSession("managed-idle", "idle");
-						}
-						return null;
+					markInterruptedAndStopAll: () => {
+						stopAllCalls += 1;
+						return [createSession("managed-running", "running")];
 					},
 				} as unknown as TerminalSessionManager;
 				await shutdownRuntimeServer({
@@ -161,24 +192,28 @@ describe.sequential("shutdown coordinator integration", () => {
 					},
 				});
 
+				expect(stopAllCalls).toBe(1);
 				expect(didCloseRuntimeServer).toBe(true);
 
 				const managedAfter = await loadWorkspaceState(managedProjectPath);
-				const managedTrash = managedAfter.board.columns.find((column) => column.id === "trash")?.cards ?? [];
-				expect(managedTrash.map((card) => card.id).sort()).toEqual(
-					["managed-idle", "managed-missing-session", "managed-running"].sort(),
+				expect(columnTaskIds(managedAfter.board, "in_progress")).toEqual(
+					columnTaskIds(managedBoard, "in_progress"),
 				);
-				expect(managedAfter.sessions["managed-running"]?.state).toBe("interrupted");
-				expect(managedAfter.sessions["managed-idle"]?.state).toBe("interrupted");
-				expect(managedAfter.sessions["managed-missing-session"]).toBeUndefined();
+				expect(columnTaskIds(managedAfter.board, "review")).toEqual(["managed-idle"]);
+				expect(columnTaskIds(managedAfter.board, "trash")).toEqual([]);
+				expect(managedAfter.sessions["managed-running"]?.state).toBe("running");
+				expect(managedAfter.sessions["managed-idle"]?.state).toBe("idle");
 
 				const indexedAfter = await loadWorkspaceState(indexedProjectPath);
-				const indexedTrash = indexedAfter.board.columns.find((column) => column.id === "trash")?.cards ?? [];
-				expect(indexedTrash.map((card) => card.id).sort()).toEqual(
-					["indexed-awaiting-review", "indexed-missing-session"].sort(),
-				);
-				expect(indexedAfter.sessions["indexed-awaiting-review"]?.state).toBe("interrupted");
-				expect(indexedAfter.sessions["indexed-missing-session"]).toBeUndefined();
+				expect(columnTaskIds(indexedAfter.board, "in_progress")).toEqual(["indexed-missing-session"]);
+				expect(columnTaskIds(indexedAfter.board, "review")).toEqual(["indexed-awaiting-review"]);
+				expect(columnTaskIds(indexedAfter.board, "trash")).toEqual([]);
+				expect(indexedAfter.sessions["indexed-awaiting-review"]?.state).toBe("awaiting_review");
+
+				for (const filePath of uncommittedFiles) {
+					expect(existsSync(filePath)).toBe(true);
+					expect(readFileSync(filePath, "utf8")).toContain("work in progress");
+				}
 			} finally {
 				cleanup();
 			}
