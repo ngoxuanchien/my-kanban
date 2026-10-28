@@ -69,6 +69,21 @@ describe("before-quit shutdown safety", () => {
 		expect(quitIdx).toBeGreaterThan(shutdownIdx);
 	});
 
+	it("before-quit defers the final app.quit() to a macrotask", () => {
+		// Regression: SIGTERM/SIGINT reach before-quit via Electron's signal
+		// handler. If shutdown() settles within microtasks, a direct
+		// app.quit() re-enters that quit and Electron drops it — the app
+		// never exits. Deferring with setImmediate avoids the re-entrancy.
+		const handler = extractBlock(
+			mainSrc,
+			'app.on("before-quit"',
+			"before-quit handler",
+		);
+
+		expect(handler).toContain("setImmediate(() => app.quit())");
+		expect(handler).not.toMatch(/^\s*app\.quit\(\);/m);
+	});
+
 	it("before-quit calls preventDefault + shutdown unconditionally (no isOwned() gate)", () => {
 		// Regression: a `if (orchestrator.isOwned())` gate around
 		// preventDefault would let a mid-spawn quit fall through to

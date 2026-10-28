@@ -296,7 +296,11 @@ function wireAppLifecycle(): void {
 			// Belt-and-suspenders: shutdown() releases this internally,
 			// but a throw before that point would leave it pinned.
 			orchestrator.stopAppNapPrevention();
-			app.quit();
+			// Defer to a macrotask. When shutdown() settles within microtasks
+			// (e.g. attached mode), a direct app.quit() re-enters the quit that
+			// emitted this before-quit and Electron drops it — SIGTERM/SIGINT
+			// (delivered via Electron's own signal handler) then never quit.
+			setImmediate(() => app.quit());
 		}
 
 	});
