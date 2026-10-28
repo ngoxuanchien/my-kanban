@@ -12,6 +12,24 @@ function resolveTsxLoaderImportSpecifier(): string {
 }
 
 describe("cli compatibility flags", () => {
+	it("exposes the agent review task flag", () => {
+		const result = spawnSync(
+			process.execPath,
+			[
+				"--import",
+				resolveTsxLoaderImportSpecifier(),
+				resolve(process.cwd(), "src/cli.ts"),
+				"task",
+				"create",
+				"--help",
+			],
+			{ encoding: "utf8" },
+		);
+
+		expect(result.status).toBe(0);
+		expect(result.stdout).toContain("--agent-review-enabled [value]");
+	});
+
 	it("accepts the deprecated --agent flag as a no-op", () => {
 		const result = spawnSync(
 			process.execPath,

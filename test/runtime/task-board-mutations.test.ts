@@ -16,6 +16,7 @@ function createBoard(): RuntimeBoardData {
 			{ id: "backlog", title: "Backlog", cards: [] },
 			{ id: "in_progress", title: "In Progress", cards: [] },
 			{ id: "review", title: "Review", cards: [] },
+			{ id: "user_review", title: "Needs your review", cards: [] },
 			{ id: "trash", title: "Done", cards: [] },
 		],
 		dependencies: [],
@@ -23,6 +24,44 @@ function createBoard(): RuntimeBoardData {
 }
 
 describe("deleteTasksFromBoard", () => {
+	it("starts linked backlog tasks when a task is trashed from user_review", () => {
+		const prerequisite = addTaskToColumn(
+			createBoard(),
+			"backlog",
+			{ prompt: "B", baseRef: "main" },
+			() => "bbbbb111",
+		);
+		const dependent = addTaskToColumn(
+			prerequisite.board,
+			"user_review",
+			{ prompt: "A", baseRef: "main" },
+			() => "aaaaa111",
+		);
+		const linked = addTaskDependency(dependent.board, "bbbbb", "aaaaa");
+		if (!linked.added) throw new Error("Expected dependency to be created.");
+
+		expect(trashTaskAndGetReadyLinkedTaskIds(linked.board, "aaaaa").readyTaskIds).toEqual(["bbbbb"]);
+	});
+
+	it("does not start linked tasks when a task is trashed from in_progress", () => {
+		const prerequisite = addTaskToColumn(
+			createBoard(),
+			"backlog",
+			{ prompt: "B", baseRef: "main" },
+			() => "bbbbb111",
+		);
+		const dependent = addTaskToColumn(
+			prerequisite.board,
+			"in_progress",
+			{ prompt: "A", baseRef: "main" },
+			() => "aaaaa111",
+		);
+		const linked = addTaskDependency(dependent.board, "bbbbb", "aaaaa");
+		if (!linked.added) throw new Error("Expected dependency to be created.");
+
+		expect(trashTaskAndGetReadyLinkedTaskIds(linked.board, "aaaaa").readyTaskIds).toEqual([]);
+	});
+
 	it("removes a trashed task and any dependencies that reference it", () => {
 		const createA = addTaskToColumn(
 			createBoard(),
@@ -103,6 +142,16 @@ describe("task images", () => {
 			},
 		]);
 	});
+});
+
+it("updateTask sets agentReviewEnabled", () => {
+	const created = addTaskToColumn(createBoard(), "backlog", { prompt: "Task", baseRef: "main" }, () => "aaaaa111");
+	const updated = updateTask(created.board, created.task.id, {
+		prompt: "Task",
+		baseRef: "main",
+		agentReviewEnabled: true,
+	});
+	expect(updated.task?.agentReviewEnabled).toBe(true);
 });
 
 describe("per-task agent/model/provider overrides", () => {

@@ -16,6 +16,7 @@ export interface RuntimeCreateTaskInput {
 	title?: string;
 	prompt: string;
 	startInPlanMode?: boolean;
+	agentReviewEnabled?: boolean;
 	autoReviewEnabled?: boolean;
 	autoReviewMode?: RuntimeTaskAutoReviewMode;
 	images?: RuntimeTaskImage[];
@@ -28,6 +29,7 @@ export interface RuntimeUpdateTaskInput {
 	title?: string;
 	prompt: string;
 	startInPlanMode?: boolean;
+	agentReviewEnabled?: boolean;
 	autoReviewEnabled?: boolean;
 	autoReviewMode?: RuntimeTaskAutoReviewMode;
 	images?: RuntimeTaskImage[];
@@ -210,7 +212,7 @@ function getLinkedBacklogTaskIdsReadyAfterTaskTrashed(
 	taskId: string,
 	fromColumnId: RuntimeBoardColumnId | null,
 ): string[] {
-	if (!taskId || board.dependencies.length === 0 || fromColumnId !== "review") {
+	if (!taskId || board.dependencies.length === 0 || (fromColumnId !== "review" && fromColumnId !== "user_review")) {
 		return [];
 	}
 	const readyTaskIds = new Set<string>();
@@ -304,6 +306,7 @@ export function addTaskToColumn(
 		title: resolveTaskTitle(input.title, prompt),
 		prompt,
 		startInPlanMode: Boolean(input.startInPlanMode),
+		agentReviewEnabled: Boolean(input.agentReviewEnabled),
 		autoReviewEnabled: Boolean(input.autoReviewEnabled),
 		autoReviewMode: normalizeTaskAutoReviewMode(input.autoReviewMode),
 		images: cloneTaskImages(input.images),
@@ -620,6 +623,7 @@ export function updateTask(
 				title: resolveTaskTitle(input.title, prompt),
 				prompt,
 				startInPlanMode: Boolean(input.startInPlanMode),
+				agentReviewEnabled: input.agentReviewEnabled ?? card.agentReviewEnabled === true,
 				autoReviewEnabled: Boolean(input.autoReviewEnabled),
 				autoReviewMode: normalizeTaskAutoReviewMode(input.autoReviewMode),
 				images: input.images === undefined ? card.images : cloneTaskImages(input.images),

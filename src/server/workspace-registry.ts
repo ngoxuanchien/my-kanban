@@ -115,6 +115,9 @@ function countTasksByColumn(board: RuntimeBoardData): RuntimeProjectTaskCounts {
 			case "review":
 				counts.review += count;
 				break;
+			case "user_review":
+				counts.user_review += count;
+				break;
 			case "trash":
 				counts.trash += count;
 				break;

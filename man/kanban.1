@@ -44,7 +44,7 @@ Subcommands:
 .br
 .B list
 .RI [ --project-path " " path ]
-.RI [ --column " " backlog|in_progress|review ]
+.RI [ --column " " backlog|in_progress|review|user_review|needs_review|done|trash ]
 .br
 .B create
 .B --prompt
@@ -52,6 +52,7 @@ Subcommands:
 .RI [ --project-path " " path ]
 .RI [ --base-ref " " branch ]
 .RI [ --start-in-plan-mode " " true|false ]
+.RI [ --agent-review-enabled " " true|false ]
 .RI [ --auto-review-enabled " " true|false ]
 .RI [ --auto-review-mode " " commit|pr|move_to_trash ]
 .br
@@ -62,6 +63,7 @@ Subcommands:
 .RI [ --project-path " " path ]
 .RI [ --base-ref " " branch ]
 .RI [ --start-in-plan-mode " " true|false ]
+.RI [ --agent-review-enabled " " true|false ]
 .RI [ --auto-review-enabled " " true|false ]
 .RI [ --auto-review-mode " " commit|pr|move_to_trash ]
 .br
