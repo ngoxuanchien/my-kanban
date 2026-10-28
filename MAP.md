@@ -18,6 +18,8 @@ Update this file whenever a file or folder is created or moved.
 | `docs/` | Public docs: `architecture.md`, `smoke-tests/`. |
 | `docs/superpowers/specs/` | Design specs (`YYYY-MM-DD-<topic>-design.md`). |
 | `docs/superpowers/plans/` | Implementation plans (`YYYY-MM-DD-<topic>.md`). |
+| `docs/superpowers/specs/2026-10-28-memory-orchestrator-design.md` | Spec: shared Basic Memory server, OpenCode/Codex split, cross review. |
+| `docs/superpowers/plans/2026-10-28-memory-orchestrator.md` | Plan for the spec above, split into Kanban tasks. |
 | `.plan/` | Older internal plans, handoffs, investigations (`.plan/docs/`). |
 
 ## Where to save things
@@ -35,6 +37,7 @@ Update this file whenever a file or folder is created or moved.
 | `contexte/project-goal.md` | Token-reduction + shared-context goal for Claude Code / OpenCode / Codex. |
 | `contexte/local-only-folders.md` | Which files are local-only, how (`.gitignore`), and the no-push git policy. |
 | `contexte/parallel-sessions.md` | Rule for running agent sessions in parallel without file conflicts. |
+| `contexte/memory-orchestrator.md` | Decisions + measured token findings for shared memory (Basic Memory) and agent orchestration. |
 
 ## livrables/
 _(empty)_
