@@ -1114,6 +1114,9 @@ const opencodeAdapter: AgentSessionAdapter = {
 		const args = [...input.args];
 		const env: Record<string, string | undefined> = {};
 		const baseConfigPath = await resolveOpenCodeBaseConfigPath(input.env?.OPENCODE_CONFIG);
+		if (input.autonomousModeEnabled && !hasCliOption(args, "--auto")) {
+			args.push("--auto");
+		}
 		if (input.resumeFromTrash && !hasCliOption(args, "--continue")) {
 			args.push("--continue");
 		}

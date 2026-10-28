@@ -39,7 +39,7 @@ export const RUNTIME_AGENT_CATALOG: RuntimeAgentCatalogEntry[] = [
 		label: "OpenCode",
 		binary: "opencode",
 		baseArgs: [],
-		autonomousArgs: [],
+		autonomousArgs: ["--auto"],
 		installUrl: "https://github.com/sst/opencode",
 	},
 	{

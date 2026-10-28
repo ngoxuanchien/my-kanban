@@ -697,6 +697,28 @@ describe("prepareAgentLaunch hook strategies", () => {
 			prompt: "",
 		});
 		expect(clineLaunch.args).toContain("--auto-approve-all");
+
+		const opencodeLaunch = await prepareAgentLaunch({
+			taskId: "task-opencode-auto",
+			agentId: "opencode",
+			binary: "opencode",
+			args: [],
+			autonomousModeEnabled: true,
+			cwd: "/tmp",
+			prompt: "",
+		});
+		expect(opencodeLaunch.args).toContain("--auto");
+
+		const opencodeExplicitLaunch = await prepareAgentLaunch({
+			taskId: "task-opencode-auto-explicit",
+			agentId: "opencode",
+			binary: "opencode",
+			args: ["--auto"],
+			autonomousModeEnabled: true,
+			cwd: "/tmp",
+			prompt: "",
+		});
+		expect(opencodeExplicitLaunch.args.filter((arg) => arg === "--auto")).toHaveLength(1);
 	});
 
 	it("does not add a Claude permission mode when args already set one", async () => {
@@ -809,5 +831,16 @@ describe("prepareAgentLaunch hook strategies", () => {
 			prompt: "",
 		});
 		expect(kiroLaunch.args).toContain("--trust-all-tools");
+
+		const opencodeLaunch = await prepareAgentLaunch({
+			taskId: "task-opencode-no-auto",
+			agentId: "opencode",
+			binary: "opencode",
+			args: [],
+			autonomousModeEnabled: false,
+			cwd: "/tmp",
+			prompt: "",
+		});
+		expect(opencodeLaunch.args).not.toContain("--auto");
 	});
 });
