@@ -1,4 +1,5 @@
 import * as RadixCheckbox from "@radix-ui/react-checkbox";
+import * as RadixSwitch from "@radix-ui/react-switch";
 import { deriveTaskTitleFromPrompt } from "@runtime-task-title";
 import { ArrowBigUp, Check, Command, CornerDownLeft } from "lucide-react";
 import { type Dispatch, type ReactElement, type SetStateAction, useCallback, useRef, useState } from "react";
@@ -56,6 +57,8 @@ export function TaskInlineCreateCard({
 	startInPlanMode,
 	onStartInPlanModeChange,
 	autoReviewEnabled,
+	agentReviewEnabled,
+	onAgentReviewEnabledChange,
 	onAutoReviewEnabledChange,
 	autoReviewMode,
 	onAutoReviewModeChange,
@@ -88,6 +91,8 @@ export function TaskInlineCreateCard({
 	startInPlanMode: boolean;
 	onStartInPlanModeChange: (value: boolean) => void;
 	autoReviewEnabled: boolean;
+	agentReviewEnabled: boolean;
+	onAgentReviewEnabledChange: (value: boolean) => void;
 	onAutoReviewEnabledChange: (value: boolean) => void;
 	autoReviewMode: TaskAutoReviewMode;
 	onAutoReviewModeChange: (value: TaskAutoReviewMode) => void;
@@ -115,6 +120,7 @@ export function TaskInlineCreateCard({
 	const promptId = `${idPrefix}-prompt-input`;
 	const planModeId = `${idPrefix}-plan-mode-toggle`;
 	const autoReviewEnabledId = `${idPrefix}-auto-review-enabled-toggle`;
+	const agentReviewEnabledId = `${idPrefix}-agent-review-enabled-toggle`;
 	const autoReviewModeId = `${idPrefix}-auto-review-mode-select`;
 	const branchSelectId = `${idPrefix}-branch-select`;
 	const actionLabel = mode === "edit" ? "Save" : "Create";
@@ -272,6 +278,20 @@ export function TaskInlineCreateCard({
 						emptyText="No branches detected"
 					/>
 				</div>
+				<label
+					htmlFor={agentReviewEnabledId}
+					className="flex items-center gap-2 text-[12px] text-text-primary cursor-pointer select-none"
+				>
+					<RadixSwitch.Root
+						id={agentReviewEnabledId}
+						checked={agentReviewEnabled}
+						onCheckedChange={onAgentReviewEnabledChange}
+						className="relative h-5 w-9 rounded-full bg-surface-4 data-[state=checked]:bg-accent"
+					>
+						<RadixSwitch.Thumb className="block size-4 translate-x-0.5 rounded-full bg-white transition-transform data-[state=checked]:translate-x-4" />
+					</RadixSwitch.Root>
+					Agent review
+				</label>
 
 				<div className="flex items-center gap-2 flex-wrap">
 					<label

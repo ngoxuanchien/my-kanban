@@ -22,6 +22,7 @@ export interface TaskDraft {
 	title?: string;
 	prompt: string;
 	startInPlanMode?: boolean;
+	agentReviewEnabled?: boolean;
 	autoReviewEnabled?: boolean;
 	autoReviewMode?: TaskAutoReviewMode;
 	images?: TaskImage[];
@@ -347,6 +348,7 @@ export function addTaskToColumnWithResult(
 			title: draft.title,
 			prompt,
 			startInPlanMode: draft.startInPlanMode,
+			agentReviewEnabled: draft.agentReviewEnabled,
 			autoReviewEnabled: draft.autoReviewEnabled,
 			autoReviewMode: draft.autoReviewMode,
 			images: draft.images,
@@ -540,6 +542,7 @@ export function updateTask(board: BoardData, taskId: string, draft: TaskDraft): 
 				title: title || card.title,
 				prompt,
 				startInPlanMode: Boolean(draft.startInPlanMode),
+				agentReviewEnabled: Boolean(draft.agentReviewEnabled),
 				autoReviewEnabled: Boolean(draft.autoReviewEnabled),
 				autoReviewMode: resolveTaskAutoReviewMode(draft.autoReviewMode ?? DEFAULT_TASK_AUTO_REVIEW_MODE),
 				images:

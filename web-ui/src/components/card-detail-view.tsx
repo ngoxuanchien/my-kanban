@@ -3,6 +3,8 @@ import { Files, GitCompareArrows, Maximize2, MessageSquare, Minimize2, X } from 
 import type { MouseEvent as ReactMouseEvent, ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useHotkeys } from "react-hotkeys-hook";
+import { AgentReviewResultPanel } from "@/components/agent-review-result-panel";
+import { AgentReviewStatusBadge } from "@/components/agent-review-status-badge";
 import { AgentTerminalPanel } from "@/components/detail-panels/agent-terminal-panel";
 import { ClineAgentChatPanel, type ClineAgentChatPanelHandle } from "@/components/detail-panels/cline-agent-chat-panel";
 import { ColumnContextPanel } from "@/components/detail-panels/column-context-panel";
@@ -846,6 +848,12 @@ export function CardDetailView({
 					<div className="flex min-h-0 flex-1 overflow-hidden">{gitHistoryPanel}</div>
 				) : (
 					<>
+						{selection.card.agentReview ? (
+							<div className="shrink-0 space-y-2 overflow-y-auto border-b border-border p-3">
+								<AgentReviewStatusBadge state={selection.card.agentReview} />
+								<AgentReviewResultPanel state={selection.card.agentReview} />
+							</div>
+						) : null}
 						<div ref={mainRowRef} className="flex min-h-0 flex-1 overflow-hidden">
 							<div
 								className="min-h-0 min-w-0"

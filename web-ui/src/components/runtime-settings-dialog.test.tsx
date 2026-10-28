@@ -75,6 +75,7 @@ vi.mock("@radix-ui/react-select", () => ({
 }));
 
 const resetLayoutCustomizationsMock = vi.hoisted(() => vi.fn());
+const saveRuntimeConfigMock = vi.hoisted(() => vi.fn(async () => true));
 const clineSetupSectionOnSavedRef = vi.hoisted(() => ({
 	onSaved: null as null | (() => void),
 }));
@@ -142,7 +143,7 @@ vi.mock("@/runtime/use-runtime-config", () => ({
 		isLoading: false,
 		isSaving: false,
 		refresh: vi.fn(),
-		save: vi.fn(async () => true),
+		save: saveRuntimeConfigMock,
 	}),
 }));
 
@@ -217,6 +218,7 @@ describe("RuntimeSettingsDialog", () => {
 
 	beforeEach(() => {
 		resetLayoutCustomizationsMock.mockReset();
+		saveRuntimeConfigMock.mockClear();
 		clineSetupSectionOnSavedRef.onSaved = null;
 		window.localStorage.clear();
 		document.documentElement.removeAttribute("data-theme");
@@ -258,6 +260,31 @@ describe("RuntimeSettingsDialog", () => {
 
 		expect(findButtonByText(document.body, "Send feedback")).toBeNull();
 		expect(findButtonByText(document.body, "Report issue")).toBeNull();
+	});
+
+	it("settings dialog saves reviewerAgent", async () => {
+		await act(async () =>
+			root.render(
+				<RuntimeSettingsDialog
+					open
+					workspaceId="workspace-1"
+					initialConfig={savedClineOauthConfig}
+					onOpenChange={() => {}}
+				/>,
+			),
+		);
+		const reviewerSelect = Array.from(document.body.querySelectorAll("select")).find((select) =>
+			Array.from(select.options).some((option) => option.textContent === "Same as task"),
+		);
+		expect(reviewerSelect).toBeInstanceOf(HTMLSelectElement);
+		await act(async () => {
+			if (reviewerSelect) {
+				reviewerSelect.value = "claude";
+				reviewerSelect.dispatchEvent(new Event("change", { bubbles: true }));
+			}
+		});
+		await act(async () => findButtonByText(document.body, "Save")?.click());
+		expect(saveRuntimeConfigMock).toHaveBeenCalledWith(expect.objectContaining({ reviewerAgent: "claude" }));
 	});
 
 	it("calls the layout reset callback when reset layout is clicked", async () => {

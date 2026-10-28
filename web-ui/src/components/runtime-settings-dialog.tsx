@@ -48,6 +48,7 @@ import type {
 	RuntimeClineMcpServerAuthStatus,
 	RuntimeConfigResponse,
 	RuntimeProjectShortcut,
+	RuntimeReviewerAgentSetting,
 } from "@/runtime/types";
 import { useRuntimeConfig } from "@/runtime/use-runtime-config";
 import {
@@ -368,6 +369,7 @@ export function RuntimeSettingsDialog({
 	const { resetLayoutCustomizations } = useLayoutCustomizations();
 	const [selectedAgentId, setSelectedAgentId] = useState<RuntimeAgentId>("claude");
 	const [agentAutonomousModeEnabled, setAgentAutonomousModeEnabled] = useState(true);
+	const [reviewerAgent, setReviewerAgent] = useState<RuntimeReviewerAgentSetting>("same_as_task");
 	const [readyForReviewNotificationsEnabled, setReadyForReviewNotificationsEnabled] = useState(true);
 	const [initialThemeId, setInitialThemeId] = useState<ThemeId>(readStoredThemeId);
 	const [draftThemeId, setDraftThemeId] = useState<ThemeId>(readStoredThemeId);
@@ -432,6 +434,7 @@ export function RuntimeSettingsDialog({
 		}));
 	}, [agentAutonomousModeEnabled, config?.agents]);
 	const displayedAgents = useMemo(() => supportedAgents, [supportedAgents]);
+	const reviewerAgents = useMemo(() => getRuntimeLaunchSupportedAgentCatalog(), []);
 	const navItems = useMemo(
 		() => SETTINGS_NAV_ITEMS.filter((item) => !item.clineOnly || selectedAgentId === "cline"),
 		[selectedAgentId],
@@ -467,6 +470,9 @@ export function RuntimeSettingsDialog({
 		if (agentAutonomousModeEnabled !== initialAgentAutonomousModeEnabled) {
 			return true;
 		}
+		if (reviewerAgent !== (config.reviewerAgent ?? "same_as_task")) {
+			return true;
+		}
 		if (readyForReviewNotificationsEnabled !== initialReadyForReviewNotificationsEnabled) {
 			return true;
 		}
@@ -494,6 +500,7 @@ export function RuntimeSettingsDialog({
 		);
 	}, [
 		agentAutonomousModeEnabled,
+		reviewerAgent,
 		clineMcpSettings.hasUnsavedChanges,
 		clineSettings.hasUnsavedChanges,
 		commitPromptTemplate,
@@ -518,6 +525,7 @@ export function RuntimeSettingsDialog({
 		}
 		setSelectedAgentId(configuredAgentId ?? fallbackAgentId);
 		setAgentAutonomousModeEnabled(config?.agentAutonomousModeEnabled ?? true);
+		setReviewerAgent(config?.reviewerAgent ?? "same_as_task");
 		setReadyForReviewNotificationsEnabled(config?.readyForReviewNotificationsEnabled ?? true);
 		setShortcuts(config?.shortcuts ?? []);
 		setCommitPromptTemplate(config?.commitPromptTemplate ?? "");
@@ -528,6 +536,7 @@ export function RuntimeSettingsDialog({
 		config?.commitPromptTemplate,
 		config?.openPrPromptTemplate,
 		config?.readyForReviewNotificationsEnabled,
+		config?.reviewerAgent,
 		config?.selectedAgentId,
 		config?.shortcuts,
 		fallbackAgentId,
@@ -704,6 +713,7 @@ export function RuntimeSettingsDialog({
 			shortcuts,
 			commitPromptTemplate,
 			openPrPromptTemplate,
+			reviewerAgent,
 		});
 		if (!saved) {
 			setSaveError("Could not save runtime settings. Check runtime logs and try again.");
@@ -791,6 +801,25 @@ export function RuntimeSettingsDialog({
 						{config === null ? (
 							<p className="text-text-secondary py-2">Checking which CLIs are installed for this project...</p>
 						) : null}
+						<div className="block text-[13px] text-text-primary mt-3">
+							<span className="block text-[12px] font-semibold uppercase tracking-wider text-text-secondary mb-1">
+								Reviewer agent
+							</span>
+							<NativeSelect
+								id="reviewer-agent-setting"
+								aria-label="Reviewer agent"
+								value={reviewerAgent}
+								onChange={(event) => setReviewerAgent(event.currentTarget.value as RuntimeReviewerAgentSetting)}
+								disabled={controlsDisabled}
+							>
+								<option value="same_as_task">Same as task</option>
+								{reviewerAgents.map((agent) => (
+									<option key={agent.id} value={agent.id}>
+										{agent.label}
+									</option>
+								))}
+							</NativeSelect>
+						</div>
 						<label
 							htmlFor={bypassPermissionsCheckboxId}
 							className="flex items-center gap-2 text-[13px] text-text-primary mt-2 cursor-pointer"
