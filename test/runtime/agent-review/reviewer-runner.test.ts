@@ -79,6 +79,9 @@ describe("buildReviewerCommand", () => {
 			binary: "claude",
 			args: [
 				"-p",
+				"--strict-mcp-config",
+				"--mcp-config",
+				'{"mcpServers":{}}',
 				"--output-format",
 				"text",
 				"--disallowedTools",

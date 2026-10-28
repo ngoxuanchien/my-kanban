@@ -70,6 +70,9 @@ export function buildReviewerCommand(agentId: RuntimeAgentId): ReviewerCommand |
 				binary: entry.binary,
 				args: [
 					"-p",
+					"--strict-mcp-config",
+					"--mcp-config",
+					'{"mcpServers":{}}',
 					"--output-format",
 					"text",
 					"--disallowedTools",
@@ -84,6 +87,7 @@ export function buildReviewerCommand(agentId: RuntimeAgentId): ReviewerCommand |
 				],
 				promptVia: "stdin",
 			};
+		// Codex and OpenCode have no MCP-specific flag to disable every configured server.
 		case "codex":
 			return { binary: entry.binary, args: ["exec", "-", ...entry.autonomousArgs], promptVia: "stdin" };
 		case "droid":
