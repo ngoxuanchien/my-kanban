@@ -495,6 +495,8 @@ async function startServer(): Promise<{
 		},
 	});
 
+	void runtimeServer.startAgentReviewForRegisteredWorkspaces();
+
 	const close = async () => {
 		await runtimeServer.close();
 	};

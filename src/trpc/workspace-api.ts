@@ -44,6 +44,8 @@ export interface CreateWorkspaceApiDependencies {
 	broadcastRuntimeWorkspaceStateUpdated: (workspaceId: string, workspacePath: string) => Promise<void> | void;
 	broadcastRuntimeProjectsUpdated: (preferredCurrentProjectId: string | null) => Promise<void> | void;
 	buildWorkspaceStateSnapshot: (workspaceId: string, workspacePath: string) => Promise<RuntimeWorkspaceStateResponse>;
+	/** Called after a browser or CLI board write lands. */
+	onWorkspaceStateChanged?: (workspaceId: string, workspacePath: string) => void;
 }
 
 function normalizeOptionalTaskWorkspaceScopeInput(
@@ -356,6 +358,7 @@ export function createWorkspaceApi(deps: CreateWorkspaceApiDependencies): Runtim
 		notifyStateUpdated: async (workspaceScope) => {
 			void deps.broadcastRuntimeWorkspaceStateUpdated(workspaceScope.workspaceId, workspaceScope.workspacePath);
 			void deps.broadcastRuntimeProjectsUpdated(workspaceScope.workspaceId);
+			deps.onWorkspaceStateChanged?.(workspaceScope.workspaceId, workspaceScope.workspacePath);
 			return {
 				ok: true,
 			};
@@ -372,6 +375,7 @@ export function createWorkspaceApi(deps: CreateWorkspaceApiDependencies): Runtim
 				const response = await saveWorkspaceState(workspaceScope.workspacePath, input);
 				void deps.broadcastRuntimeWorkspaceStateUpdated(workspaceScope.workspaceId, workspaceScope.workspacePath);
 				void deps.broadcastRuntimeProjectsUpdated(workspaceScope.workspaceId);
+				deps.onWorkspaceStateChanged?.(workspaceScope.workspaceId, workspaceScope.workspacePath);
 				return response;
 			} catch (error) {
 				if (error instanceof WorkspaceStateConflictError) {
