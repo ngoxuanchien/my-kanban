@@ -26,6 +26,8 @@ export type AgentReviewEvent =
 			reviewerAgentId: RuntimeAgentId;
 			now: number;
 	  }
+	// The review run threw before it could report an outcome.
+	| { type: "review_failed"; error: string }
 	| { type: "fix_send_failed" }
 	| { type: "commit_finished"; ok: true; commitHash: string; prUrl: string | null }
 	| { type: "commit_finished"; ok: false }
@@ -195,6 +197,11 @@ export function reduceAgentReview(input: AgentReviewReducerInput): AgentReviewRe
 			};
 			return reduceReviewerOutcome(reviewed, event.outcome, input.autoReviewEnabled, input.autoReviewMode, now);
 		}
+		case "review_failed":
+			if (!state || !isReviewActive(state) || columnId !== "review") {
+				return unchanged;
+			}
+			return toNeedsUser(state, "reviewer_crashed", event.error, now);
 		case "fix_send_failed":
 			return state ? toNeedsUser(state, "task_agent_not_running", null, now) : unchanged;
 		case "commit_finished": {
@@ -223,9 +230,15 @@ export function reduceAgentReview(input: AgentReviewReducerInput): AgentReviewRe
 			if (!state) {
 				return unchanged;
 			}
+			const reset: RuntimeAgentReviewState = { ...state, round: 0, fixPrompts: [], updatedAt: now };
+			if (!isReviewActive(state)) {
+				return { state: reset, effects: [] };
+			}
+			// The running review is stale. Re-run it rather than wait for a turn end: keystrokes
+			// that never start a turn would otherwise leave the card "reviewing" with no reviewer.
 			return {
-				state: { ...state, round: 0, fixPrompts: [], updatedAt: now },
-				effects: isReviewActive(state) ? [{ type: "cancel_review" }] : [],
+				state: { ...reset, status: "queued" },
+				effects: [{ type: "cancel_review" }, { type: "enqueue_review" }],
 			};
 		}
 		case "moved_by_user": {

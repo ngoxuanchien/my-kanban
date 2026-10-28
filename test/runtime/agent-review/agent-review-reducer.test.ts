@@ -271,10 +271,23 @@ describe("reduceAgentReview", () => {
 			expect(effects).toEqual([]);
 		});
 
-		it.each(["queued", "reviewing"] as const)("cancels a %s review", (status) => {
+		it.each(["queued", "reviewing"] as const)("cancels a %s review and queues a fresh one", (status) => {
 			const { state, effects } = reduce(makeState({ status, round: 1, fixPrompts: ["a"] }), { type: "user_input" });
-			expect(state).toMatchObject({ round: 0, fixPrompts: [] });
-			expect(effects).toEqual([{ type: "cancel_review" }]);
+			expect(state).toMatchObject({ status: "queued", round: 0, fixPrompts: [] });
+			expect(effects).toEqual([{ type: "cancel_review" }, { type: "enqueue_review" }]);
+		});
+	});
+
+	describe("review_failed", () => {
+		it.each(["queued", "reviewing"] as const)("sends a %s review to user_review as reviewer_crashed", (status) => {
+			const { state, effects } = reduce(makeState({ status }), { type: "review_failed", error: "boom" });
+			expect(state).toMatchObject({ status: "needs_user", reason: "reviewer_crashed", reasonDetail: "boom" });
+			expect(effects).toEqual([{ type: "move_card", to: "user_review" }]);
+		});
+
+		it("ignores a card that is not being reviewed", () => {
+			const before = makeState({ status: "fixing" });
+			expect(reduce(before, { type: "review_failed", error: "boom" })).toEqual({ state: before, effects: [] });
 		});
 	});
 

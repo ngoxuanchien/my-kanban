@@ -55,11 +55,12 @@ export function classifyTurnEnd(summary: RuntimeTaskSessionSummary): TurnEndKind
 	return "other";
 }
 
-// xterm answers focus events, cursor/device reports and OSC queries on the same socket as keystrokes.
-const TERMINAL_AUTO_REPLY_PATTERN =
+// xterm sends focus events, cursor/device reports, OSC replies and mouse reports (clicks, wheel
+// scrolling while the agent's TUI tracks the mouse) on the same socket as keystrokes. None of them is typing.
+const TERMINAL_REPORT_PATTERN =
 	// biome-ignore lint/suspicious/noControlCharactersInRegex: matching terminal escape sequences
-	/^(?:\x1b\[[IO]|\x1b\[\d+;\d+R|\x1b\[[?>][\d;]*c|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\))+$/;
+	/^(?:\x1b\[[IO]|\x1b\[\d+;\d+R|\x1b\[[?>][\d;]*c|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b\[<\d+;\d+;\d+[Mm]|\x1b\[M[\s\S]{3})+$/;
 
-export function isTerminalAutoReply(data: Buffer): boolean {
-	return TERMINAL_AUTO_REPLY_PATTERN.test(data.toString("latin1"));
+export function isTerminalReport(data: Buffer): boolean {
+	return TERMINAL_REPORT_PATTERN.test(data.toString("latin1"));
 }

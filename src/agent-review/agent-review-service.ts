@@ -383,6 +383,8 @@ export function createAgentReviewService(deps: AgentReviewServiceDeps): AgentRev
 			return { board: moveTaskToColumn(workspace.board, taskId, "in_progress", now()).board, value: true };
 		});
 		if (mutation.saved) {
+			// The task is working again, so a review of its previous turn is stale. Its next turn end reviews again.
+			cancelReview(taskId);
 			rememberCard(mutation.state.board, taskId);
 			await deps.broadcastStateUpdated();
 		}
@@ -410,8 +412,13 @@ export function createAgentReviewService(deps: AgentReviewServiceDeps): AgentRev
 	};
 
 	function enqueueReview(taskId: string): void {
-		const alreadyRunning = activeRun?.taskId === taskId && !activeRun.cancelled;
-		if (!alreadyRunning && !reviewQueue.includes(taskId)) {
+		// A new request means a running review of this task is checking stale content, and its
+		// result would be dropped by the round/status guard. Replace it.
+		if (activeRun?.taskId === taskId && !activeRun.cancelled) {
+			activeRun.cancelled = true;
+			activeRun.handle?.cancel();
+		}
+		if (!reviewQueue.includes(taskId)) {
 			reviewQueue.push(taskId);
 		}
 		pumpQueue();
@@ -439,8 +446,14 @@ export function createAgentReviewService(deps: AgentReviewServiceDeps): AgentRev
 		const run: ActiveRun = { taskId, handle: null, cancelled: false };
 		activeRun = run;
 		void executeReview(run)
-			.catch((error: unknown) => {
+			.catch(async (error: unknown) => {
 				warn(`[agent-review] ${deps.workspaceId}: review of ${taskId} failed: ${errorMessage(error)}`);
+				// Never leave the card "queued"/"reviewing" with no reviewer behind it.
+				if (!run.cancelled) {
+					await serialize(() => applyEvent(taskId, { type: "review_failed", error: errorMessage(error) })).catch(
+						() => {},
+					);
+				}
 			})
 			.finally(() => {
 				activeRun = null;

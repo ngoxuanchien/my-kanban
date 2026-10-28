@@ -179,13 +179,15 @@ function startProcessReviewerRun(command: ReviewerCommand, input: StartReviewerR
 			return;
 		}
 		stopReason = reason;
-		if (typeof child.pid !== "number") {
-			settle({ kind: reason });
-			return;
+		if (typeof child.pid === "number") {
+			// detached: the reviewer leads its own process group, which still holds children it orphaned.
+			try {
+				process.kill(-child.pid, "SIGKILL");
+			} catch {}
+			treeKill(child.pid, "SIGKILL", () => {});
 		}
-		treeKill(child.pid, "SIGKILL", () => {
-			// "close" settles the run once every process holding the output pipes is gone.
-		});
+		// Do not wait for "close": a process that escaped the group can keep the output pipes open forever.
+		settle({ kind: reason });
 	};
 
 	const timer = setTimeout(() => killTree("timeout"), input.timeoutMs);

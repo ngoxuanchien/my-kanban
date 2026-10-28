@@ -217,6 +217,34 @@ describe("startReviewerRun", () => {
 		expect(() => process.kill(grandPid, 0)).toThrow();
 	});
 
+	it("cancel() settles even when an orphaned grandchild still holds the output pipes", async () => {
+		const pidFile = join(tempDir, "grandchild.pid");
+		// The agent starts a background process (like a dev server) and exits; the orphan keeps stdout open.
+		const fake = fakeAgent(`
+			const { spawn } = require("node:child_process");
+			const grandchild = spawn(process.execPath, ["-e", "setInterval(()=>{},1000)"], { stdio: "inherit" });
+			require("node:fs").writeFileSync(${JSON.stringify(pidFile)}, String(grandchild.pid));
+			process.exit(0);
+		`);
+		const handle = startReviewerRun({ ...baseInput, agentId: "claude", cwd: tempDir, spawnImpl: fake.spawnImpl });
+		await waitFor(() => readPid(pidFile) > 0);
+		const grandPid = readPid(pidFile);
+		try {
+			await new Promise((resolve) => setTimeout(resolve, 200));
+			handle.cancel();
+			const outcome = await Promise.race([
+				handle.done,
+				new Promise((resolve) => setTimeout(() => resolve("hung"), 3000)),
+			]);
+			expect(outcome).toEqual({ kind: "cancelled" });
+			await waitFor(() => !isAlive(grandPid));
+		} finally {
+			if (isAlive(grandPid)) {
+				process.kill(grandPid, "SIGKILL");
+			}
+		}
+	});
+
 	it("returns unavailable when the agent is not installed", async () => {
 		const fake = fakeAgent(`process.stdout.write("should not run")`);
 		const handle = startReviewerRun({

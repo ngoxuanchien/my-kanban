@@ -4,7 +4,7 @@ import type { Socket } from "node:net";
 import type { RawData, WebSocket } from "ws";
 import { WebSocketServer } from "ws";
 
-import { isTerminalAutoReply } from "../agent-review/task-session-signals";
+import { isTerminalReport } from "../agent-review/task-session-signals";
 import type { RuntimeTerminalWsServerMessage } from "../core/api-contract";
 import { parseTerminalWsClientMessage } from "../core/api-validation";
 import { getKanbanRuntimeOrigin } from "../core/runtime-endpoint";
@@ -449,7 +449,7 @@ export function createTerminalWebSocketBridge({
 				const summary = terminalManager.writeInput(taskId, input);
 				if (!summary) {
 					ws.close(1011, "Task session is not running.");
-				} else if (!isTerminalAutoReply(input)) {
+				} else if (!isTerminalReport(input)) {
 					onTaskUserInput?.(workspaceId, taskId);
 				}
 			} catch (error) {

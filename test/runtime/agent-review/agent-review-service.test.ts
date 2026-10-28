@@ -180,6 +180,7 @@ describe.sequential("AgentReviewService", () => {
 	let doneCalls: string[];
 	let broadcasts: number;
 	let deletedCardAtWorktreeDelete: RuntimeBoardCard | null;
+	let configLoadError: Error | null;
 
 	beforeEach(() => {
 		const home = createTempDir("kanban-home-");
@@ -204,6 +205,7 @@ describe.sequential("AgentReviewService", () => {
 		doneCalls = [];
 		broadcasts = 0;
 		deletedCardAtWorktreeDelete = null;
+		configLoadError = null;
 	});
 
 	afterEach(async () => {
@@ -265,7 +267,12 @@ describe.sequential("AgentReviewService", () => {
 			// The service only uses onSummary/getSummary/writeInput and the Cline send/rebind calls.
 			terminalManager: { onSummary: () => () => {}, getSummary: () => null } as unknown as TerminalSessionManager,
 			clineService: fakeSessionService as unknown as ClineTaskSessionService,
-			loadRuntimeConfig: async () => config,
+			loadRuntimeConfig: async () => {
+				if (configLoadError) {
+					throw configLoadError;
+				}
+				return config;
+			},
 			resolveTaskCwd: async () => repoPath,
 			doneDeps: {
 				notifyStateUpdated: async () => {
@@ -569,6 +576,7 @@ describe.sequential("AgentReviewService", () => {
 			},
 		]);
 		const run = scriptDeferred();
+		const rerun = scriptDeferred();
 		emit(turnEnd("A"));
 		await waitForReview("A", { status: "reviewing", round: 2 });
 
@@ -579,6 +587,78 @@ describe.sequential("AgentReviewService", () => {
 		run.resolve({ kind: "completed", output: failOutput("stale") });
 		await settle();
 		expect(sentPrompts).toHaveLength(0);
+
+		// The stale run is replaced, not dropped: the card must not stay "reviewing" with no reviewer.
+		await vi.waitFor(() => expect(reviewerInputs).toHaveLength(2), { timeout: 5000 });
+		rerun.resolve({ kind: "completed", output: CANNOT_VERIFY_OUTPUT });
+		await waitForReview("A", { status: "needs_user", reason: "cannot_verify", round: 0 });
+	});
+
+	it("user input (e.g. keystrokes that never start a turn) never leaves the card reviewing", async () => {
+		addChange();
+		await startService([{ card: createCard("A"), columnId: "in_progress" }]);
+		const runs = [scriptDeferred(), scriptDeferred(), scriptDeferred()];
+		scriptOutcome({ kind: "completed", output: CANNOT_VERIFY_OUTPUT });
+		emit(turnEnd("A"));
+		await waitForReview("A", { status: "reviewing" });
+
+		for (const run of runs) {
+			await vi.waitFor(() => expect(reviewerInputs.length).toBe(runs.indexOf(run) + 1), { timeout: 5000 });
+			service?.notifyUserInput("A");
+			await vi.waitFor(() => expect(run.cancel).toHaveBeenCalled(), { timeout: 5000 });
+			run.resolve({ kind: "cancelled" });
+		}
+
+		await waitForReview("A", { status: "needs_user", reason: "cannot_verify" });
+		expect(reviewerInputs).toHaveLength(4);
+	});
+
+	it("a new turn end during a review restarts it instead of dropping both", async () => {
+		addChange();
+		await startService([{ card: createCard("A"), columnId: "in_progress" }]);
+		const first = scriptDeferred();
+		scriptOutcome({ kind: "completed", output: CANNOT_VERIFY_OUTPUT });
+		emit(turnEnd("A"));
+		await waitForReview("A", { status: "reviewing" });
+
+		emit(permissionRequest("A"));
+		emit(turnEnd("A"));
+		await vi.waitFor(() => expect(first.cancel).toHaveBeenCalled(), { timeout: 5000 });
+		first.resolve({ kind: "cancelled" });
+
+		await waitForReview("A", { status: "needs_user", reason: "cannot_verify" });
+		expect(reviewerInputs).toHaveLength(2);
+	});
+
+	it("the task session running again cancels the review; its next turn end reviews again", async () => {
+		addChange();
+		await startService([{ card: createCard("A"), columnId: "in_progress" }]);
+		const first = scriptDeferred();
+		scriptOutcome({ kind: "completed", output: CANNOT_VERIFY_OUTPUT });
+		emit(turnEnd("A"));
+		await waitForReview("A", { status: "reviewing" });
+
+		emit(running("A"));
+		await waitForColumn("A", "in_progress");
+		await vi.waitFor(() => expect(first.cancel).toHaveBeenCalled(), { timeout: 5000 });
+		emit(turnEnd("A"));
+		await settle();
+		first.resolve({ kind: "cancelled" });
+
+		await waitForReview("A", { status: "needs_user", reason: "cannot_verify" });
+		expect(reviewerInputs).toHaveLength(2);
+	});
+
+	it("an error after the card was marked reviewing goes to user_review, not stuck", async () => {
+		addChange();
+		await startService([{ card: createCard("A"), columnId: "in_progress" }]);
+		configLoadError = new Error("config unreadable");
+
+		emit(turnEnd("A"));
+
+		await waitForReview("A", { status: "needs_user", reason: "reviewer_crashed", reasonDetail: "config unreadable" });
+		await waitForColumn("A", "user_review");
+		expect(reviewerInputs).toHaveLength(0);
 	});
 
 	it("toggle off during a review cancels it and clears state", async () => {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { classifyTurnEnd, isTerminalAutoReply } from "../../../src/agent-review/task-session-signals";
+import { classifyTurnEnd, isTerminalReport } from "../../../src/agent-review/task-session-signals";
 import type { RuntimeTaskHookActivity, RuntimeTaskSessionSummary } from "../../../src/core/api-contract";
 
 function createSummary(overrides: Partial<RuntimeTaskSessionSummary> = {}): RuntimeTaskSessionSummary {
@@ -91,7 +91,7 @@ describe("classifyTurnEnd", () => {
 	});
 });
 
-describe("isTerminalAutoReply", () => {
+describe("isTerminalReport", () => {
 	it.each([
 		["focus in", "\x1b[I", true],
 		["focus out", "\x1b[O", true],
@@ -101,12 +101,16 @@ describe("isTerminalAutoReply", () => {
 		["OSC color reply with BEL", "\x1b]11;rgb:1f1f/2424/2828\x07", true],
 		["OSC color reply with ST", "\x1b]10;rgb:e6e6/eded/f3f3\x1b\\", true],
 		["several replies", "\x1b[I\x1b[12;5R", true],
+		["SGR mouse wheel", "\x1b[<65;40;12M\x1b[<65;40;12M", true],
+		["SGR mouse release", "\x1b[<0;3;4m", true],
+		["X10 mouse click", "\x1b[M #!", true],
+		["arrow key", "\x1b[A", false],
 		["plain key", "a", false],
 		["reply followed by a key", "\x1b[Ia", false],
 		["enter", "\r", false],
 		["arrow key", "\x1b[A", false],
 		["empty", "", false],
 	])("%s", (_label, data, expected) => {
-		expect(isTerminalAutoReply(Buffer.from(data, "utf8"))).toBe(expected);
+		expect(isTerminalReport(Buffer.from(data, "utf8"))).toBe(expected);
 	});
 });
