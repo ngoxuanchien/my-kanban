@@ -32,9 +32,12 @@ export type AgentReviewEvent =
 	| { type: "commit_finished"; ok: true; commitHash: string; prUrl: string | null }
 	| { type: "commit_finished"; ok: false; detail?: string }
 	| { type: "user_input" }
+	// The task agent started working (a fix turn, user input, a resume).
+	| { type: "task_running" }
 	| { type: "moved_by_user"; to: RuntimeBoardColumnId }
 	| { type: "toggled_off" }
-	| { type: "runtime_restarted"; taskSessionRunning: boolean; worktreeClean: boolean };
+	// commitHash: the commit step's result found on disk (null when it did not land).
+	| { type: "runtime_restarted"; taskSessionRunning: boolean; commitHash: string | null };
 
 export type AgentReviewEffect =
 	| { type: "move_card"; to: RuntimeBoardColumnId }
@@ -241,6 +244,16 @@ export function reduceAgentReview(input: AgentReviewReducerInput): AgentReviewRe
 				effects: [{ type: "cancel_review" }, { type: "enqueue_review" }],
 			};
 		}
+		case "task_running":
+			if (columnId !== "review") {
+				return unchanged;
+			}
+			// A review of the previous turn is stale, and only Review cards get reviewed: drop it rather
+			// than leave "queued"/"reviewing" with no reviewer. The next turn end reviews again.
+			return {
+				state: isReviewActive(state) ? null : state,
+				effects: [{ type: "move_card", to: "in_progress" }, { type: "cancel_review" }],
+			};
 		case "moved_by_user": {
 			if (!state) {
 				return unchanged;
@@ -256,7 +269,7 @@ export function reduceAgentReview(input: AgentReviewReducerInput): AgentReviewRe
 				return { state: reset, effects: [] };
 			}
 			if (event.to !== "review" && isReviewActive(state)) {
-				return { state, effects: [{ type: "cancel_review" }] };
+				return { state: null, effects: [{ type: "cancel_review" }] };
 			}
 			return unchanged;
 		}
@@ -266,17 +279,22 @@ export function reduceAgentReview(input: AgentReviewReducerInput): AgentReviewRe
 			if (!state) {
 				return unchanged;
 			}
+			// Nothing drives a trashed card, and only Review cards get reviewed: an in-flight status there never ends.
+			const inFlight = isReviewActive(state) || state.status === "fixing" || state.status === "committing";
+			if ((columnId === "trash" && inFlight) || (columnId !== "review" && isReviewActive(state))) {
+				return { state: null, effects: [] };
+			}
 			switch (state.status) {
 				case "queued":
 				case "reviewing":
 					// The queue lives in memory, so re-run the review with the same round.
 					return { state: { ...state, status: "queued", updatedAt: now }, effects: [{ type: "enqueue_review" }] };
 				case "committing":
-					if (event.worktreeClean) {
-						return {
-							state: { ...state, status: "passed", updatedAt: now },
-							effects: [{ type: "complete_done" }],
-						};
+					if (event.commitHash) {
+						return reduceAgentReview({
+							...input,
+							event: { type: "commit_finished", ok: true, commitHash: event.commitHash, prUrl: null },
+						});
 					}
 					// The commit step died with the runtime: run it again.
 					return {

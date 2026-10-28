@@ -23,6 +23,7 @@ import {
 	captureWorktreeSnapshot,
 	computeTaskReviewFingerprint,
 	diffWorktreeSnapshots,
+	findCommitWithReviewFingerprint,
 	type WorktreeSnapshot,
 } from "../workspace/agent-review-git";
 import { type CompleteTaskToDoneDeps, completeTaskToDone } from "../workspace/complete-task-to-done";
@@ -361,7 +362,22 @@ export function createAgentReviewService(deps: AgentReviewServiceDeps): AgentRev
 		}
 	}
 
-	async function readCommitResult(card: RuntimeBoardCard): Promise<{ commitHash: string } | null> {
+	/** The commit the commit step made, or null when it did not land. */
+	async function readCommitResult(card: RuntimeBoardCard): Promise<string | null> {
+		// The commit prompt cherry-picks onto baseRef, after which the task worktree may be gone.
+		const fingerprint = card.agentReview?.fingerprint;
+		if (fingerprint) {
+			try {
+				const landed = await findCommitWithReviewFingerprint({
+					cwd: deps.repoPath,
+					ref: card.baseRef,
+					fingerprint,
+				});
+				if (landed) {
+					return landed;
+				}
+			} catch {}
+		}
 		try {
 			const cwd = await deps.resolveTaskCwd(card.id, card.baseRef);
 			const status = await runGit(cwd, ["status", "--porcelain"]);
@@ -369,7 +385,7 @@ export function createAgentReviewService(deps: AgentReviewServiceDeps): AgentRev
 				return null;
 			}
 			const head = await runGit(cwd, ["rev-parse", "HEAD"]);
-			return head.ok ? { commitHash: head.stdout } : null;
+			return head.ok ? head.stdout : null;
 		} catch {
 			return null;
 		}
@@ -381,14 +397,14 @@ export function createAgentReviewService(deps: AgentReviewServiceDeps): AgentRev
 		if (!location) {
 			return;
 		}
-		const commit = await readCommitResult(location.card);
+		const commitHash = await readCommitResult(location.card);
 		await applyEvent(
 			taskId,
-			commit
+			commitHash
 				? {
 						type: "commit_finished",
 						ok: true,
-						commitHash: commit.commitHash,
+						commitHash,
 						prUrl: findLastPrUrl(summary.latestHookActivity?.finalMessage),
 					}
 				: { type: "commit_finished", ok: false },
@@ -418,24 +434,10 @@ export function createAgentReviewService(deps: AgentReviewServiceDeps): AgentRev
 		await applyEvent(taskId, { type: "turn_ended", ...diff });
 	}
 
-	async function handleTaskRunning(taskId: string): Promise<void> {
-		const mutation = await mutateWorkspaceState(deps.repoPath, (workspace) => {
-			const location = findCard(workspace.board, taskId);
-			if (location?.card.agentReviewEnabled !== true || location.columnId !== "review") {
-				return { board: workspace.board, value: false, save: false };
-			}
-			return { board: moveTaskToColumn(workspace.board, taskId, "in_progress", now()).board, value: true };
-		});
-		if (mutation.saved) {
-			// The task is working again, so a review of its previous turn is stale. Its next turn end reviews again.
-			cancelReview(taskId);
-			rememberCard(mutation.state.board, taskId);
-			await deps.broadcastStateUpdated();
-		}
-	}
-
 	async function handleSummary(summary: RuntimeTaskSessionSummary): Promise<void> {
-		const kind = summary.state === "running" ? "running" : classifyTurnEnd(summary);
+		// An agent that exits (or whose session is reset) after the commit turn never reports a turn end.
+		const stopped = summary.state === "idle" || summary.state === "failed" || summary.state === "interrupted";
+		const kind = summary.state === "running" ? "running" : stopped ? "stopped" : classifyTurnEnd(summary);
 		const previousKind = lastSessionKinds.get(summary.taskId);
 		lastSessionKinds.set(summary.taskId, kind);
 		if (kind === previousKind) {
@@ -443,8 +445,12 @@ export function createAgentReviewService(deps: AgentReviewServiceDeps): AgentRev
 		}
 		if (kind === "running") {
 			clearTurnStartTimer(summary.taskId);
-			await handleTaskRunning(summary.taskId);
-		} else if (kind === "turn_end") {
+			await applyEvent(summary.taskId, { type: "task_running" });
+		} else if (
+			kind === "turn_end" ||
+			// Only once the commit turn has started: a session can report "idle" while it is being relaunched.
+			(kind === "stopped" && commitTimers.has(summary.taskId) && !turnStartTimers.has(summary.taskId))
+		) {
 			await handleTurnEnd(summary.taskId, summary);
 		}
 	}
@@ -659,15 +665,6 @@ export function createAgentReviewService(deps: AgentReviewServiceDeps): AgentRev
 		}
 	}
 
-	async function isWorktreeClean(card: RuntimeBoardCard): Promise<boolean> {
-		try {
-			const status = await runGit(await deps.resolveTaskCwd(card.id, card.baseRef), ["status", "--porcelain"]);
-			return status.ok && status.stdout === "";
-		} catch {
-			return false;
-		}
-	}
-
 	async function recoverAfterRestart(): Promise<void> {
 		const { board } = await loadWorkspaceState(deps.repoPath);
 		for (const column of board.columns) {
@@ -682,11 +679,16 @@ export function createAgentReviewService(deps: AgentReviewServiceDeps): AgentRev
 					continue;
 				}
 				const summary = deps.terminalManager.getSummary(card.id) ?? deps.clineService.getSummary(card.id);
-				await applyEvent(card.id, {
-					type: "runtime_restarted",
-					taskSessionRunning: summary?.state === "running",
-					worktreeClean: status === "committing" ? await isWorktreeClean(card) : false,
-				});
+				// One card failing (e.g. its commit relaunch) must not leave the cards after it unrecovered.
+				try {
+					await applyEvent(card.id, {
+						type: "runtime_restarted",
+						taskSessionRunning: summary?.state === "running",
+						commitHash: status === "committing" ? await readCommitResult(card) : null,
+					});
+				} catch (error) {
+					warn(`[agent-review] ${deps.workspaceId}: could not recover ${card.id}: ${errorMessage(error)}`);
+				}
 			}
 		}
 	}

@@ -29,6 +29,7 @@ import type {
 } from "../../../src/core/api-contract";
 import { loadWorkspaceState, saveWorkspaceState } from "../../../src/state/workspace-state";
 import type { TerminalSessionManager } from "../../../src/terminal/session-manager";
+import { computeTaskReviewFingerprint } from "../../../src/workspace/agent-review-git";
 import { createGitTestEnv } from "../../utilities/git-env";
 import { createTempDir } from "../../utilities/temp-dir";
 
@@ -186,6 +187,7 @@ describe.sequential("AgentReviewService", () => {
 	let taskAgentRunning: boolean;
 	let resumedTasks: Array<{ taskId: string; prompt: string }>;
 	let configOverrides: Partial<RuntimeConfigState>;
+	let worktreeRemoved: boolean;
 
 	beforeEach(() => {
 		const home = createTempDir("kanban-home-");
@@ -214,6 +216,7 @@ describe.sequential("AgentReviewService", () => {
 		taskAgentRunning = true;
 		resumedTasks = [];
 		configOverrides = {};
+		worktreeRemoved = false;
 	});
 
 	afterEach(async () => {
@@ -284,7 +287,12 @@ describe.sequential("AgentReviewService", () => {
 				}
 				return { ...config, ...configOverrides };
 			},
-			resolveTaskCwd: async () => repoPath,
+			resolveTaskCwd: async (taskId) => {
+				if (worktreeRemoved) {
+					throw new Error(`Task worktree not found for task "${taskId}".`);
+				}
+				return repoPath;
+			},
 			doneDeps: {
 				notifyStateUpdated: async () => {
 					doneCalls.push("notify");
@@ -303,7 +311,8 @@ describe.sequential("AgentReviewService", () => {
 			},
 			resumeTask: async (card, prompt) => {
 				resumedTasks.push({ taskId: card.id, prompt });
-				return true;
+				// Like resumeTaskSession: never relaunch into a missing worktree.
+				return !worktreeRemoved;
 			},
 			broadcastStateUpdated: async () => {
 				broadcasts += 1;
@@ -390,7 +399,9 @@ describe.sequential("AgentReviewService", () => {
 
 		emit(turnEnd("A"));
 		await waitForReview("A", { status: "committing" });
-		expect(sentPrompts).toEqual([{ taskId: "A", text: "Commit the work on top of main." }]);
+		await vi.waitFor(() => expect(sentPrompts).toEqual([{ taskId: "A", text: "Commit the work on top of main." }]), {
+			timeout: 5000,
+		});
 		expect(reviewerInputs[0]).toMatchObject({ agentId: "cline", cwd: repoPath, reviewKey: "agent-review:A" });
 
 		emit(running("A"));
@@ -596,6 +607,8 @@ describe.sequential("AgentReviewService", () => {
 			await vi.waitFor(() => expect(run.cancel).toHaveBeenCalled(), { timeout: 5000 });
 			const afterMove = await loadWorkspaceState(repoPath);
 
+			expect((await findCard("A"))?.agentReview).toBeUndefined();
+
 			run.resolve({ kind: "completed", output: PASS_OUTPUT });
 			await settle();
 			const final = await loadWorkspaceState(repoPath);
@@ -698,6 +711,8 @@ describe.sequential("AgentReviewService", () => {
 		emit(running("A"));
 		await waitForColumn("A", "in_progress");
 		await vi.waitFor(() => expect(first.cancel).toHaveBeenCalled(), { timeout: 5000 });
+		// No reviewer runs for an in_progress card, so it must not keep showing "reviewing".
+		expect((await findCard("A"))?.agentReview).toBeUndefined();
 		emit(turnEnd("A"));
 		await settle();
 		first.resolve({ kind: "cancelled" });
@@ -851,6 +866,103 @@ describe.sequential("AgentReviewService", () => {
 		expect(resumedTasks[0]?.taskId).toBe("A");
 		expect(resumedTasks[0]?.prompt).toContain("Commit the work on top of main");
 		await waitForReview("A", { status: "committing", round: 1 });
+	});
+
+	it("commit cherry-picked onto the base with the worktree removed → passed + Done with the base commit", async () => {
+		addChange();
+		await startService([{ card: createCard("A"), columnId: "in_progress" }]);
+		scriptOutcome({ kind: "completed", output: PASS_OUTPUT });
+		emit(turnEnd("A"));
+		await waitForReview("A", { status: "committing" });
+		emit(running("A"));
+		await waitForColumn("A", "in_progress");
+
+		git(repoPath, ["add", "-A"]);
+		git(repoPath, ["commit", "-m", "feature"]);
+		const landed = git(repoPath, ["rev-parse", "HEAD"]);
+		worktreeRemoved = true;
+		emit(turnEnd("A"));
+
+		await waitForColumn("A", "trash");
+		expect((await findCard("A", "trash"))?.agentReview).toMatchObject({
+			status: "passed",
+			meta: { commitHash: landed },
+		});
+	});
+
+	it("an agent that exits after the commit turn (no turn-end hook) still finishes the commit step", async () => {
+		addChange();
+		await startService([{ card: createCard("A"), columnId: "in_progress" }]);
+		scriptOutcome({ kind: "completed", output: PASS_OUTPUT });
+		emit(turnEnd("A"));
+		await waitForReview("A", { status: "committing" });
+		emit(running("A"));
+		await waitForColumn("A", "in_progress");
+
+		git(repoPath, ["add", "-A"]);
+		git(repoPath, ["commit", "-m", "feature"]);
+		const landed = git(repoPath, ["rev-parse", "HEAD"]);
+		worktreeRemoved = true;
+		emit(summary("A", { state: "idle", agentId: "codex" }));
+
+		await waitForColumn("A", "trash");
+		expect((await findCard("A", "trash"))?.agentReview?.meta?.commitHash).toBe(landed);
+	});
+
+	describe("restart while committing never stays committing", () => {
+		async function committingCard(id: string): Promise<RuntimeBoardCard> {
+			const { fingerprint } = await computeTaskReviewFingerprint({ cwd: repoPath, baseRef: "main" });
+			return createCard(id, {
+				agentReview: reviewState({
+					status: "committing",
+					fingerprint,
+					meta: { commitHash: null, prUrl: null, rounds: 0, reviewerAgentId: "claude", reviewedAt: 1 },
+				}),
+			});
+		}
+
+		it("commit already landed on the base and the worktree is gone → passed + Done", async () => {
+			addChange();
+			const card = await committingCard("A");
+			git(repoPath, ["add", "-A"]);
+			git(repoPath, ["commit", "-m", "feature"]);
+			const landed = git(repoPath, ["rev-parse", "HEAD"]);
+			worktreeRemoved = true;
+			taskAgentRunning = false;
+			await startService([{ card, columnId: "review" }]);
+
+			await waitForColumn("A", "trash");
+			expect((await findCard("A", "trash"))?.agentReview).toMatchObject({
+				status: "passed",
+				meta: { commitHash: landed },
+			});
+			expect(resumedTasks.map((task) => task.taskId)).not.toContain("A");
+		});
+
+		it("commit did not land and the worktree is gone → needs_user commit_failed", async () => {
+			addChange();
+			const card = await committingCard("A");
+			worktreeRemoved = true;
+			taskAgentRunning = false;
+			await startService([{ card, columnId: "review" }]);
+
+			await waitForReview("A", { status: "needs_user", reason: "commit_failed" });
+			await waitForColumn("A", "user_review");
+		});
+	});
+
+	it("restart recovery clears review statuses that nothing will ever finish on trashed cards", async () => {
+		await startService([
+			{ card: createCard("Q", { agentReview: reviewState({ status: "queued" }) }), columnId: "trash" },
+			{ card: createCard("C", { agentReview: reviewState({ status: "committing" }) }), columnId: "trash" },
+			{ card: createCard("P", { agentReview: reviewState({ status: "passed" }) }), columnId: "trash" },
+		]);
+
+		await vi.waitFor(async () => expect((await findCard("Q"))?.agentReview).toBeUndefined(), { timeout: 5000 });
+		expect((await findCard("C"))?.agentReview).toBeUndefined();
+		expect((await findCard("P"))?.agentReview?.status).toBe("passed");
+		expect(reviewerInputs).toHaveLength(0);
+		expect(resumedTasks).toHaveLength(0);
 	});
 
 	it("tasks without agentReviewEnabled are never touched", async () => {

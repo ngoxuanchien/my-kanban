@@ -125,3 +125,29 @@ export async function computeTaskReviewFingerprint(input: {
 		await rm(tempDir, { recursive: true, force: true });
 	}
 }
+
+/**
+ * Finds the commit on `ref` that holds exactly the content fingerprinted by computeTaskReviewFingerprint:
+ * a commit whose parent is that merge-base and whose tree is that tree (e.g. the task commit cherry-picked
+ * onto an unchanged base). Works without the task worktree.
+ */
+// ponytail: only the last 50 first-parent commits; a base that moved before the cherry-pick never matches.
+export async function findCommitWithReviewFingerprint(input: {
+	cwd: string;
+	ref: string;
+	fingerprint: string;
+}): Promise<string | null> {
+	const log = await git(input.cwd, ["log", "--first-parent", "-n", "50", "--format=%H %T %P", input.ref]);
+	for (const line of log.split("\n")) {
+		const [hash, tree, parent] = line.split(" ");
+		if (
+			hash &&
+			tree &&
+			parent &&
+			createHash("sha256").update(`${parent}\n${tree}`).digest("hex") === input.fingerprint
+		) {
+			return hash;
+		}
+	}
+	return null;
+}

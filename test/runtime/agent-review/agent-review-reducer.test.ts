@@ -319,9 +319,38 @@ describe("reduceAgentReview", () => {
 			expect(effects).toEqual([]);
 		});
 
-		it("out of review mid-run cancels the review", () => {
-			const { effects } = reduce(makeState({ status: "reviewing" }), { type: "moved_by_user", to: "trash" });
-			expect(effects).toEqual([{ type: "cancel_review" }]);
+		it("out of review mid-run cancels the review and clears the stale status", () => {
+			for (const status of ["queued", "reviewing"] as const) {
+				expect(reduce(makeState({ status }), { type: "moved_by_user", to: "trash" })).toEqual({
+					state: null,
+					effects: [{ type: "cancel_review" }],
+				});
+			}
+		});
+	});
+
+	describe("task_running", () => {
+		it("in review mid-run moves to in_progress, cancels the review and clears the stale status", () => {
+			expect(reduce(makeState({ status: "reviewing" }), { type: "task_running" })).toEqual({
+				state: null,
+				effects: [{ type: "move_card", to: "in_progress" }, { type: "cancel_review" }],
+			});
+		});
+
+		it("keeps a fixing status while the fix turn runs", () => {
+			const before = makeState({ status: "fixing", round: 1 });
+			expect(reduce(before, { type: "task_running" })).toEqual({
+				state: before,
+				effects: [{ type: "move_card", to: "in_progress" }, { type: "cancel_review" }],
+			});
+		});
+
+		it("is ignored outside review", () => {
+			const before = makeState({ status: "fixing", round: 1 });
+			expect(reduce(before, { type: "task_running" }, { columnId: "in_progress" })).toEqual({
+				state: before,
+				effects: [],
+			});
 		});
 	});
 
@@ -339,40 +368,58 @@ describe("reduceAgentReview", () => {
 	});
 
 	describe("runtime_restarted", () => {
-		const restarted = (taskSessionRunning: boolean, worktreeClean: boolean): AgentReviewEvent => ({
+		const restarted = (taskSessionRunning: boolean, commitHash: string | null): AgentReviewEvent => ({
 			type: "runtime_restarted",
 			taskSessionRunning,
-			worktreeClean,
+			commitHash,
 		});
 
 		it("re-enqueues a reviewing task with the same round", () => {
-			const { state, effects } = reduce(makeState({ status: "reviewing", round: 2 }), restarted(false, false));
+			const { state, effects } = reduce(makeState({ status: "reviewing", round: 2 }), restarted(false, null));
 			expect(state).toMatchObject({ status: "queued", round: 2 });
 			expect(effects).toEqual([{ type: "enqueue_review" }]);
 		});
 
-		it("completes Done for committing with a clean worktree", () => {
-			const { effects } = reduce(makeState({ status: "committing" }), restarted(true, true));
+		it("passes and completes Done with the commit hash when the commit landed", () => {
+			const meta = { commitHash: null, prUrl: null, rounds: 0, reviewerAgentId: "claude" as const, reviewedAt: 1 };
+			const { state, effects } = reduce(makeState({ status: "committing", meta }), restarted(false, "abc123"));
+			expect(state).toMatchObject({ status: "passed", meta: { commitHash: "abc123" } });
 			expect(effects).toEqual([{ type: "complete_done" }]);
 		});
 
-		it("re-runs the commit step for committing with a dirty worktree", () => {
-			const { state, effects } = reduce(makeState({ status: "committing" }), restarted(false, false));
+		it("re-runs the commit step for committing when the commit did not land", () => {
+			const { state, effects } = reduce(makeState({ status: "committing" }), restarted(false, null));
 			expect(state).toMatchObject({ status: "committing" });
 			expect(effects).toEqual([{ type: "send_commit", action: "commit" }]);
 		});
 
 		it("sends fixing without a running session to user_review", () => {
-			const { state, effects } = reduce(makeState({ status: "fixing", round: 1 }), restarted(false, false), {
+			const { state, effects } = reduce(makeState({ status: "fixing", round: 1 }), restarted(false, null), {
 				columnId: "in_progress",
 			});
 			expect(state).toMatchObject({ status: "needs_user", reason: "task_agent_not_running" });
 			expect(effects).toEqual([{ type: "move_card", to: "user_review" }]);
 		});
 
+		it("clears queued/reviewing on a card outside review instead of re-enqueueing it", () => {
+			for (const columnId of ["in_progress", "trash"] as const) {
+				expect(reduce(makeState({ status: "queued" }), restarted(false, null), { columnId })).toEqual({
+					state: null,
+					effects: [],
+				});
+			}
+		});
+
+		it("clears an in-flight commit on a trashed card", () => {
+			expect(reduce(makeState({ status: "committing" }), restarted(false, null), { columnId: "trash" })).toEqual({
+				state: null,
+				effects: [],
+			});
+		});
+
 		it("leaves fixing alone while the session still runs", () => {
 			const before = makeState({ status: "fixing", round: 1 });
-			expect(reduce(before, restarted(true, false), { columnId: "in_progress" })).toEqual({
+			expect(reduce(before, restarted(true, null), { columnId: "in_progress" })).toEqual({
 				state: before,
 				effects: [],
 			});
