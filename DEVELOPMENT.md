@@ -71,9 +71,9 @@ Use `http://127.0.0.1:4173` while developing UI so changes hot reload.
 
 Use `npm run dev:full` when you are actively developing Kanban and want fast iteration. It runs the source checkout with `tsx watch` plus the Vite web UI dev server, so runtime changes reload and web UI changes get HMR.
 
-By default, `dev:full` now starts Kanban with `--skip-shutdown-cleanup` so stopping a debug/dev instance does not move cards to Trash or delete task worktrees from your active boards.
+On shutdown, Kanban keeps cards in their current columns and preserves task worktrees. Running tasks resume automatically the next time Kanban starts. `dev:full` passes `--skip-shutdown-cleanup` to skip task session cleanup when stopping a debug/dev instance.
 
-To opt back into shutdown cleanup while using `dev:full`, run:
+To run shutdown cleanup (stop task sessions and remove worktree setup locks) while using `dev:full`, run:
 
 ```bash
 npm run dev:full -- --with-shutdown-cleanup
@@ -90,9 +90,9 @@ The repo includes `.vscode/launch.json` with two configurations:
 - `Dev (Full Stack)`: Launches the same workflow as `npm run dev:full`, starting both the runtime and Vite in one terminal.
 - `Run Tests`: Runs `vitest run` with the debugger so you can set breakpoints in tests.
 
-Shutdown cleanup flags:
+Shutdown flags:
 
-- `--skip-shutdown-cleanup`: do not move sessions to trash or delete task worktrees on shutdown
+- `--skip-shutdown-cleanup`: skip task session cleanup on shutdown
 
 ## Build and run packaged CLI
 
