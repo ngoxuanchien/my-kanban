@@ -22,3 +22,4 @@ Details and decisions: `contexte/project-goal.md`.
 7. Ask before changing global agent config outside the repo (`~/.claude`, `~/.codex`, `~/.config/opencode`).
 8. Before claiming "done", run the relevant typecheck, tests, and lint, and include the output as evidence.
 9. Parallel sessions: one task = one Kanban task worktree = one branch. Never run two agents in the main checkout. See `contexte/parallel-sessions.md`.
+10. When creating Kanban tasks from a plan: alternate --agent-id opencode/codex, and fill docs/agents/task-prompt-template.md (copy needed context from memory into the prompt).

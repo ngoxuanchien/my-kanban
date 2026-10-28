@@ -20,6 +20,7 @@ Update this file whenever a file or folder is created or moved.
 | `docs/superpowers/plans/` | Implementation plans (`YYYY-MM-DD-<topic>.md`). |
 | `docs/superpowers/specs/2026-10-28-memory-orchestrator-design.md` | Spec: shared Basic Memory server, OpenCode/Codex split, cross review. |
 | `docs/superpowers/plans/2026-10-28-memory-orchestrator.md` | Plan for the spec above, split into Kanban tasks. |
+| `docs/agents/task-prompt-template.md` | Prompt template the planner fills in for every Kanban task. |
 | `.plan/` | Older internal plans, handoffs, investigations (`.plan/docs/`). |
 
 ## Where to save things

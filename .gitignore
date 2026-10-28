@@ -28,6 +28,8 @@ packages/desktop/desktop-preflight.js
 packages/desktop/cli
 
 # Local-only harness files (never committed; Kanban symlinks them into task worktrees)
+/.mcp.json
+/opencode.json
 CLAUDE.local.md
 .claude/settings.local.json
 /contexte/

@@ -86,6 +86,12 @@ Dark theme
 - Surface hierarchy: `bg-surface-0` (app background) -> `bg-surface-1` (raised panels) -> `bg-surface-2` (cards/inputs) -> `bg-surface-3` (hover) -> `bg-surface-4` (pressed).
 - Do NOT use Blueprint, Tailwind's light-mode defaults, or any `dark:` prefix. The theme is always dark.
 
+## Shared memory
+Applies to implementing agents and to planning. Reviewers ignore this section.
+- Memory is the Basic Memory project `my-kanban`, i.e. files in `contexte/`; search memory before non-obvious decisions. Codex has no memory tool and reads those files only when the prompt points to one.
+- Record durable decisions and findings one topic per note; update or append instead of duplicating, and never put secrets in a note.
+- If the memory server is unreachable, read and write `contexte/` files directly and continue.
+
 Misc. tribal knowledge
 - Kanban's native Cline agent is powered by the installed `@clinebot/core` and `@clinebot/llms` packages plus the local `src/cline-sdk/` boundary layer, so when Cline behavior is unclear, inspect those packages and `src/cline-sdk/` for the real implementation details.
 - Kanban is launched from the user's shell and inherits its environment. For agent detection and task-agent startup, prefer direct PATH checks and direct process launches over spawning an interactive shell. Avoid `zsh -i`, shell fallback command discovery, or "launch shell then type command into it" on hot paths. On setups with heavy shell init like `conda` or `nvm`, doing that per task can freeze the runtime and even make new Terminal.app windows feel hung when several tasks start at once. It's fine to use an actual interactive shell for explicit shell terminals, not for normal agent session work.
