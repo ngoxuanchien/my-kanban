@@ -40,4 +40,5 @@ run("osascript", ["-e", 'if application "Kanban" is running then tell applicatio
 rmSync(installPath, { recursive: true, force: true });
 run("ditto", [appPath, installPath]);
 run("codesign", ["--verify", "--deep", "--strict", installPath]);
+rmSync(appPath, { recursive: true, force: true });
 console.log(`desktop:install: installed ${installPath}`);
