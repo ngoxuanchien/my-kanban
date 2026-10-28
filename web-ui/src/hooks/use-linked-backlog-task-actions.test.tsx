@@ -54,7 +54,7 @@ interface HookSnapshot {
 	confirmMoveTaskToTrash: (task: BoardCard, currentBoard?: BoardData) => Promise<void>;
 	requestMoveTaskToTrash: (
 		taskId: string,
-		fromColumnId: "backlog" | "in_progress" | "review" | "trash",
+		fromColumnId: "backlog" | "in_progress" | "review" | "user_review" | "trash",
 	) => Promise<void>;
 }
 
@@ -85,7 +85,7 @@ function HookHarness({
 	kickoffTaskInProgress?: (
 		task: BoardCard,
 		taskId: string,
-		fromColumnId: "backlog" | "in_progress" | "review" | "trash",
+		fromColumnId: "backlog" | "in_progress" | "review" | "user_review" | "trash",
 		options?: { optimisticMove?: boolean },
 	) => Promise<boolean>;
 	startBacklogTaskWithAnimation?: (task: BoardCard) => Promise<boolean>;

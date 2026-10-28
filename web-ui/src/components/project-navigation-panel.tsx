@@ -728,6 +728,13 @@ function ProjectRow({
 			count: project.taskCounts.review,
 		},
 		{
+			id: "user_review",
+			title: "Needs your review",
+			shortLabel: "NR",
+			toneClassName: "bg-status-orange/20 text-status-orange",
+			count: project.taskCounts.user_review,
+		},
+		{
 			id: "trash",
 			title: "Done",
 			shortLabel: "D",

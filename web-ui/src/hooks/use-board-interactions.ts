@@ -448,6 +448,9 @@ export function useBoardInteractions({
 					continue;
 				}
 				const columnId = getTaskColumnId(nextBoard, summary.taskId);
+				if (columnId === "user_review") {
+					continue;
+				}
 				if (summary.state === "awaiting_review" && columnId === "in_progress") {
 					const programmaticMoveAttempt = tryProgrammaticCardMove(summary.taskId, columnId, "review");
 					if (programmaticMoveAttempt === "started" || programmaticMoveAttempt === "blocked") {

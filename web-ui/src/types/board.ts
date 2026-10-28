@@ -1,5 +1,6 @@
 import type {
 	RuntimeAgentId,
+	RuntimeAgentReviewState,
 	RuntimeBoardColumnId,
 	RuntimeTaskAutoReviewMode,
 	RuntimeTaskClineSettings,
@@ -42,6 +43,8 @@ export interface BoardCard {
 	prompt: string;
 	startInPlanMode: boolean;
 	autoReviewEnabled?: boolean;
+	agentReviewEnabled?: boolean;
+	agentReview?: RuntimeAgentReviewState;
 	autoReviewMode?: TaskAutoReviewMode;
 	images?: TaskImage[];
 	agentId?: RuntimeAgentId;

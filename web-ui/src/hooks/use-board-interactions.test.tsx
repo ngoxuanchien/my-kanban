@@ -88,6 +88,7 @@ function createRect(width: number, height: number): DOMRect {
 
 function HookHarness({
 	board,
+	sessions = {},
 	setBoard,
 	ensureTaskWorkspace,
 	startTaskSession,
@@ -98,6 +99,7 @@ function HookHarness({
 	onSnapshot,
 }: {
 	board: BoardData;
+	sessions?: Record<string, RuntimeTaskSessionSummary>;
 	setBoard: Dispatch<SetStateAction<BoardData>>;
 	ensureTaskWorkspace: UseTaskSessionsResult["ensureTaskWorkspace"];
 	startTaskSession: UseTaskSessionsResult["startTaskSession"];
@@ -107,7 +109,7 @@ function HookHarness({
 	setSelectedTaskIdOverride?: Dispatch<SetStateAction<string | null>>;
 	onSnapshot?: (snapshot: HookSnapshot) => void;
 }): null {
-	const [sessions, setSessions] = useState<Record<string, RuntimeTaskSessionSummary>>({});
+	const [, setSessions] = useState<Record<string, RuntimeTaskSessionSummary>>({});
 	const [, setSelectedTaskId] = useState<string | null>(null);
 	const [, setIsClearTrashDialogOpen] = useState(false);
 	const [, setIsGitHistoryOpen] = useState(false);
@@ -772,5 +774,62 @@ describe("useBoardInteractions", () => {
 			expect(stopTaskSession).toHaveBeenCalledWith(task.id);
 			expect(cleanupTaskWorkspace).toHaveBeenCalledWith(task.id);
 		}
+	});
+
+	it("does not move a user_review card to in_progress when its session runs", async () => {
+		useProgrammaticCardMovesMock.mockReturnValue({
+			handleProgrammaticCardMoveReady: () => {},
+			setRequestMoveTaskToTrashHandler: () => {},
+			tryProgrammaticCardMove: () => "unavailable",
+			consumeProgrammaticCardMove: () => ({}),
+			resolvePendingProgrammaticTrashMove: () => {},
+			waitForProgrammaticCardMoveAvailability: async () => {},
+			resetProgrammaticCardMoves: () => {},
+			requestMoveTaskToTrashWithAnimation: async () => {},
+			programmaticCardMoveCycle: 0,
+		});
+		useLinkedBacklogTaskActionsMock.mockReturnValue({
+			handleCreateDependency: () => {},
+			handleDeleteDependency: () => {},
+			confirmMoveTaskToTrash: async () => {},
+			requestMoveTaskToTrash: async () => {},
+		});
+		const board = createBoard();
+		board.columns.splice(3, 0, {
+			id: "user_review",
+			title: "Needs your review",
+			cards: [createTask("task-review", "Needs review", 1)],
+		});
+		let nextBoard = board;
+		const setBoard: Dispatch<SetStateAction<BoardData>> = (update) => {
+			nextBoard = typeof update === "function" ? update(nextBoard) : update;
+		};
+		const summary: RuntimeTaskSessionSummary = {
+			taskId: "task-review",
+			state: "running",
+			mode: null,
+			agentId: null,
+			workspacePath: null,
+			pid: null,
+			startedAt: 1,
+			updatedAt: 2,
+			lastOutputAt: null,
+			reviewReason: null,
+			exitCode: null,
+			lastHookAt: null,
+			latestHookActivity: null,
+		};
+		await act(async () => {
+			root.render(
+				<HookHarness
+					board={board}
+					setBoard={setBoard}
+					sessions={{ "task-review": summary }}
+					ensureTaskWorkspace={async () => ({ ok: true })}
+					startTaskSession={async () => ({ ok: true })}
+				/>,
+			);
+		});
+		expect(nextBoard.columns.find((column) => column.id === "user_review")?.cards[0]?.id).toBe("task-review");
 	});
 });

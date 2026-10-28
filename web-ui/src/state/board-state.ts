@@ -60,7 +60,7 @@ function withUpdatedColumns(board: BoardData, columns: BoardColumn[]): BoardData
 }
 
 function normalizeColumnId(id: string): BoardColumnId | null {
-	if (id === "backlog" || id === "in_progress" || id === "review" || id === "trash") {
+	if (id === "backlog" || id === "in_progress" || id === "review" || id === "user_review" || id === "trash") {
 		return id;
 	}
 	return null;
@@ -154,6 +154,8 @@ function normalizeCard(rawCard: unknown): BoardCard | null {
 		prompt?: unknown;
 		startInPlanMode?: unknown;
 		autoReviewEnabled?: unknown;
+		agentReviewEnabled?: unknown;
+		agentReview?: unknown;
 		autoReviewMode?: unknown;
 		images?: unknown;
 		baseRef?: unknown;
@@ -192,6 +194,10 @@ function normalizeCard(rawCard: unknown): BoardCard | null {
 		prompt,
 		startInPlanMode: typeof card.startInPlanMode === "boolean" ? card.startInPlanMode : false,
 		autoReviewEnabled: typeof card.autoReviewEnabled === "boolean" ? card.autoReviewEnabled : false,
+		...(typeof card.agentReviewEnabled === "boolean" ? { agentReviewEnabled: card.agentReviewEnabled } : {}),
+		...(card.agentReview && typeof card.agentReview === "object"
+			? { agentReview: card.agentReview as BoardCard["agentReview"] }
+			: {}),
 		autoReviewMode: resolveTaskAutoReviewMode(
 			typeof card.autoReviewMode === "string" ? (card.autoReviewMode as TaskAutoReviewMode) : undefined,
 		),

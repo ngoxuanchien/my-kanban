@@ -146,6 +146,11 @@ export function useReviewAutoActions({
 			}
 
 			for (const reviewTask of reviewCardsForAutomation) {
+				if (reviewTask.agentReviewEnabled) {
+					delete awaitingCleanActionByTaskIdRef.current[reviewTask.id];
+					clearAutoReviewTimer(reviewTask.id);
+					continue;
+				}
 				const autoReviewEnabled = isTaskAutoReviewEnabled(reviewTask);
 				if (!autoReviewEnabled) {
 					delete awaitingCleanActionByTaskIdRef.current[reviewTask.id];

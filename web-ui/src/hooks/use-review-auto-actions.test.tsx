@@ -6,7 +6,7 @@ import { useReviewAutoActions } from "@/hooks/use-review-auto-actions";
 import { resetWorkspaceMetadataStore, setTaskWorkspaceSnapshot } from "@/stores/workspace-metadata-store";
 import type { BoardColumnId, BoardData, ReviewTaskWorkspaceSnapshot } from "@/types";
 
-function createBoard(autoReviewEnabled: boolean): BoardData {
+function createBoard(autoReviewEnabled: boolean, agentReviewEnabled = false): BoardData {
 	return {
 		columns: [
 			{ id: "backlog", title: "Backlog", cards: [] },
@@ -21,6 +21,7 @@ function createBoard(autoReviewEnabled: boolean): BoardData {
 						prompt: "Test task",
 						startInPlanMode: false,
 						autoReviewEnabled,
+						agentReviewEnabled,
 						autoReviewMode: "commit",
 						baseRef: "main",
 						createdAt: 1,
@@ -126,5 +127,41 @@ describe("useReviewAutoActions", () => {
 
 		expect(runAutoReviewGitAction).not.toHaveBeenCalled();
 		expect(requestMoveTaskToTrash).not.toHaveBeenCalled();
+	});
+
+	it("does not auto-commit a card with agentReviewEnabled", async () => {
+		const runAutoReviewGitAction = vi.fn(async () => true);
+		const requestMoveTaskToTrash = vi.fn(async () => {});
+		await act(async () => {
+			root.render(
+				<HookHarness
+					board={createBoard(true, true)}
+					runAutoReviewGitAction={runAutoReviewGitAction}
+					requestMoveTaskToTrash={requestMoveTaskToTrash}
+				/>,
+			);
+		});
+		await act(async () => {
+			vi.advanceTimersByTime(1000);
+		});
+		expect(runAutoReviewGitAction).not.toHaveBeenCalled();
+	});
+
+	it("still auto-commits a card without agentReviewEnabled", async () => {
+		const runAutoReviewGitAction = vi.fn(async () => true);
+		const requestMoveTaskToTrash = vi.fn(async () => {});
+		await act(async () => {
+			root.render(
+				<HookHarness
+					board={createBoard(true)}
+					runAutoReviewGitAction={runAutoReviewGitAction}
+					requestMoveTaskToTrash={requestMoveTaskToTrash}
+				/>,
+			);
+		});
+		await act(async () => {
+			vi.advanceTimersByTime(1000);
+		});
+		expect(runAutoReviewGitAction).toHaveBeenCalledWith("task-1", "commit");
 	});
 });

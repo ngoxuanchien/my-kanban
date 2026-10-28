@@ -24,7 +24,7 @@ export function ColumnIndicator({ columnId, size = 14 }: { columnId: string; siz
 			</svg>
 		);
 	}
-	if (columnId === "review") {
+	if (columnId === "review" || columnId === "user_review") {
 		const top = cy - r;
 		const right = cx + r;
 		return (
