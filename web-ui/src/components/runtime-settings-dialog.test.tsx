@@ -287,6 +287,43 @@ describe("RuntimeSettingsDialog", () => {
 		expect(saveRuntimeConfigMock).toHaveBeenCalledWith(expect.objectContaining({ reviewerAgent: "claude" }));
 	});
 
+	it("settings dialog saves reviewerAgent = cross", async () => {
+		await act(async () =>
+			root.render(
+				<RuntimeSettingsDialog
+					open
+					workspaceId="workspace-1"
+					initialConfig={savedClineOauthConfig}
+					onOpenChange={() => {}}
+				/>,
+			),
+		);
+		const reviewerSelect = document.querySelector<HTMLSelectElement>("#reviewer-agent-setting");
+		expect(reviewerSelect).toBeInstanceOf(HTMLSelectElement);
+		await act(async () => {
+			if (reviewerSelect) {
+				reviewerSelect.value = "cross";
+				reviewerSelect.dispatchEvent(new Event("change", { bubbles: true }));
+			}
+		});
+		await act(async () => findButtonByText(document.body, "Save")?.click());
+		expect(saveRuntimeConfigMock).toHaveBeenCalledWith(expect.objectContaining({ reviewerAgent: "cross" }));
+	});
+
+	it("settings dialog shows the saved cross reviewer", async () => {
+		await act(async () =>
+			root.render(
+				<RuntimeSettingsDialog
+					open
+					workspaceId="workspace-1"
+					initialConfig={{ ...savedClineOauthConfig, reviewerAgent: "cross" } as RuntimeConfigResponse}
+					onOpenChange={() => {}}
+				/>,
+			),
+		);
+		expect(document.querySelector<HTMLSelectElement>("#reviewer-agent-setting")?.value).toBe("cross");
+	});
+
 	it("calls the layout reset callback when reset layout is clicked", async () => {
 		await act(async () => {
 			root.render(

@@ -813,6 +813,7 @@ export function RuntimeSettingsDialog({
 								disabled={controlsDisabled}
 							>
 								<option value="same_as_task">Same as task</option>
+								<option value="cross">Cross (Codex ↔ OpenCode)</option>
 								{reviewerAgents.map((agent) => (
 									<option key={agent.id} value={agent.id}>
 										{agent.label}
