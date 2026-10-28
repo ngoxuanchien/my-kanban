@@ -20,12 +20,12 @@ import {
 	moveTaskToColumn,
 	type RuntimeAddTaskDependencyResult,
 	removeTaskDependency,
-	trashTaskAndGetReadyLinkedTaskIds,
 	updateTask,
 } from "../core/task-board-mutations";
 import { resolveProjectInputPath } from "../projects/project-path";
 import { loadWorkspaceContext, mutateWorkspaceState } from "../state/workspace-state";
 import type { RuntimeAppRouter } from "../trpc/app-router";
+import { columnCanHaveLiveTaskSession, completeTaskToDone } from "../workspace/complete-task-to-done";
 
 const LIST_TASK_COLUMNS = ["backlog", "in_progress", "review", "user_review", "trash"] as const;
 type ListTaskColumn = (typeof LIST_TASK_COLUMNS)[number];
@@ -788,17 +788,6 @@ interface TrashTaskExecutionResult {
 	alreadyInTrash: boolean;
 }
 
-interface TrashTaskMutationValue {
-	task: JsonRecord;
-	previousColumnId: RuntimeBoardColumnId;
-	readyTaskIds: string[];
-	alreadyInTrash: boolean;
-}
-
-function columnCanHaveLiveTaskSession(columnId: RuntimeBoardColumnId): boolean {
-	return columnId === "in_progress" || columnId === "review" || columnId === "user_review";
-}
-
 async function trashTaskById(input: {
 	cwd: string;
 	taskId: string;
@@ -806,85 +795,43 @@ async function trashTaskById(input: {
 	workspaceRepoPath: string;
 	runtimeClient: ReturnType<typeof createRuntimeTrpcClient>;
 }): Promise<TrashTaskExecutionResult> {
-	const mutation = await mutateWorkspaceState<TrashTaskMutationValue>(input.workspaceRepoPath, (latestState) => {
-		const latestRecord = findTaskRecord(latestState, input.taskId);
-		if (!latestRecord) {
-			throw new Error(`Task "${input.taskId}" was not found in workspace ${input.workspaceRepoPath}.`);
-		}
-		if (latestRecord.columnId === "trash") {
-			return {
-				board: latestState.board,
-				value: {
-					task: formatTaskRecord(latestState, latestRecord.task, latestRecord.columnId),
-					previousColumnId: latestRecord.columnId,
-					readyTaskIds: [] as string[],
-					alreadyInTrash: true,
-				},
-				save: false,
-			};
-		}
-
-		const trashed = trashTaskAndGetReadyLinkedTaskIds(latestState.board, input.taskId);
-		if (!trashed.moved || !trashed.task) {
-			throw new Error(`Task "${input.taskId}" could not be moved to done.`);
-		}
-
-		const nextState: RuntimeWorkspaceStateResponse = {
-			...latestState,
-			board: trashed.board,
-		};
-		return {
-			board: trashed.board,
-			value: {
-				task: formatTaskRecord(nextState, trashed.task, "trash"),
-				previousColumnId: latestRecord.columnId,
-				readyTaskIds: trashed.readyTaskIds,
-				alreadyInTrash: false,
+	const autoStartedTasks: JsonRecord[] = [];
+	const completed = await completeTaskToDone({
+		repoPath: input.workspaceRepoPath,
+		taskId: input.taskId,
+		deps: {
+			stopTaskSession: async (taskId) => await stopTaskRuntimeSession(input.runtimeClient, taskId),
+			startTask: async (taskId) => {
+				const started = await startTask({
+					cwd: input.cwd,
+					taskId,
+					projectPath: input.projectPath,
+				});
+				autoStartedTasks.push(started);
+				return started;
 			},
-		};
+			deleteTaskWorktree: async (taskId) => await deleteTaskWorkspace(input.runtimeClient, taskId),
+			notifyStateUpdated: async () => await notifyRuntimeWorkspaceStateUpdated(input.runtimeClient),
+		},
 	});
 
-	if (mutation.saved) {
-		await notifyRuntimeWorkspaceStateUpdated(input.runtimeClient);
+	if (!completed.previousColumnId || !completed.task) {
+		throw new Error(`Task "${input.taskId}" was not found in workspace ${input.workspaceRepoPath}.`);
 	}
-
-	if (mutation.value.alreadyInTrash) {
-		return {
-			task: mutation.value.task,
-			taskId: input.taskId,
-			previousColumnId: mutation.value.previousColumnId,
-			readyTaskIds: [],
-			autoStartedTasks: [],
-			worktreeDeleted: false,
-			alreadyInTrash: true,
-		};
-	}
-
-	if (columnCanHaveLiveTaskSession(mutation.value.previousColumnId)) {
-		await stopTaskRuntimeSession(input.runtimeClient, input.taskId);
-	}
-
-	const autoStartedTasks: JsonRecord[] = [];
-	for (const readyTaskId of mutation.value.readyTaskIds) {
-		const started = await startTask({
-			cwd: input.cwd,
-			taskId: readyTaskId,
-			projectPath: input.projectPath,
-		});
-		autoStartedTasks.push(started);
-	}
-
-	const deletedWorkspace = await deleteTaskWorkspace(input.runtimeClient, input.taskId);
 
 	return {
-		task: mutation.value.task,
+		task: formatTaskRecord(
+			completed.state,
+			completed.task,
+			completed.alreadyInTrash ? completed.previousColumnId : "trash",
+		),
 		taskId: input.taskId,
-		previousColumnId: mutation.value.previousColumnId,
-		readyTaskIds: mutation.value.readyTaskIds,
+		previousColumnId: completed.previousColumnId,
+		readyTaskIds: completed.readyTaskIds,
 		autoStartedTasks,
-		worktreeDeleted: deletedWorkspace.removed,
-		worktreeDeleteError: deletedWorkspace.error,
-		alreadyInTrash: false,
+		worktreeDeleted: completed.worktreeDeleted,
+		worktreeDeleteError: completed.worktreeDeleteError,
+		alreadyInTrash: completed.alreadyInTrash,
 	};
 }
 
