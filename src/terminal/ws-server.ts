@@ -4,6 +4,7 @@ import type { Socket } from "node:net";
 import type { RawData, WebSocket } from "ws";
 import { WebSocketServer } from "ws";
 
+import { isTerminalAutoReply } from "../agent-review/task-session-signals";
 import type { RuntimeTerminalWsServerMessage } from "../core/api-contract";
 import { parseTerminalWsClientMessage } from "../core/api-validation";
 import { getKanbanRuntimeOrigin } from "../core/runtime-endpoint";
@@ -34,6 +35,8 @@ export interface CreateTerminalWebSocketBridgeRequest {
 	 * @returns true if the request is authenticated, false otherwise.
 	 */
 	validateUpgradeSession?: (cookieHeader: string | undefined) => boolean;
+	/** Called after user keystrokes reach a task session. xterm auto-replies are not reported. */
+	onTaskUserInput?: (workspaceId: string, taskId: string) => void;
 }
 
 export interface TerminalWebSocketBridge {
@@ -131,6 +134,7 @@ export function createTerminalWebSocketBridge({
 	isTerminalIoWebSocketPath,
 	isTerminalControlWebSocketPath,
 	validateUpgradeSession,
+	onTaskUserInput,
 }: CreateTerminalWebSocketBridgeRequest): TerminalWebSocketBridge {
 	const activeSockets = new Set<Socket>();
 	const terminalStreamStates = new Map<string, TerminalStreamState>();
@@ -441,9 +445,12 @@ export function createTerminalWebSocketBridge({
 
 		ws.on("message", (rawMessage: RawData) => {
 			try {
-				const summary = terminalManager.writeInput(taskId, rawDataToBuffer(rawMessage));
+				const input = rawDataToBuffer(rawMessage);
+				const summary = terminalManager.writeInput(taskId, input);
 				if (!summary) {
 					ws.close(1011, "Task session is not running.");
+				} else if (!isTerminalAutoReply(input)) {
+					onTaskUserInput?.(workspaceId, taskId);
 				}
 			} catch (error) {
 				const message = error instanceof Error ? error.message : String(error);

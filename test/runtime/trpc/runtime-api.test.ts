@@ -1361,6 +1361,58 @@ describe("createRuntimeApi startTaskSession", () => {
 		expect(terminalManager.stopTaskSession).not.toHaveBeenCalled();
 	});
 
+	it("calls onTaskUserInput after sendTaskChatMessage succeeds", async () => {
+		const summary = createSummary({ agentId: "cline", pid: null });
+		const clineTaskSessionService = createClineTaskSessionServiceMock();
+		clineTaskSessionService.sendTaskSessionInput.mockResolvedValue(summary);
+		const onTaskUserInput = vi.fn();
+
+		const api = createTestRuntimeApi({
+			getActiveWorkspaceId: vi.fn(() => "workspace-1"),
+			loadScopedRuntimeConfig: vi.fn(async () => createRuntimeConfigState()),
+			setActiveRuntimeConfig: vi.fn(),
+			getScopedTerminalManager: vi.fn(async () => ({ writeInput: vi.fn() }) as never),
+			getScopedClineTaskSessionService: vi.fn(async () => clineTaskSessionService as never),
+			resolveInteractiveShellCommand: vi.fn(),
+			runCommand: vi.fn(),
+			onTaskUserInput,
+		});
+
+		const response = await api.sendTaskChatMessage(
+			{ workspaceId: "workspace-1", workspacePath: "/tmp/repo" },
+			{ taskId: "task-1", text: "hello" },
+		);
+		expect(response.ok).toBe(true);
+		expect(onTaskUserInput).toHaveBeenCalledWith("workspace-1", "task-1");
+	});
+
+	it("calls onTaskUserInput only after sendTaskSessionInput succeeds", async () => {
+		const terminalManager = {
+			writeInput: vi.fn().mockReturnValueOnce(createSummary()).mockReturnValueOnce(null),
+		};
+		const clineTaskSessionService = createClineTaskSessionServiceMock();
+		const onTaskUserInput = vi.fn();
+
+		const api = createTestRuntimeApi({
+			getActiveWorkspaceId: vi.fn(() => "workspace-1"),
+			loadScopedRuntimeConfig: vi.fn(async () => createRuntimeConfigState()),
+			setActiveRuntimeConfig: vi.fn(),
+			getScopedTerminalManager: vi.fn(async () => terminalManager as never),
+			getScopedClineTaskSessionService: vi.fn(async () => clineTaskSessionService as never),
+			resolveInteractiveShellCommand: vi.fn(),
+			runCommand: vi.fn(),
+			onTaskUserInput,
+		});
+
+		const scope = { workspaceId: "workspace-1", workspacePath: "/tmp/repo" };
+		expect((await api.sendTaskSessionInput(scope, { taskId: "task-1", text: "hi" })).ok).toBe(true);
+		expect(onTaskUserInput).toHaveBeenCalledTimes(1);
+		expect(onTaskUserInput).toHaveBeenCalledWith("workspace-1", "task-1");
+
+		expect((await api.sendTaskSessionInput(scope, { taskId: "task-1", text: "hi" })).ok).toBe(false);
+		expect(onTaskUserInput).toHaveBeenCalledTimes(1);
+	});
+
 	it("returns cline chat messages and sends chat message through cline service", async () => {
 		const summary = createSummary({ agentId: "cline", pid: null });
 		const latestMessage = {
