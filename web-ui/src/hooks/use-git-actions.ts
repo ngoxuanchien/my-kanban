@@ -276,7 +276,7 @@ export function useGitActions({
 
 				const prompt = buildTaskGitActionPrompt({
 					action,
-					workspaceInfo,
+					baseRef: workspaceInfo.baseRef,
 					templates: runtimeProjectConfig
 						? {
 								commitPromptTemplate: runtimeProjectConfig.commitPromptTemplate,
