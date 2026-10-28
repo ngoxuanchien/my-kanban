@@ -13,6 +13,7 @@
  *      etc. Agent shells need those binaries findable by name.
  */
 
+import { homedir } from "node:os";
 import path, { join } from "node:path";
 
 /**
@@ -44,10 +45,12 @@ function getWindowsExtraPathDirs(): string[] {
  * Directories appended to PATH for GUI-launched desktop processes.
  * macOS launchd and Linux desktop-file launches typically give minimal
  * PATHs; these ensure Homebrew, Snap, Git, etc. are findable.
+ * `~/.local/bin` is where Claude Code's native installer puts `claude`.
  */
 const EXTRA_PATH_DIRS: readonly string[] =
 	process.platform === "darwin"
 		? [
+				join(homedir(), ".local", "bin"),
 				"/opt/homebrew/bin",
 				"/opt/homebrew/sbin",
 				"/usr/local/bin",
@@ -58,7 +61,7 @@ const EXTRA_PATH_DIRS: readonly string[] =
 				"/sbin",
 			]
 		: process.platform === "linux"
-			? ["/usr/local/bin", "/snap/bin", "/usr/bin", "/bin"]
+			? [join(homedir(), ".local", "bin"), "/usr/local/bin", "/snap/bin", "/usr/bin", "/bin"]
 			: process.platform === "win32"
 				? getWindowsExtraPathDirs()
 				: [];

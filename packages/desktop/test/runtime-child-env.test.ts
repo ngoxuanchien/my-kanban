@@ -1,3 +1,4 @@
+import { homedir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -73,6 +74,17 @@ describe("buildFilteredEnv", () => {
 		expect(pathDirs.length).toBeGreaterThan(0);
 		expect(env.PATH).toBeDefined();
 	});
+
+	it.skipIf(originalPlatform === "win32")(
+		"appends ~/.local/bin to a minimal GUI PATH so `claude` is found",
+		() => {
+			process.env.PATH = "/usr/bin:/bin:/usr/sbin:/sbin";
+			const env = buildFilteredEnv();
+			expect((env.PATH ?? "").split(path.delimiter)).toContain(
+				path.join(homedir(), ".local", "bin"),
+			);
+		},
+	);
 
 	it("forwards HOME env variable", () => {
 		process.env.HOME = "/Users/testuser";
