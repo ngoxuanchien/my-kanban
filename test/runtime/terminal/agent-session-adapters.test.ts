@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -232,30 +233,43 @@ describe("prepareAgentLaunch hook strategies", () => {
 		expect(existsSync(hookScriptPath)).toBe(false);
 	});
 
-	it("writes OpenCode plugin with root-session filtering and permission hooks", async () => {
+	it("writes an OpenCode v2 plugin directory and launches with a private server", async () => {
 		setupTempHome();
-		await prepareAgentLaunch({
+		const launch = await prepareAgentLaunch({
 			taskId: "task-1",
 			agentId: "opencode",
 			binary: "opencode",
 			args: [],
+			autonomousModeEnabled: true,
+			cwd: "/tmp",
+			prompt: "Fix the bug",
+			workspaceId: "workspace-1",
+		});
+
+		expect(launch.args).toEqual(["--auto", "--standalone", "--prompt", "Fix the bug"]);
+		expect(launch.env.KANBAN_HOOK_TASK_ID).toBe("task-1");
+		const hooksDir = join(homedir(), ".cline", "kanban", "hooks", "opencode");
+		expect(launch.env.OPENCODE_CONFIG).toBe(join(hooksDir, "opencode.json"));
+		const config = JSON.parse(readFileSync(join(hooksDir, "opencode.json"), "utf8")) as { plugin: string[] };
+		expect(config.plugin).toEqual([pathToFileURL(join(hooksDir, "kanban")).href]);
+		const plugin = readFileSync(join(hooksDir, "kanban", "index.js"), "utf8");
+		expect(plugin).toContain('export default { id: "kanban", setup }');
+		expect(plugin).toContain("session.execution.succeeded");
+	});
+
+	it("does not duplicate an explicit OpenCode --standalone arg", async () => {
+		setupTempHome();
+		const launch = await prepareAgentLaunch({
+			taskId: "task-1",
+			agentId: "opencode",
+			binary: "opencode",
+			args: ["--standalone"],
 			cwd: "/tmp",
 			prompt: "",
 			workspaceId: "workspace-1",
 		});
 
-		const pluginPath = join(homedir(), ".cline", "kanban", "hooks", "opencode", "kanban.js");
-		const plugin = readFileSync(pluginPath, "utf8");
-		expect(plugin).toContain("parentID");
-		expect(plugin).toContain('"permission.ask"');
-		expect(plugin).toContain('"tool.execute.before"');
-		expect(plugin).toContain('"tool.execute.after"');
-		expect(plugin).toContain("session.status");
-		expect(plugin).toContain("message.part.updated");
-		expect(plugin).toContain("last_assistant_message");
-		expect(plugin).toContain("--metadata-base64");
-		expect(plugin).toContain('if (kind === "review")');
-		expect(plugin).toContain('currentState = "idle"');
+		expect(launch.args).toEqual(["--standalone"]);
 	});
 
 	it("builds OpenCode v2 TUI args without --model even when OpenCode model state exists", async () => {

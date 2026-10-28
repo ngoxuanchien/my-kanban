@@ -67,10 +67,6 @@ interface AgentSessionAdapter {
 	prepare(input: AgentAdapterLaunchInput): Promise<PreparedAgentLaunch>;
 }
 
-function escapeForTemplateLiteral(value: string): string {
-	return value.replaceAll("\\", "\\\\").replaceAll("`", "\\`");
-}
-
 function powerShellQuote(value: string): string {
 	return `"${value.replaceAll("`", "``").replaceAll('"', '`"')}"`;
 }
@@ -259,302 +255,114 @@ echo '{"cancel":false}'
 `;
 }
 
+// OpenCode v2 server plugin. v2 only loads plugin directories and runs plugins in its server process, which is
+// only the per-task process (inheriting KANBAN_HOOK_* env) when the TUI is launched with --standalone.
 function buildOpenCodePluginContent(
 	reviewCommand: string,
 	toInProgressCommand: string,
 	activityCommand: string,
 ): string {
-	const reviewCmd = escapeForTemplateLiteral(reviewCommand);
-	const toInProgressCmd = escapeForTemplateLiteral(toInProgressCommand);
-	const activityCmd = escapeForTemplateLiteral(activityCommand);
-	return `export const KanbanPlugin = async ({ $, client }) => {
-  if (globalThis.__kanbanOpencodePluginV3) return {};
-  globalThis.__kanbanOpencodePluginV3 = true;
+	return `import { exec } from "node:child_process";
 
-  if (!process?.env?.KANBAN_HOOK_TASK_ID) return {};
+const COMMANDS = {
+  review: ${JSON.stringify(reviewCommand)},
+  in_progress: ${JSON.stringify(toInProgressCommand)},
+  activity: ${JSON.stringify(activityCommand)},
+};
+// --auto replies to permission requests within milliseconds; only a request still pending after this needs the user.
+const PERMISSION_REVIEW_DELAY_MS = 500;
+
+const notify = (kind, payload) =>
+  new Promise((resolve) => {
+    const encoded = Buffer.from(JSON.stringify(payload), "utf8").toString("base64");
+    // Best effort: hook errors should never break OpenCode event handling.
+    const child = exec(COMMANDS[kind] + " --metadata-base64 " + encoded, () => resolve());
+    // \`kanban hooks ingest\` reads stdin until EOF.
+    child.stdin?.end();
+  });
+
+const setup = async (ctx) => {
+  const noop = async () => {};
+  if (!process.env.KANBAN_HOOK_TASK_ID || typeof ctx?.event?.subscribe !== "function") return noop;
 
   let currentState = "idle";
+  // The first session to start executing is the root; subagent sessions only run inside its execution.
   let rootSessionID = null;
-  const childSessionCache = new Map();
-  const messageRoleByID = new Map();
-  const assistantTextByMessageID = new Map();
-  const latestAssistantBySessionID = new Map();
-  const toolInputByCallID = new Map();
-
-  const asRecord = (value) => {
-    if (!value || typeof value !== "object" || Array.isArray(value)) {
-      return null;
-    }
-    return value;
-  };
-
-  const getMessageKey = (sessionID, messageID) => String(sessionID) + ":" + String(messageID);
-  const getToolCallKey = (sessionID, callID) => String(sessionID) + ":" + String(callID);
-
-  const encodePayload = (payload) => {
-    if (!payload || typeof payload !== "object") {
-      return "";
-    }
-    try {
-      return Buffer.from(JSON.stringify(payload), "utf8").toString("base64");
-    } catch {
-      return "";
-    }
-  };
-
-	const notify = async (kind, payload) => {
-		try {
-			const encoded = encodePayload(payload);
-			if (kind === "review") {
-				if (encoded) {
-					await $\`${reviewCmd} --metadata-base64 \${encoded}\`;
-				} else {
-					await $\`${reviewCmd}\`;
-				}
-				return;
-			}
-			if (kind === "in_progress") {
-				if (encoded) {
-					await $\`${toInProgressCmd} --metadata-base64 \${encoded}\`;
-				} else {
-					await $\`${toInProgressCmd}\`;
-				}
-				return;
-			}
-			if (encoded) {
-				await $\`${activityCmd} --metadata-base64 \${encoded}\`;
-			} else {
-				await $\`${activityCmd}\`;
-			}
-		} catch {
-			// Best effort: hook errors should never break OpenCode event handling.
-		}
-	};
-
-  const notifyReview = async (sessionID, payload = {}) => {
-    const mergedPayload = {
-      ...payload,
-      last_assistant_message:
-        typeof payload.last_assistant_message === "string"
-          ? payload.last_assistant_message
-          : (latestAssistantBySessionID.get(sessionID) ?? undefined),
-    };
-		await notify("review", mergedPayload);
-  };
-
-  const notifyInProgress = async (payload = {}) => {
-		await notify("in_progress", payload);
-  };
-
-  const notifyActivity = async (payload = {}) => {
-		await notify("activity", payload);
-  };
-
-  const isChildSession = async (sessionID) => {
-    if (!sessionID) return true;
-    if (!client?.session?.list) return true;
-    if (childSessionCache.has(sessionID)) {
-      return childSessionCache.get(sessionID);
-    }
-    try {
-      const sessions = await client.session.list();
-      const session = sessions.data?.find((candidate) => candidate.id === sessionID);
-      const isChild = !!session?.parentID;
-      childSessionCache.set(sessionID, isChild);
-      return isChild;
-    } catch {
-      return true;
-    }
-  };
+  let lastAssistantMessage;
+  let pendingPermission = null;
+  const toolNameByCallID = new Map();
 
   const handleBusy = async (sessionID) => {
-    if (!sessionID) {
-      return;
-    }
-    if (!rootSessionID) {
-      rootSessionID = sessionID;
-    }
-    if (sessionID !== rootSessionID) {
-      return;
-    }
-    if (currentState === "idle") {
-      currentState = "busy";
-      await notifyInProgress({
-        hook_event_name: "session.status",
-      });
-    }
+    if (!rootSessionID) rootSessionID = sessionID;
+    if (sessionID !== rootSessionID || currentState !== "idle") return;
+    currentState = "busy";
+    lastAssistantMessage = undefined;
+    await notify("in_progress", { hook_event_name: "session.status" });
   };
 
-  const handleReview = async (sessionID, payload = {}, force = false) => {
-    if (!sessionID) {
-      return;
-    }
-    if (!rootSessionID) {
-      rootSessionID = sessionID;
-    }
-    if (rootSessionID && sessionID !== rootSessionID) {
-      return;
-    }
-
-    const shouldNotify = force || currentState === "busy";
-    if (shouldNotify) {
-      currentState = "idle";
-      await notifyReview(sessionID, payload);
-      rootSessionID = null;
-    }
+  const handleReview = async (sessionID, payload, force = false) => {
+    if (sessionID !== rootSessionID) return;
+    if (!force && currentState !== "busy") return;
+    currentState = "idle";
+    rootSessionID = null;
+    await notify("review", { ...payload, last_assistant_message: lastAssistantMessage });
   };
 
-  return {
-    event: async ({ event }) => {
-      if (event.type === "message.updated") {
-        const info = asRecord(event.properties?.info);
-        const sessionID = typeof info?.sessionID === "string" ? info.sessionID : null;
-        if (await isChildSession(sessionID)) {
-          return;
-        }
+  const clearPendingPermission = () => {
+    if (!pendingPermission) return false;
+    clearTimeout(pendingPermission);
+    pendingPermission = null;
+    return true;
+  };
 
-        const messageID = typeof info?.id === "string" ? info.id : null;
-        const role = typeof info?.role === "string" ? info.role : null;
-        if (messageID && role) {
-          messageRoleByID.set(getMessageKey(sessionID, messageID), role);
-          if (role === "assistant" && !assistantTextByMessageID.has(getMessageKey(sessionID, messageID))) {
-            assistantTextByMessageID.set(getMessageKey(sessionID, messageID), "");
-          }
-        }
-        return;
-      }
-
-      if (event.type === "message.part.updated") {
-        const part = asRecord(event.properties?.part);
-        if (!part) {
-          return;
-        }
-
-        const sessionID = typeof part.sessionID === "string" ? part.sessionID : null;
-        if (await isChildSession(sessionID)) {
-          return;
-        }
-
-        if (part.type !== "text") {
-          return;
-        }
-
-        const messageID = typeof part.messageID === "string" ? part.messageID : null;
-        if (!messageID) {
-          return;
-        }
-
-        const messageKey = getMessageKey(sessionID, messageID);
-        if (messageRoleByID.get(messageKey) !== "assistant") {
-          return;
-        }
-
-        const delta = typeof event.properties?.delta === "string" ? event.properties.delta : "";
-        const fullText = typeof part.text === "string" ? part.text : "";
-        const previousText = assistantTextByMessageID.get(messageKey) ?? "";
-        const nextText = delta ? previousText + delta : (fullText || previousText);
-        const normalized = nextText.trim();
-        if (!normalized) {
-          return;
-        }
-
-        assistantTextByMessageID.set(messageKey, normalized);
-        latestAssistantBySessionID.set(sessionID, normalized);
-        return;
-      }
-
-      const sessionID = event.properties?.sessionID;
-      if (await isChildSession(sessionID)) {
-        return;
-      }
-
-      if (event.type === "session.status") {
-        const status = event.properties?.status;
-        if (status?.type === "busy") {
-          await handleBusy(sessionID);
-        } else if (status?.type === "idle") {
-          await handleReview(sessionID, {
-            hook_event_name: "session.status",
-          });
-        }
-      }
-
-      if (event.type === "session.busy") {
-        await handleBusy(sessionID);
-      }
-      if (event.type === "session.idle") {
-        await handleReview(sessionID, {
-          hook_event_name: "session.idle",
-        });
-      }
-      if (event.type === "session.error") {
-        await handleReview(
-          sessionID,
-          {
-            hook_event_name: "session.error",
-          },
-          true,
-        );
-      }
-    },
-    "tool.execute.before": async (input, output) => {
-      const sessionID = typeof input?.sessionID === "string" ? input.sessionID : null;
-      if (await isChildSession(sessionID)) {
-        return;
-      }
-
+  const handleEvent = async (type, data) => {
+    const sessionID = typeof data?.sessionID === "string" ? data.sessionID : null;
+    if (!sessionID) return;
+    if (type === "session.execution.started") {
       await handleBusy(sessionID);
+      return;
+    }
+    if (rootSessionID && sessionID !== rootSessionID) return;
 
-      const toolName = typeof input?.tool === "string" ? input.tool : undefined;
-      const callID = typeof input?.callID === "string" ? input.callID : "";
-      const toolInput = asRecord(output?.args);
-      if (callID) {
-        toolInputByCallID.set(getToolCallKey(sessionID, callID), toolInput);
-      }
+    if (type === "session.text.ended" && typeof data.text === "string" && data.text.trim()) {
+      lastAssistantMessage = data.text.trim();
+    } else if (type === "session.tool.input.started" && typeof data.id === "string") {
+      toolNameByCallID.set(data.id, data.name);
+    } else if (type === "session.tool.called") {
+      await notify("activity", { hook_event_name: "BeforeTool", tool_name: toolNameByCallID.get(data.id), tool_input: data.input });
+    } else if (type === "session.tool.success") {
+      await notify("activity", { hook_event_name: "AfterTool", tool_name: toolNameByCallID.get(data.id) });
+      toolNameByCallID.delete(data.id);
+    } else if (type === "permission.asked") {
+      clearPendingPermission();
+      pendingPermission = setTimeout(() => {
+        pendingPermission = null;
+        void handleReview(sessionID, { hook_event_name: "PermissionRequest", notification_type: "permission.asked" }, true);
+      }, PERMISSION_REVIEW_DELAY_MS);
+    } else if (type === "permission.replied") {
+      if (!clearPendingPermission()) await handleBusy(sessionID);
+    } else if (type === "session.execution.succeeded" || type === "session.execution.interrupted") {
+      clearPendingPermission();
+      await handleReview(sessionID, { hook_event_name: "session.idle" });
+    } else if (type === "session.execution.failed") {
+      clearPendingPermission();
+      await handleReview(sessionID, { hook_event_name: "session.error" }, true);
+    }
+  };
 
-      await notifyActivity({
-        hook_event_name: "BeforeTool",
-        tool_name: toolName,
-        tool_input: toolInput ?? undefined,
-      });
-    },
-    "tool.execute.after": async (input) => {
-      const sessionID = typeof input?.sessionID === "string" ? input.sessionID : null;
-      if (await isChildSession(sessionID)) {
-        return;
-      }
-
-      const toolName = typeof input?.tool === "string" ? input.tool : undefined;
-      const callID = typeof input?.callID === "string" ? input.callID : "";
-      const toolInput = callID ? toolInputByCallID.get(getToolCallKey(sessionID, callID)) : null;
-      if (callID) {
-        toolInputByCallID.delete(getToolCallKey(sessionID, callID));
-      }
-
-      await notifyActivity({
-        hook_event_name: "AfterTool",
-        tool_name: toolName,
-        tool_input: toolInput ?? undefined,
-      });
-    },
-    "permission.ask": async (_permission, output) => {
-      if (output?.status === "ask") {
-        const sessionID = typeof _permission?.sessionID === "string" ? _permission.sessionID : null;
-        if (await isChildSession(sessionID)) {
-          return;
-        }
-        await handleReview(
-          sessionID,
-          {
-            hook_event_name: "PermissionRequest",
-            notification_type: "permission.asked",
-          },
-          true,
-        );
-      }
-    },
+  const controller = new AbortController();
+  void (async () => {
+    for await (const event of ctx.event.subscribe({ signal: controller.signal })) {
+      await handleEvent(event?.type, event?.data);
+    }
+  })().catch(() => {});
+  return async () => {
+    controller.abort();
+    clearPendingPermission();
   };
 };
+
+export default { id: "kanban", setup };
 `;
 }
 
@@ -908,7 +716,7 @@ const opencodeAdapter: AgentSessionAdapter = {
 
 		const hooks = resolveHookContext(input);
 		if (hooks) {
-			const pluginPath = join(getHookAgentDirectory("opencode"), "kanban.js");
+			const pluginDirectory = join(getHookAgentDirectory("opencode"), "kanban");
 			const configPath = join(getHookAgentDirectory("opencode"), "opencode.json");
 
 			const pluginContent = buildOpenCodePluginContent(
@@ -916,10 +724,9 @@ const opencodeAdapter: AgentSessionAdapter = {
 				buildHookCommand("to_in_progress", { source: "opencode" }),
 				buildHookCommand("activity", { source: "opencode" }),
 			);
-			await ensureTextFile(pluginPath, pluginContent);
-			const pluginFileUrl = pathToFileURL(pluginPath).href;
+			await ensureTextFile(join(pluginDirectory, "index.js"), pluginContent);
 			const config = {
-				plugin: [pluginFileUrl],
+				plugin: [pathToFileURL(pluginDirectory).href],
 			};
 			await ensureTextFile(configPath, JSON.stringify(config));
 			Object.assign(
@@ -930,6 +737,10 @@ const opencodeAdapter: AgentSessionAdapter = {
 				}),
 			);
 			env.OPENCODE_CONFIG = configPath;
+			// The shared background service would run the plugin without this task's KANBAN_HOOK_* env.
+			if (!hasCliOption(args, "--standalone")) {
+				args.push("--standalone");
+			}
 		}
 
 		// No --model: OpenCode v2's TUI rejects it (only `opencode run` has it) and uses its configured default model.
