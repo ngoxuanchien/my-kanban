@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 
 import {
+	type RuntimeAgentReviewState,
+	runtimeAgentReviewStateSchema,
+	runtimeBoardCardSchema,
+	runtimeBoardColumnIdSchema,
+} from "../../src/core/api-contract";
+import {
 	parseHookIngestRequest,
 	parseTaskSessionStartRequest,
 	parseWorkspaceFileSearchRequest,
@@ -87,5 +93,56 @@ describe("parseTaskSessionStartRequest", () => {
 			baseRef: "main",
 			resumeFromTrash: true,
 		});
+	});
+});
+
+describe("agent review contract", () => {
+	const baseCard = { id: "a", prompt: "p", startInPlanMode: false, baseRef: "main", createdAt: 1, updatedAt: 1 };
+	const validState: RuntimeAgentReviewState = {
+		status: "needs_user",
+		round: 2,
+		reason: "round_limit",
+		reasonDetail: null,
+		fingerprint: "abc",
+		lastResult: {
+			verdict: "fail",
+			appVerified: true,
+			appCheck: "ran the app",
+			tests: [{ command: "npm test", result: "1 failed" }],
+			summary: null,
+			fixPrompt: "fix the failing test",
+			notes: null,
+		},
+		fixPrompts: ["first fix", "second fix"],
+		summary: {
+			whatWasDone: "a",
+			whatItAffects: "b",
+			againstRequest: "c",
+			howVerified: "d",
+			risks: "e",
+		},
+		meta: { commitHash: null, prUrl: null, rounds: 2, reviewerAgentId: "codex", reviewedAt: 5 },
+		updatedAt: 10,
+	};
+
+	it("parses user_review column and keeps legacy done→trash mapping", () => {
+		expect(runtimeBoardColumnIdSchema.parse("user_review")).toBe("user_review");
+		expect(runtimeBoardColumnIdSchema.parse("done")).toBe("trash");
+	});
+
+	it("loads a card without agent review fields as off", () => {
+		const card = runtimeBoardCardSchema.parse(baseCard);
+		expect(card.agentReviewEnabled).toBeUndefined();
+		expect(card.agentReview).toBeUndefined();
+	});
+
+	it("round-trips a card with agentReview state", () => {
+		const card = runtimeBoardCardSchema.parse({ ...baseCard, agentReviewEnabled: true, agentReview: validState });
+		expect(card.agentReviewEnabled).toBe(true);
+		expect(card.agentReview).toEqual(validState);
+	});
+
+	it("rejects agentReview with negative round", () => {
+		expect(() => runtimeAgentReviewStateSchema.parse({ ...validState, round: -1 })).toThrow();
 	});
 });

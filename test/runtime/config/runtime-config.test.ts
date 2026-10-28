@@ -442,6 +442,55 @@ describe.sequential("runtime-config auto agent selection", () => {
 		}
 	});
 
+	it("defaults reviewerAgent to same_as_task and does not write it to disk", async () => {
+		const { path: tempHome, cleanup: cleanupHome } = createTempDir("kanban-home-runtime-config-reviewer-default-");
+		const { path: tempProject, cleanup: cleanupProject } = createTempDir(
+			"kanban-project-runtime-config-reviewer-default-",
+		);
+
+		try {
+			await withTemporaryEnv({ home: tempHome }, async () => {
+				const current = await loadRuntimeConfig(tempProject);
+				expect(current.reviewerAgent).toBe("same_as_task");
+
+				await updateRuntimeConfig(tempProject, { selectedAgentId: "codex", reviewerAgent: "same_as_task" });
+
+				const globalPayload = JSON.parse(
+					readFileSync(join(tempHome, ".cline", "kanban", "config.json"), "utf8"),
+				) as { reviewerAgent?: string };
+				expect(globalPayload.reviewerAgent).toBeUndefined();
+			});
+		} finally {
+			cleanupProject();
+			cleanupHome();
+		}
+	});
+
+	it("saves and reloads reviewerAgent = codex", async () => {
+		const { path: tempHome, cleanup: cleanupHome } = createTempDir("kanban-home-runtime-config-reviewer-codex-");
+		const { path: tempProject, cleanup: cleanupProject } = createTempDir(
+			"kanban-project-runtime-config-reviewer-codex-",
+		);
+
+		try {
+			await withTemporaryEnv({ home: tempHome }, async () => {
+				const updated = await updateRuntimeConfig(tempProject, { reviewerAgent: "codex" });
+				expect(updated.reviewerAgent).toBe("codex");
+
+				const globalPayload = JSON.parse(
+					readFileSync(join(tempHome, ".cline", "kanban", "config.json"), "utf8"),
+				) as { reviewerAgent?: string };
+				expect(globalPayload.reviewerAgent).toBe("codex");
+
+				const reloaded = await loadRuntimeConfig(tempProject);
+				expect(reloaded.reviewerAgent).toBe("codex");
+			});
+		} finally {
+			cleanupProject();
+			cleanupHome();
+		}
+	});
+
 	it("preserves concurrent config updates across processes", async () => {
 		const { path: tempHome, cleanup: cleanupHome } = createTempDir("kanban-home-runtime-config-concurrent-");
 		const { path: tempProject, cleanup: cleanupProject } = createTempDir("kanban-project-runtime-config-concurrent-");

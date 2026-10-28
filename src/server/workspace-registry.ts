@@ -96,6 +96,7 @@ function createEmptyProjectTaskCounts(): RuntimeProjectTaskCounts {
 		backlog: 0,
 		in_progress: 0,
 		review: 0,
+		user_review: 0,
 		trash: 0,
 	};
 }

@@ -762,7 +762,7 @@ async function startTask(input: { cwd: string; taskId: string; projectPath?: str
 interface TrashTaskExecutionResult {
 	task: JsonRecord;
 	taskId: string;
-	previousColumnId: ListTaskColumn;
+	previousColumnId: RuntimeBoardColumnId;
 	readyTaskIds: string[];
 	autoStartedTasks: JsonRecord[];
 	worktreeDeleted: boolean;
@@ -772,12 +772,12 @@ interface TrashTaskExecutionResult {
 
 interface TrashTaskMutationValue {
 	task: JsonRecord;
-	previousColumnId: ListTaskColumn;
+	previousColumnId: RuntimeBoardColumnId;
 	readyTaskIds: string[];
 	alreadyInTrash: boolean;
 }
 
-function columnCanHaveLiveTaskSession(columnId: ListTaskColumn): boolean {
+function columnCanHaveLiveTaskSession(columnId: RuntimeBoardColumnId): boolean {
 	return columnId === "in_progress" || columnId === "review";
 }
 

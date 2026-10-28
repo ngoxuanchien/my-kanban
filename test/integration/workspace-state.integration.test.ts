@@ -262,6 +262,43 @@ describe.sequential("workspace-state integration", () => {
 		});
 	});
 
+	it("adds a missing user_review column on load, between review and trash", async () => {
+		await withTemporaryHome(async () => {
+			const { path: sandboxRoot, cleanup } = createTempDir("kanban-legacy-columns-");
+			try {
+				const workspacePath = join(sandboxRoot, "project-legacy-columns");
+				mkdirSync(workspacePath, { recursive: true });
+				initGitRepository(workspacePath);
+
+				const context = await loadWorkspaceContext(workspacePath);
+				mkdirSync(context.statePath, { recursive: true });
+				const legacyBoard = createBoard("Legacy Task");
+				const reviewColumn = legacyBoard.columns[2];
+				const backlogColumn = legacyBoard.columns[0];
+				if (!reviewColumn || !backlogColumn) {
+					throw new Error("Expected legacy board columns.");
+				}
+				reviewColumn.cards = backlogColumn.cards;
+				backlogColumn.cards = [];
+				writeFileSync(join(context.statePath, "board.json"), JSON.stringify(legacyBoard, null, 2), "utf8");
+
+				const state = await loadWorkspaceState(workspacePath);
+				expect(state.board.columns.map((column) => column.id)).toEqual([
+					"backlog",
+					"in_progress",
+					"review",
+					"user_review",
+					"trash",
+				]);
+				expect(state.board.columns[3]?.title).toBe("Needs your review");
+				expect(state.board.columns[3]?.cards).toEqual([]);
+				expect(state.board.columns[2]?.cards).toHaveLength(1);
+			} finally {
+				cleanup();
+			}
+		});
+	});
+
 	it("fails loudly when persisted board data is malformed", async () => {
 		await withTemporaryHome(async () => {
 			const { path: sandboxRoot, cleanup } = createTempDir("kanban-malformed-board-");

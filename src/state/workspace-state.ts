@@ -35,6 +35,7 @@ const BOARD_COLUMNS: Array<{ id: RuntimeBoardColumnId; title: string }> = [
 	{ id: "backlog", title: "Backlog" },
 	{ id: "in_progress", title: "In Progress" },
 	{ id: "review", title: "Review" },
+	{ id: "user_review", title: "Needs your review" },
 	{ id: "trash", title: "Done" },
 ];
 
@@ -148,6 +149,19 @@ function createEmptyBoard(): RuntimeBoardData {
 		})),
 		dependencies: [],
 	};
+}
+
+// Boards saved before a column existed load with that column added empty, in BOARD_COLUMNS order.
+function ensureBoardColumns(board: RuntimeBoardData): RuntimeBoardData {
+	const columns = BOARD_COLUMNS.map(
+		(column) =>
+			board.columns.find((existing) => existing.id === column.id) ?? {
+				id: column.id,
+				title: column.title,
+				cards: [],
+			},
+	);
+	return { ...board, columns };
 }
 
 function createEmptyWorkspaceIndex(): WorkspaceIndexFile {
@@ -296,7 +310,9 @@ async function readWorkspaceBoard(workspaceId: string): Promise<RuntimeBoardData
 	const boardPath = getWorkspaceBoardPath(workspaceId);
 	const rawBoard = await readJsonFile(boardPath);
 	return updateTaskDependencies(
-		parsePersistedStateFile(boardPath, BOARD_FILENAME, rawBoard, runtimeBoardDataSchema, createEmptyBoard()),
+		ensureBoardColumns(
+			parsePersistedStateFile(boardPath, BOARD_FILENAME, rawBoard, runtimeBoardDataSchema, createEmptyBoard()),
+		),
 	);
 }
 
