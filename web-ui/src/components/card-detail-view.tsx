@@ -3,6 +3,7 @@ import { Files, GitCompareArrows, Maximize2, MessageSquare, Minimize2, X } from 
 import type { MouseEvent as ReactMouseEvent, ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useHotkeys } from "react-hotkeys-hook";
+import { AgentReviewActivityPanel } from "@/components/agent-review-activity-panel";
 import { AgentReviewResultPanel } from "@/components/agent-review-result-panel";
 import { AgentReviewStatusBadge } from "@/components/agent-review-status-badge";
 import { AgentTerminalPanel } from "@/components/detail-panels/agent-terminal-panel";
@@ -12,6 +13,7 @@ import { type DiffLineComment, DiffViewerPanel } from "@/components/detail-panel
 import { FileTreePanel } from "@/components/detail-panels/file-tree-panel";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
+import { useAgentReviewLog } from "@/hooks/use-agent-review-log";
 import type { ClineChatActionResult } from "@/hooks/use-cline-chat-runtime-actions";
 import type { ClineChatMessage } from "@/hooks/use-cline-chat-session";
 import { useIsMobile } from "@/hooks/use-is-mobile";
@@ -482,6 +484,7 @@ export function CardDetailView({
 		true,
 	);
 	const taskWorkspaceStateVersion = useTaskWorkspaceStateVersionValue(selection.card.id);
+	const agentReviewLog = useAgentReviewLog(currentProjectId, selection.card.id, selection.card.agentReview);
 	const lastTurnViewKey =
 		diffMode === "last_turn"
 			? [
@@ -849,8 +852,9 @@ export function CardDetailView({
 				) : (
 					<>
 						{selection.card.agentReview ? (
-							<div className="shrink-0 space-y-2 overflow-y-auto border-b border-border p-3">
+							<div className="max-h-[50%] shrink-0 space-y-2 overflow-y-auto border-b border-border p-3">
 								<AgentReviewStatusBadge state={selection.card.agentReview} />
+								<AgentReviewActivityPanel state={selection.card.agentReview} log={agentReviewLog} />
 								<AgentReviewResultPanel state={selection.card.agentReview} />
 							</div>
 						) : null}

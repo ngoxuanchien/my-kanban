@@ -171,6 +171,27 @@ export const runtimeAgentReviewStateSchema = z.object({
 });
 export type RuntimeAgentReviewState = z.infer<typeof runtimeAgentReviewStateSchema>;
 
+/** Reviewer stdout/stderr for the latest run of a task. In memory only, tail-capped. */
+export const runtimeAgentReviewLogSchema = z.object({
+	reviewerAgentId: runtimeAgentIdSchema,
+	round: z.number().int().min(0),
+	startedAt: z.number(),
+	finishedAt: z.number().nullable(),
+	output: z.string(),
+	truncated: z.boolean(),
+});
+export type RuntimeAgentReviewLog = z.infer<typeof runtimeAgentReviewLogSchema>;
+
+export const runtimeAgentReviewLogRequestSchema = z.object({
+	taskId: z.string(),
+});
+export type RuntimeAgentReviewLogRequest = z.infer<typeof runtimeAgentReviewLogRequestSchema>;
+
+export const runtimeAgentReviewLogResponseSchema = z.object({
+	log: runtimeAgentReviewLogSchema.nullable(),
+});
+export type RuntimeAgentReviewLogResponse = z.infer<typeof runtimeAgentReviewLogResponseSchema>;
+
 const runtimeLegacyTaskClineReasoningEffortSchema = z.enum(["default", "low", "medium", "high", "xhigh"]);
 
 function normalizeRuntimeTaskClineSettings(input: {

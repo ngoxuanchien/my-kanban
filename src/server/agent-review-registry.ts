@@ -3,7 +3,7 @@
 import { type AgentReviewService, createAgentReviewService } from "../agent-review/agent-review-service";
 import type { ClineTaskSessionService } from "../cline-sdk/cline-task-session-service";
 import type { RuntimeConfigState } from "../config/runtime-config";
-import type { RuntimeBoardData } from "../core/api-contract";
+import type { RuntimeAgentReviewLog, RuntimeBoardData } from "../core/api-contract";
 import { moveTaskToColumn } from "../core/task-board-mutations";
 import {
 	listWorkspaceIndexEntries,
@@ -33,6 +33,8 @@ export interface AgentReviewRegistry {
 	/** Call after a browser/CLI board save. */
 	notifyBoardChanged: (workspaceId: string, repoPath: string) => Promise<void>;
 	notifyUserInput: (workspaceId: string, taskId: string) => void;
+	/** Null when no review service runs for the workspace or the task has no reviewer run yet. */
+	getReviewerLog: (workspaceId: string, taskId: string) => Promise<RuntimeAgentReviewLog | null>;
 	dispose: (workspaceId: string) => Promise<void>;
 	disposeAll: () => Promise<void>;
 }
@@ -175,6 +177,10 @@ export function createAgentReviewRegistry(deps: CreateAgentReviewRegistryDepende
 				.get(workspaceId)
 				?.then((service) => service.notifyUserInput(taskId))
 				.catch(() => {});
+		},
+		getReviewerLog: async (workspaceId, taskId) => {
+			const service = serviceByWorkspaceId.get(workspaceId);
+			return service ? (await service).getReviewerLog(taskId) : null;
 		},
 		dispose,
 		disposeAll: async () => {

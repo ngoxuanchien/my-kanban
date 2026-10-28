@@ -238,6 +238,7 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 				onWorkspaceStateChanged: (workspaceId, workspacePath) => {
 					void agentReviewRegistry.notifyBoardChanged(workspaceId, workspacePath);
 				},
+				getAgentReviewLog: agentReviewRegistry.getReviewerLog,
 			}),
 			projectsApi: createProjectsApi({
 				getActiveWorkspacePath: deps.workspaceRegistry.getActiveWorkspacePath,

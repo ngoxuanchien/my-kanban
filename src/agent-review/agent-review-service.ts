@@ -5,6 +5,7 @@ import type { RuntimeConfigState } from "../config/runtime-config";
 import { getRuntimeAgentCatalogEntry } from "../core/agent-catalog";
 import type {
 	RuntimeAgentId,
+	RuntimeAgentReviewLog,
 	RuntimeAgentReviewState,
 	RuntimeBoardCard,
 	RuntimeBoardColumnId,
@@ -33,6 +34,7 @@ import {
 	type ReviewerOutcome,
 	reduceAgentReview,
 } from "./agent-review-reducer";
+import { appendReviewerLog, createReviewerLog } from "./reviewer-log";
 import { parseReviewerOutput } from "./reviewer-output";
 import { buildFixPromptMessage, buildReviewerPrompt } from "./reviewer-prompt";
 import { type ReviewerRunHandle, type ReviewerRunOutcome, startReviewerRun } from "./reviewer-runner";
@@ -66,6 +68,8 @@ export interface AgentReviewService {
 	notifyUserInput(taskId: string): void;
 	/** Call after any browser/CLI save so user moves, toggles and deletions are seen. */
 	notifyBoardChanged(): Promise<void>;
+	/** Output of the task's latest reviewer run, live while it runs. */
+	getReviewerLog(taskId: string): RuntimeAgentReviewLog | null;
 	dispose(): Promise<void>;
 }
 
@@ -151,6 +155,7 @@ export function createAgentReviewService(deps: AgentReviewServiceDeps): AgentRev
 	const lastSessionKinds = new Map<string, string>();
 	const reviewQueue: string[] = [];
 	const commitTimers = new Map<string, ReturnType<typeof setTimeout>>();
+	const reviewerLogs = new Map<string, RuntimeAgentReviewLog>();
 	let activeRun: ActiveRun | null = null;
 	let unsubscribes: Array<() => void> = [];
 	let disposed = false;
@@ -507,6 +512,16 @@ export function createAgentReviewService(deps: AgentReviewServiceDeps): AgentRev
 			before: null,
 			failure: null,
 		};
+		const taskId = card.id;
+		let runLog = createReviewerLog(prepared.reviewerAgentId, round, now());
+		reviewerLogs.set(taskId, runLog);
+		// A cancelled run can still settle after the next run has started; leave that one alone.
+		const updateLog = (update: (log: RuntimeAgentReviewLog) => RuntimeAgentReviewLog) => {
+			if (reviewerLogs.get(taskId) === runLog) {
+				runLog = update(runLog);
+				reviewerLogs.set(taskId, runLog);
+			}
+		};
 		try {
 			prepared.cwd = await deps.resolveTaskCwd(card.id, card.baseRef);
 			prepared.fingerprint = (
@@ -515,6 +530,7 @@ export function createAgentReviewService(deps: AgentReviewServiceDeps): AgentRev
 			prepared.before = await captureWorktreeSnapshot(prepared.cwd);
 		} catch (error) {
 			prepared.failure = errorMessage(error);
+			updateLog((log) => ({ ...appendReviewerLog(log, prepared.failure ?? ""), finishedAt: now() }));
 			return prepared;
 		}
 		run.handle = runReviewer({
@@ -531,7 +547,22 @@ export function createAgentReviewService(deps: AgentReviewServiceDeps): AgentRev
 			isAgentInstalled,
 			clineService: deps.clineService,
 			reviewKey: `${AGENT_REVIEW_SESSION_KEY_PREFIX}${card.id}`,
+			onOutput: (chunk) => updateLog((log) => appendReviewerLog(log, chunk)),
 		});
+		void run.handle.done.then((outcome) =>
+			updateLog((log) => {
+				// Cline runs do not stream; their final message is the output.
+				const extra =
+					outcome.kind === "completed" && log.output === ""
+						? outcome.output
+						: outcome.kind === "crashed"
+							? `\n${outcome.error}`
+							: outcome.kind === "unavailable"
+								? outcome.reason
+								: "";
+				return { ...appendReviewerLog(log, extra), finishedAt: now() };
+			}),
+		);
 		return prepared;
 	}
 
@@ -623,6 +654,7 @@ export function createAgentReviewService(deps: AgentReviewServiceDeps): AgentRev
 				knownCards.delete(taskId);
 				clearCommitTimer(taskId);
 				cancelReview(taskId);
+				reviewerLogs.delete(taskId);
 			}
 		}
 	}
@@ -637,6 +669,9 @@ export function createAgentReviewService(deps: AgentReviewServiceDeps): AgentRev
 		},
 		async notifyBoardChanged() {
 			await serialize(handleBoardChanged);
+		},
+		getReviewerLog(taskId) {
+			return reviewerLogs.get(taskId) ?? null;
 		},
 		async dispose() {
 			disposed = true;

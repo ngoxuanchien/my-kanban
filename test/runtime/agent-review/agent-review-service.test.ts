@@ -402,6 +402,24 @@ describe.sequential("AgentReviewService", () => {
 		expect(broadcasts).toBeGreaterThan(0);
 	});
 
+	it("exposes the reviewer's live output and keeps it after the run ends", async () => {
+		addChange();
+		await startService([{ card: createCard("A"), columnId: "in_progress" }]);
+		const run = scriptDeferred();
+
+		emit(turnEnd("A"));
+		await vi.waitFor(() => expect(reviewerInputs).toHaveLength(1));
+		expect(service?.getReviewerLog("A")).toMatchObject({ reviewerAgentId: "cline", round: 0, finishedAt: null });
+		reviewerInputs[0]?.onOutput?.("checking tests\n");
+		expect(service?.getReviewerLog("A")?.output).toBe("checking tests\n");
+
+		run.resolve({ kind: "crashed", error: "boom" });
+		await waitForReview("A", { status: "needs_user", reason: "reviewer_crashed" });
+		expect(service?.getReviewerLog("A")).toMatchObject({ output: "checking tests\n\nboom" });
+		expect(service?.getReviewerLog("A")?.finishedAt).toEqual(expect.any(Number));
+		expect(service?.getReviewerLog("B")).toBeNull();
+	});
+
 	it("sends a fix prompt on fail and moves the card to in_progress when the agent runs", async () => {
 		addChange();
 		await startService([{ card: createCard("A"), columnId: "in_progress" }]);

@@ -6,6 +6,8 @@ import { initTRPC, TRPCError } from "@trpc/server";
 import { z } from "zod";
 
 import type {
+	RuntimeAgentReviewLogRequest,
+	RuntimeAgentReviewLogResponse,
 	RuntimeClineAccountBalanceResponse,
 	RuntimeClineAccountOrganizationsResponse,
 	RuntimeClineAccountProfileResponse,
@@ -97,6 +99,8 @@ import type {
 	RuntimeWorktreeEnsureResponse,
 } from "../core/api-contract";
 import {
+	runtimeAgentReviewLogRequestSchema,
+	runtimeAgentReviewLogResponseSchema,
 	runtimeClineAccountBalanceResponseSchema,
 	runtimeClineAccountOrganizationsResponseSchema,
 	runtimeClineAccountProfileResponseSchema,
@@ -336,6 +340,10 @@ export interface RuntimeTrpcContext {
 		) => Promise<RuntimeWorkspaceFileSearchResponse>;
 		loadState: (scope: RuntimeTrpcWorkspaceScope) => Promise<RuntimeWorkspaceStateResponse>;
 		notifyStateUpdated: (scope: RuntimeTrpcWorkspaceScope) => Promise<RuntimeWorkspaceStateNotifyResponse>;
+		loadAgentReviewLog: (
+			scope: RuntimeTrpcWorkspaceScope,
+			input: RuntimeAgentReviewLogRequest,
+		) => Promise<RuntimeAgentReviewLogResponse>;
 		saveState: (
 			scope: RuntimeTrpcWorkspaceScope,
 			input: RuntimeWorkspaceStateSaveRequest,
@@ -661,6 +669,12 @@ export const runtimeAppRouter = t.router({
 			.output(runtimeWorkspaceStateNotifyResponseSchema)
 			.mutation(async ({ ctx }) => {
 				return await ctx.workspaceApi.notifyStateUpdated(ctx.workspaceScope);
+			}),
+		getAgentReviewLog: workspaceProcedure
+			.input(runtimeAgentReviewLogRequestSchema)
+			.output(runtimeAgentReviewLogResponseSchema)
+			.query(async ({ ctx, input }) => {
+				return await ctx.workspaceApi.loadAgentReviewLog(ctx.workspaceScope, input);
 			}),
 		saveState: workspaceProcedure
 			.input(runtimeWorkspaceStateSaveRequestSchema)

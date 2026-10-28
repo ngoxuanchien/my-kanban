@@ -138,6 +138,20 @@ describe("startReviewerRun", () => {
 		expect(fake.calls[0]?.command).toBe("claude");
 	});
 
+	it("streams stdout and stderr to onOutput as it arrives", async () => {
+		const fake = fakeAgent(`process.stdout.write("out "); process.stderr.write("err");`);
+		const chunks: string[] = [];
+		const handle = startReviewerRun({
+			...baseInput,
+			agentId: "kiro",
+			cwd: tempDir,
+			spawnImpl: fake.spawnImpl,
+			onOutput: (chunk) => chunks.push(chunk),
+		});
+		await handle.done;
+		expect(chunks.join("").split(" ").sort()).toEqual(["err", "out"]);
+	});
+
 	it("passes the prompt as the last argument for arg agents", async () => {
 		const fake = fakeAgent(`process.stdout.write("ok")`);
 		const handle = startReviewerRun({ ...baseInput, agentId: "kiro", cwd: tempDir, spawnImpl: fake.spawnImpl });

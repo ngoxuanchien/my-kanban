@@ -53,6 +53,8 @@ export interface StartReviewerRunInput {
 	clineService?: ReviewerClineService;
 	/** Session key for Cline runs: "agent-review:<taskId>". Never the task's own id. */
 	reviewKey: string;
+	/** Receives stdout/stderr as it arrives (process runs only). */
+	onOutput?: (chunk: string) => void;
 	spawnImpl?: SpawnReviewer;
 }
 
@@ -156,7 +158,9 @@ function startProcessReviewerRun(command: ReviewerCommand, input: StartReviewerR
 	});
 
 	const capture = (chunk: Buffer) => {
-		output += chunk.toString("utf8");
+		const text = chunk.toString("utf8");
+		input.onOutput?.(text);
+		output += text;
 		if (output.length > MAX_CAPTURED_OUTPUT_CHARS) {
 			output = output.slice(-MAX_CAPTURED_OUTPUT_CHARS);
 		}
