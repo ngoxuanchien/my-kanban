@@ -36,6 +36,7 @@ import {
 	type ReviewerOutcome,
 	reduceAgentReview,
 } from "./agent-review-reducer";
+import { resolveReviewerAgentId } from "./reviewer-agent";
 import { appendReviewerLog, createReviewerLog } from "./reviewer-log";
 import { parseReviewerOutput } from "./reviewer-output";
 import { buildFixPromptMessage, buildReviewerPrompt } from "./reviewer-prompt";
@@ -567,10 +568,10 @@ export function createAgentReviewService(deps: AgentReviewServiceDeps): AgentRev
 
 		const config = await deps.loadRuntimeConfig();
 		const { round, fixPrompts } = card.agentReview;
+		const taskAgentId = resolveTaskAgentId(card, config);
 		const prepared: PreparedRun = {
 			round,
-			reviewerAgentId:
-				config.reviewerAgent === "same_as_task" ? resolveTaskAgentId(card, config) : config.reviewerAgent,
+			reviewerAgentId: resolveReviewerAgentId(config.reviewerAgent, taskAgentId),
 			fingerprint: "",
 			cwd: "",
 			before: null,

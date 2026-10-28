@@ -491,6 +491,31 @@ describe.sequential("runtime-config auto agent selection", () => {
 		}
 	});
 
+	it("saves and reloads reviewerAgent = cross", async () => {
+		const { path: tempHome, cleanup: cleanupHome } = createTempDir("kanban-home-runtime-config-reviewer-cross-");
+		const { path: tempProject, cleanup: cleanupProject } = createTempDir(
+			"kanban-project-runtime-config-reviewer-cross-",
+		);
+
+		try {
+			await withTemporaryEnv({ home: tempHome }, async () => {
+				const updated = await updateRuntimeConfig(tempProject, { reviewerAgent: "cross" });
+				expect(updated.reviewerAgent).toBe("cross");
+
+				const globalPayload = JSON.parse(
+					readFileSync(join(tempHome, ".cline", "kanban", "config.json"), "utf8"),
+				) as { reviewerAgent?: string };
+				expect(globalPayload.reviewerAgent).toBe("cross");
+
+				const reloaded = await loadRuntimeConfig(tempProject);
+				expect(reloaded.reviewerAgent).toBe("cross");
+			});
+		} finally {
+			cleanupProject();
+			cleanupHome();
+		}
+	});
+
 	it("preserves concurrent config updates across processes", async () => {
 		const { path: tempHome, cleanup: cleanupHome } = createTempDir("kanban-home-runtime-config-concurrent-");
 		const { path: tempProject, cleanup: cleanupProject } = createTempDir("kanban-project-runtime-config-concurrent-");

@@ -495,6 +495,24 @@ describe.sequential("AgentReviewService", () => {
 		expect(log?.finishedAt).toEqual(expect.any(Number));
 	});
 
+	it("cross reviewer reviews an opencode task with codex", async () => {
+		addChange();
+		configOverrides = { reviewerAgent: "cross" };
+		await startService([{ card: createCard("A", { agentId: "opencode" }), columnId: "in_progress" }]);
+		emit(turnEnd("A"));
+		await waitForReview("A", { status: "reviewing", round: 0 });
+		expect(service?.getReviewerLog("A")).toMatchObject({ reviewerAgentId: "codex" });
+	});
+
+	it("cross reviewer uses the selected agent when the card has none", async () => {
+		addChange();
+		configOverrides = { reviewerAgent: "cross", selectedAgentId: "opencode" };
+		await startService([{ card: createCard("A", { agentId: undefined }), columnId: "in_progress" }]);
+		emit(turnEnd("A"));
+		await waitForReview("A", { status: "reviewing", round: 0 });
+		expect(service?.getReviewerLog("A")).toMatchObject({ reviewerAgentId: "codex" });
+	});
+
 	it("sends a fix prompt on fail and moves the card to in_progress when the agent runs", async () => {
 		addChange();
 		await startService([{ card: createCard("A"), columnId: "in_progress" }]);

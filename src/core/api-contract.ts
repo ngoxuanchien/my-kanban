@@ -1029,7 +1029,11 @@ export const runtimeAgentDefinitionSchema = z.object({
 });
 export type RuntimeAgentDefinition = z.infer<typeof runtimeAgentDefinitionSchema>;
 
-export const runtimeReviewerAgentSettingSchema = z.union([z.literal("same_as_task"), runtimeAgentIdSchema]);
+export const runtimeReviewerAgentSettingSchema = z.union([
+	z.literal("same_as_task"),
+	z.literal("cross"),
+	runtimeAgentIdSchema,
+]);
 export type RuntimeReviewerAgentSetting = z.infer<typeof runtimeReviewerAgentSettingSchema>;
 
 export const runtimeConfigResponseSchema = z.object({
