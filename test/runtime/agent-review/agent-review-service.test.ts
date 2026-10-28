@@ -1,4 +1,4 @@
-import { spawnSync } from "node:child_process";
+import { type ChildProcess, type SpawnOptions, spawn, spawnSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -10,10 +10,11 @@ import {
 	createAgentReviewService,
 } from "../../../src/agent-review/agent-review-service";
 import { AGENT_REVIEW_RESULT_END, AGENT_REVIEW_RESULT_START } from "../../../src/agent-review/reviewer-output";
-import type {
-	ReviewerRunHandle,
-	ReviewerRunOutcome,
-	StartReviewerRunInput,
+import {
+	type ReviewerRunHandle,
+	type ReviewerRunOutcome,
+	type StartReviewerRunInput,
+	startReviewerRun,
 } from "../../../src/agent-review/reviewer-runner";
 import type { ClineTaskSessionService } from "../../../src/cline-sdk/cline-task-session-service";
 import type { RuntimeConfigState } from "../../../src/config/runtime-config";
@@ -183,6 +184,7 @@ describe.sequential("AgentReviewService", () => {
 	let configLoadError: Error | null;
 	let taskAgentRunning: boolean;
 	let resumedTasks: Array<{ taskId: string; prompt: string }>;
+	let configOverrides: Partial<RuntimeConfigState>;
 
 	beforeEach(() => {
 		const home = createTempDir("kanban-home-");
@@ -210,6 +212,7 @@ describe.sequential("AgentReviewService", () => {
 		configLoadError = null;
 		taskAgentRunning = true;
 		resumedTasks = [];
+		configOverrides = {};
 	});
 
 	afterEach(async () => {
@@ -278,7 +281,7 @@ describe.sequential("AgentReviewService", () => {
 				if (configLoadError) {
 					throw configLoadError;
 				}
-				return config;
+				return { ...config, ...configOverrides };
 			},
 			resolveTaskCwd: async () => repoPath,
 			doneDeps: {
@@ -436,6 +439,48 @@ describe.sequential("AgentReviewService", () => {
 		expect(service?.getReviewerLog("A")).toMatchObject({ output: "checking tests\n\nboom" });
 		expect(service?.getReviewerLog("A")?.finishedAt).toEqual(expect.any(Number));
 		expect(service?.getReviewerLog("B")).toBeNull();
+	});
+
+	it("streams a real claude reviewer process into the log while it runs, then passes to Done", async () => {
+		addChange();
+		configOverrides = { reviewerAgent: "claude" };
+		const releaseDir = createTempDir("kanban-reviewer-release-");
+		cleanups.push(releaseDir.cleanup);
+		const releaseFile = join(releaseDir.path, "release");
+		const line = (event: object) => JSON.stringify(`${JSON.stringify(event)}\n`);
+		const script = `
+			process.stdout.write(${line({ type: "assistant", message: { content: [{ type: "tool_use", name: "Bash", input: { command: "npm test" } }] } })});
+			const timer = setInterval(() => {
+				if (!require("node:fs").existsSync(${JSON.stringify(releaseFile)})) return;
+				clearInterval(timer);
+				process.stdout.write(${line({ type: "assistant", message: { content: [{ type: "text", text: PASS_OUTPUT }] } })});
+				process.stdout.write(${line({ type: "result", subtype: "success", result: PASS_OUTPUT })});
+			}, 20);
+		`;
+		const spawnImpl = (_command: string, _args: string[], options: SpawnOptions): ChildProcess =>
+			spawn(process.execPath, ["-e", script], options);
+		reviewerScripts.push((input) => startReviewerRun({ ...input, isAgentInstalled: () => true, spawnImpl }));
+		await startService([{ card: createCard("A"), columnId: "in_progress" }]);
+
+		emit(turnEnd("A"));
+		await vi.waitFor(() => expect(service?.getReviewerLog("A")?.output).toBe("$ npm test\n"), { timeout: 5000 });
+		expect(service?.getReviewerLog("A")).toMatchObject({ reviewerAgentId: "claude", finishedAt: null });
+		expect((await findCard("A"))?.agentReview?.status).toBe("reviewing");
+
+		writeFileSync(releaseFile, "");
+		await waitForReview("A", { status: "committing" });
+		emit(running("A"));
+		await waitForColumn("A", "in_progress");
+		git(repoPath, ["add", "-A"]);
+		git(repoPath, ["commit", "-m", "feature"]);
+		emit(turnEnd("A"));
+		await waitForColumn("A", "trash");
+		expect((await findCard("A", "trash"))?.agentReview?.meta).toMatchObject({ reviewerAgentId: "claude" });
+
+		const log = service?.getReviewerLog("A");
+		expect(log?.output).toContain("$ npm test\nReviewed.\n");
+		expect(log?.output).toContain("● Reviewer finished (success)\n");
+		expect(log?.finishedAt).toEqual(expect.any(Number));
 	});
 
 	it("sends a fix prompt on fail and moves the card to in_progress when the agent runs", async () => {

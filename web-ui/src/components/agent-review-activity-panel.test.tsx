@@ -51,14 +51,15 @@ describe("AgentReviewActivityPanel", () => {
 		vi.useRealTimers();
 	});
 
-	it("shows agent, round, elapsed time, live output and earlier fix prompts while reviewing", () => {
+	it("shows agent, round, elapsed time and earlier fix prompts while reviewing", () => {
 		act(() => root.render(<AgentReviewActivityPanel state={reviewing} log={liveLog} />));
 		const text = container.textContent ?? "";
 		expect(text).toContain("Reviewer running");
 		expect(text).toContain("codex");
 		expect(text).toContain("Round 2 · 1/3 fix rounds used");
 		expect(text).toContain("1:05");
-		expect(container.querySelector("pre")?.textContent).toBe("running npm test\n");
+		expect(text).toContain("Live output in the Reviewer tab");
+		expect(container.querySelector("pre")).toBeNull();
 		expect(text).toContain("Fix prompts sent (1)");
 		expect(text).toContain("Fix the button.");
 
@@ -70,17 +71,15 @@ describe("AgentReviewActivityPanel", () => {
 		const previous = { ...liveLog, round: 0, finishedAt: 5000, output: "old run" };
 		act(() => root.render(<AgentReviewActivityPanel state={reviewing} log={previous} />));
 		expect(container.textContent).toContain("Starting…");
-		expect(container.querySelector("pre")).toBeNull();
 	});
 
-	it("keeps the last output in a collapsed section after the review ends", () => {
+	it("keeps only the fix prompts after the review ends", () => {
 		const done: RuntimeAgentReviewState = { ...reviewing, status: "needs_user", reason: "reviewer_crashed" };
-		const finished = { ...liveLog, finishedAt: 20_000, output: "tail", truncated: true };
+		const finished = { ...liveLog, finishedAt: 20_000, output: "tail" };
 		act(() => root.render(<AgentReviewActivityPanel state={done} log={finished} />));
-		expect(container.querySelector("details summary")?.textContent).toBe("Last reviewer output · codex · round 2");
-		expect(container.querySelector("pre")?.textContent).toBe("tail");
-		expect(container.textContent).toContain("Showing the end of the output.");
+		expect(container.textContent).toContain("Fix prompts sent (1)");
 		expect(container.textContent).not.toContain("Reviewer running");
+		expect(container.textContent).not.toContain("tail");
 	});
 
 	it("renders nothing without a run, log or fix prompts", () => {

@@ -1,5 +1,5 @@
 import { type ChildProcess, type SpawnOptions, spawn } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -83,7 +83,8 @@ describe("buildReviewerCommand", () => {
 				"--mcp-config",
 				'{"mcpServers":{}}',
 				"--output-format",
-				"text",
+				"stream-json",
+				"--verbose",
 				"--disallowedTools",
 				"Edit",
 				"Write",
@@ -95,6 +96,7 @@ describe("buildReviewerCommand", () => {
 				"Glob",
 			],
 			promptVia: "stdin",
+			stdoutFormat: "claude-stream-json",
 		});
 		expect(buildReviewerCommand("codex")).toEqual({
 			binary: "codex",
@@ -136,9 +138,53 @@ describe("startReviewerRun", () => {
 			process.stdin.on("data", (chunk) => { input += chunk; });
 			process.stdin.on("end", () => { process.stdout.write("got: " + input); });
 		`);
-		const handle = startReviewerRun({ ...baseInput, agentId: "claude", cwd: tempDir, spawnImpl: fake.spawnImpl });
+		const handle = startReviewerRun({ ...baseInput, agentId: "codex", cwd: tempDir, spawnImpl: fake.spawnImpl });
 		await expect(handle.done).resolves.toEqual({ kind: "completed", output: "got: review this" });
-		expect(fake.calls[0]?.command).toBe("claude");
+		expect(fake.calls[0]?.command).toBe("codex");
+	});
+
+	it("streams readable claude events while the reviewer runs and returns the result text", async () => {
+		const releaseFile = join(tempDir, "release");
+		const line = (event: object) => JSON.stringify(`${JSON.stringify(event)}\n`);
+		const fake = fakeAgent(`
+			process.stdout.write(${line({ type: "system", subtype: "init", model: "m" })});
+			process.stdout.write(${line({ type: "assistant", message: { content: [{ type: "tool_use", name: "Bash", input: { command: "npm test" } }] } })});
+			const timer = setInterval(() => {
+				if (!require("node:fs").existsSync(${JSON.stringify(releaseFile)})) return;
+				clearInterval(timer);
+				process.stdout.write(${line({ type: "result", subtype: "success", result: "VERDICT" })});
+			}, 20);
+		`);
+		const chunks: string[] = [];
+		let settled = false;
+		const handle = startReviewerRun({
+			...baseInput,
+			agentId: "claude",
+			cwd: tempDir,
+			spawnImpl: fake.spawnImpl,
+			onOutput: (chunk) => chunks.push(chunk),
+		});
+		void handle.done.then(() => {
+			settled = true;
+		});
+
+		await waitFor(() => chunks.join("").includes("$ npm test"));
+		expect(settled).toBe(false);
+		expect(chunks.join("")).toBe("● Reviewer session started (m)\n$ npm test\n");
+
+		writeFileSync(releaseFile, "");
+		await expect(handle.done).resolves.toEqual({ kind: "completed", output: "VERDICT" });
+		expect(chunks.join("")).toContain("● Reviewer finished (success)\n");
+	});
+
+	it("keeps a multi-byte character split across stdout chunks intact", async () => {
+		const fake = fakeAgent(`
+			const bytes = Buffer.from("…ok");
+			process.stdout.write(bytes.subarray(0, 1));
+			setTimeout(() => process.stdout.write(bytes.subarray(1)), 50);
+		`);
+		const handle = startReviewerRun({ ...baseInput, agentId: "codex", cwd: tempDir, spawnImpl: fake.spawnImpl });
+		await expect(handle.done).resolves.toEqual({ kind: "completed", output: "…ok" });
 	});
 
 	it("streams stdout and stderr to onOutput as it arrives", async () => {
@@ -187,7 +233,7 @@ describe("startReviewerRun", () => {
 
 	it("returns completed on a non-zero exit with output", async () => {
 		const fake = fakeAgent(`process.stdout.write("partial"); process.exitCode = 1;`);
-		const handle = startReviewerRun({ ...baseInput, agentId: "claude", cwd: tempDir, spawnImpl: fake.spawnImpl });
+		const handle = startReviewerRun({ ...baseInput, agentId: "codex", cwd: tempDir, spawnImpl: fake.spawnImpl });
 		await expect(handle.done).resolves.toEqual({ kind: "completed", output: "partial" });
 	});
 

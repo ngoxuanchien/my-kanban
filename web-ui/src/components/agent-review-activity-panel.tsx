@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 
 import { Spinner } from "@/components/ui/spinner";
 import type { RuntimeAgentReviewLog, RuntimeAgentReviewState } from "@/runtime/types";
@@ -13,25 +13,9 @@ export function formatElapsed(ms: number): string {
 	return `${minutes}:${String(seconds).padStart(2, "0")}`;
 }
 
-function ReviewerOutput({ log }: { log: RuntimeAgentReviewLog }): React.ReactElement {
-	const preRef = useRef<HTMLPreElement>(null);
-	useEffect(() => {
-		const pre = preRef.current;
-		if (pre) {
-			pre.scrollTop = pre.scrollHeight;
-		}
-	}, [log.output]);
-	return (
-		<div className="space-y-1">
-			{log.truncated ? <p className="m-0 text-xs text-text-tertiary">Showing the end of the output.</p> : null}
-			<pre
-				ref={preRef}
-				className="m-0 max-h-64 overflow-auto whitespace-pre-wrap break-words rounded-md border border-border bg-surface-0 p-2 font-mono text-xs text-text-secondary"
-			>
-				{log.output || "No output yet."}
-			</pre>
-		</div>
-	);
+/** `round` is the number of fix rounds already used; the review run is one more. */
+export function getReviewerRoundLabel(round: number): string {
+	return `Round ${round + 1} · ${round}/${MAX_FIX_ROUNDS} fix rounds used`;
 }
 
 export function AgentReviewActivityPanel({
@@ -45,7 +29,7 @@ export function AgentReviewActivityPanel({
 	const [now, setNow] = useState(() => Date.now());
 	useInterval(() => setNow(Date.now()), isReviewing ? 1000 : null);
 
-	if (!isReviewing && !log && state.fixPrompts.length === 0) {
+	if (!isReviewing && state.fixPrompts.length === 0) {
 		return null;
 	}
 	// Until the next poll lands, the log can still belong to the previous run.
@@ -55,27 +39,14 @@ export function AgentReviewActivityPanel({
 	return (
 		<section className="space-y-2 rounded-lg border border-border bg-surface-2 p-3 text-sm">
 			{isReviewing ? (
-				<div className="space-y-2">
-					<div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-						<Spinner size={14} />
-						<strong className="text-text-primary">Reviewer running</strong>
-						<span className="text-text-secondary">{currentLog?.reviewerAgentId ?? "Starting…"}</span>
-						<span className="text-text-secondary">
-							Round {state.round + 1} · {state.round}/{MAX_FIX_ROUNDS} fix rounds used
-						</span>
-						<span className="font-mono text-text-secondary">{formatElapsed(now - startedAt)}</span>
-					</div>
-					{currentLog ? <ReviewerOutput log={currentLog} /> : null}
+				<div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+					<Spinner size={14} />
+					<strong className="text-text-primary">Reviewer running</strong>
+					<span className="text-text-secondary">{currentLog?.reviewerAgentId ?? "Starting…"}</span>
+					<span className="text-text-secondary">{getReviewerRoundLabel(state.round)}</span>
+					<span className="font-mono text-text-secondary">{formatElapsed(now - startedAt)}</span>
+					<span className="text-text-tertiary">Live output in the Reviewer tab</span>
 				</div>
-			) : log ? (
-				<details>
-					<summary className="cursor-pointer text-text-secondary">
-						Last reviewer output · {log.reviewerAgentId} · round {log.round + 1}
-					</summary>
-					<div className="mt-2">
-						<ReviewerOutput log={log} />
-					</div>
-				</details>
 			) : null}
 			{state.fixPrompts.length > 0 ? (
 				<details>

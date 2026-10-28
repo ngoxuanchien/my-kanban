@@ -6,6 +6,7 @@ import treeKill from "tree-kill";
 import type { ClineTaskSessionService } from "../cline-sdk/cline-task-session-service";
 import { getRuntimeAgentCatalogEntry, isRuntimeAgentLaunchSupported } from "../core/agent-catalog";
 import type { RuntimeAgentId, RuntimeTaskSessionSummary } from "../core/api-contract";
+import { createClaudeStreamParser } from "./claude-stream-json";
 
 const MAX_CAPTURED_OUTPUT_CHARS = 1024 * 1024;
 
@@ -26,6 +27,8 @@ export interface ReviewerCommand {
 	args: string[];
 	promptVia: "stdin" | "arg";
 	env?: Record<string, string>;
+	/** stdout is Claude stream-json: shown as readable lines, verdict taken from the result event. */
+	stdoutFormat?: "claude-stream-json";
 }
 
 // OpenCode run has no read-only flag. This config is applied last, so its edit deny beats user/agent
@@ -53,7 +56,7 @@ export interface StartReviewerRunInput {
 	clineService?: ReviewerClineService;
 	/** Session key for Cline runs: "agent-review:<taskId>". Never the task's own id. */
 	reviewKey: string;
-	/** Receives stdout/stderr as it arrives (process runs only). */
+	/** Receives readable stdout/stderr as it arrives (process runs only). */
 	onOutput?: (chunk: string) => void;
 	spawnImpl?: SpawnReviewer;
 }
@@ -74,7 +77,8 @@ export function buildReviewerCommand(agentId: RuntimeAgentId): ReviewerCommand |
 					"--mcp-config",
 					'{"mcpServers":{}}',
 					"--output-format",
-					"text",
+					"stream-json",
+					"--verbose",
 					"--disallowedTools",
 					"Edit",
 					"Write",
@@ -86,8 +90,10 @@ export function buildReviewerCommand(agentId: RuntimeAgentId): ReviewerCommand |
 					"Glob",
 				],
 				promptVia: "stdin",
+				stdoutFormat: "claude-stream-json",
 			};
 		// Codex and OpenCode have no MCP-specific flag to disable every configured server.
+		// The others print readable progress as they go, so their raw output is shown.
 		case "codex":
 			return { binary: entry.binary, args: ["exec", "-", ...entry.autonomousArgs], promptVia: "stdin" };
 		case "droid":
@@ -161,15 +167,29 @@ function startProcessReviewerRun(command: ReviewerCommand, input: StartReviewerR
 		stdio: [command.promptVia === "stdin" ? "pipe" : "ignore", "pipe", "pipe"],
 	});
 
-	const capture = (chunk: Buffer) => {
-		const text = chunk.toString("utf8");
-		input.onOutput?.(text);
+	const streamParser = command.stdoutFormat === "claude-stream-json" ? createClaudeStreamParser() : null;
+	const emit = (text: string) => {
+		if (text) {
+			input.onOutput?.(text);
+		}
+	};
+	const capture = (text: string) => {
+		emit(text);
 		output += text;
 		if (output.length > MAX_CAPTURED_OUTPUT_CHARS) {
 			output = output.slice(-MAX_CAPTURED_OUTPUT_CHARS);
 		}
 	};
-	child.stdout?.on("data", capture);
+	// setEncoding keeps a multi-byte character split across chunks intact.
+	child.stdout?.setEncoding("utf8");
+	child.stderr?.setEncoding("utf8");
+	child.stdout?.on("data", (text: string) => {
+		if (streamParser) {
+			emit(streamParser.push(text));
+		} else {
+			capture(text);
+		}
+	});
 	child.stderr?.on("data", capture);
 
 	if (command.promptVia === "stdin" && child.stdin) {
@@ -204,8 +224,14 @@ function startProcessReviewerRun(command: ReviewerCommand, input: StartReviewerR
 			settle({ kind: stopReason });
 			return;
 		}
-		if (code === 0 || output.trim().length > 0) {
-			settle({ kind: "completed", output });
+		let finalOutput = output;
+		if (streamParser) {
+			const finished = streamParser.finish();
+			emit(finished.display);
+			finalOutput = finished.output;
+		}
+		if (code === 0 || finalOutput.trim().length > 0) {
+			settle({ kind: "completed", output: finalOutput });
 			return;
 		}
 		settle({

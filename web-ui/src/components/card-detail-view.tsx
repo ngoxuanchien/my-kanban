@@ -6,6 +6,7 @@ import { useHotkeys } from "react-hotkeys-hook";
 import { AgentReviewActivityPanel } from "@/components/agent-review-activity-panel";
 import { AgentReviewResultPanel } from "@/components/agent-review-result-panel";
 import { AgentReviewStatusBadge } from "@/components/agent-review-status-badge";
+import { AgentReviewerTabs } from "@/components/detail-panels/agent-reviewer-tabs";
 import { AgentTerminalPanel } from "@/components/detail-panels/agent-terminal-panel";
 import { ClineAgentChatPanel, type ClineAgentChatPanelHandle } from "@/components/detail-panels/cline-agent-chat-panel";
 import { ColumnContextPanel } from "@/components/detail-panels/column-context-panel";
@@ -642,7 +643,7 @@ export function CardDetailView({
 
 	const showBottomTerminal = bottomTerminalOpen && !!bottomTerminalTaskId;
 
-	const agentChatPanel = showClineAgentChatPanel ? (
+	const taskAgentPanel = showClineAgentChatPanel ? (
 		<ClineAgentChatPanel
 			ref={clineAgentChatPanelRef}
 			taskId={selection.card.id}
@@ -710,6 +711,11 @@ export function CardDetailView({
 			cursorColor={terminalThemeColors.textPrimary}
 			taskColumnId={selection.column.id}
 		/>
+	);
+	const agentChatPanel = selection.card.agentReview ? (
+		<AgentReviewerTabs agentPanel={taskAgentPanel} state={selection.card.agentReview} log={agentReviewLog} />
+	) : (
+		taskAgentPanel
 	);
 
 	if (isMobile) {
