@@ -394,6 +394,44 @@ describe("board dependency state", () => {
 		expect(inProgressColumn?.cards.map((card) => card.id)).toEqual([taskA, taskC]);
 	});
 
+	it("ignores a drop whose card is no longer at its source index", () => {
+		const { board, taskIdByPrompt } = createBacklogBoard(["Task A", "Task B"]);
+		const taskA = taskIdByPrompt["Task A"];
+		const taskB = taskIdByPrompt["Task B"];
+		if (!taskA || !taskB) {
+			throw new Error("Expected task ids.");
+		}
+		const movedA = moveTaskToColumn(board, taskA, "in_progress");
+		const movedB = moveTaskToColumn(movedA.board, taskB, "in_progress", { insertAtTop: true });
+		// A newer board state already moved A to review while its programmatic drag from in_progress[1] was in flight.
+		const movedAToReview = moveTaskToColumn(movedB.board, taskA, "review");
+
+		const applied = applyDragResult(
+			movedAToReview.board,
+			{
+				draggableId: taskA,
+				type: "CARD",
+				source: { droppableId: "in_progress", index: 0 },
+				destination: { droppableId: "review", index: 0 },
+				mode: "FLUID",
+				reason: "DROP",
+				combine: null,
+			},
+			{
+				programmaticCardMoveInFlight: {
+					taskId: taskA,
+					fromColumnId: "in_progress",
+					toColumnId: "review",
+					insertAtTop: true,
+				},
+			},
+		);
+
+		expect(applied.moveEvent).toBeUndefined();
+		expect(getTaskColumnId(applied.board, taskA)).toBe("review");
+		expect(getTaskColumnId(applied.board, taskB)).toBe("in_progress");
+	});
+
 	it("preserves manual cross-column trash drop positions", () => {
 		const fixture = createBacklogBoard(["Task A", "Task B", "Task C"]);
 		const taskA = requireTaskId(fixture.taskIdByPrompt["Task A"], "Task A");

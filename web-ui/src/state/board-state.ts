@@ -441,7 +441,8 @@ export function applyDragResult(
 	}
 
 	const sourceCards = Array.from(sourceColumn.cards);
-	const [movedCard] = sourceCards.splice(source.index, 1);
+	// The board can change mid-drag (e.g. the runtime already moved this card), so `source.index` may be stale.
+	const [movedCard] = sourceCards[source.index]?.id === result.draggableId ? sourceCards.splice(source.index, 1) : [];
 	if (!movedCard) {
 		return { board };
 	}

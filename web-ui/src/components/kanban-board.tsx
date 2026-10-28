@@ -8,7 +8,7 @@ import {
 	type SensorAPI,
 	type SnapDragActions,
 } from "@hello-pangea/dnd";
-import type { ReactNode } from "react";
+import type { MouseEvent as ReactMouseEvent, ReactNode } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { BoardColumn } from "@/components/board-column";
@@ -18,13 +18,21 @@ import type { RuntimeTaskSessionSummary } from "@/runtime/types";
 import { canCreateTaskDependency } from "@/state/board-state";
 import { findCardColumnId, type ProgrammaticCardMoveInFlight } from "@/state/drag-rules";
 import type { BoardCard, BoardColumnId, BoardData, BoardDependency } from "@/types";
+import { useUnmount } from "@/utils/react-use";
 
 const BOARD_COLUMN_ORDER: BoardColumnId[] = ["backlog", "in_progress", "review", "user_review", "trash"];
+// hello-pangea's longest drop animation (maxDropTime) plus a frame of slack.
+const PROGRAMMATIC_DROP_SETTLE_DELAY_MS = 550 + 50;
+const PROGRAMMATIC_DROP_SETTLE_RETRY_MS = 50;
 
 export type RequestProgrammaticCardMove = (move: ProgrammaticCardMoveInFlight) => boolean;
 
 function isRectVerticallyVisibleWithinContainer(rect: DOMRect, containerRect: DOMRect): boolean {
 	return rect.top >= containerRect.top && rect.bottom <= containerRect.bottom;
+}
+
+function isPointInsideRect(x: number, y: number, rect: DOMRect): boolean {
+	return x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
 }
 
 export function KanbanBoard({
@@ -87,6 +95,8 @@ export function KanbanBoard({
 	const sensorApiRef = useRef<SensorAPI | null>(null);
 	const latestDataRef = useRef<BoardData>(data);
 	const programmaticCardMoveInFlightRef = useRef<ProgrammaticCardMoveInFlight | null>(null);
+	const programmaticDragActionsRef = useRef<FluidDragActions | SnapDragActions | null>(null);
+	const programmaticDropSettleTimeoutRef = useRef<number | null>(null);
 	const [activeDragTaskId, setActiveDragTaskId] = useState<string | null>(null);
 
 	const [activeDragSourceColumnId, setActiveDragSourceColumnId] = useState<BoardColumnId | null>(null);
@@ -190,8 +200,36 @@ export function KanbanBoard({
 			return;
 		}
 		programmaticCardMoveInFlightRef.current = null;
+		programmaticDragActionsRef.current = null;
 		setProgrammaticCardMoveInFlight(null);
 	}, []);
+
+	const clearProgrammaticDropSettle = useCallback(() => {
+		if (programmaticDropSettleTimeoutRef.current !== null) {
+			window.clearTimeout(programmaticDropSettleTimeoutRef.current);
+			programmaticDropSettleTimeoutRef.current = null;
+		}
+	}, []);
+
+	// hello-pangea only finishes a drop animation on the dropped card's `transitionend`. If the card remounts
+	// mid-drop (e.g. a newer board state already placed it in the target column), that event never fires and the
+	// drag stays in DROP_ANIMATING: no onDragEnd, the card keeps `pointer-events: none`, and every later
+	// programmatic move is blocked. hello-pangea also ends a drop animation on any window scroll, so nudge it.
+	const settleProgrammaticDrop = useCallback(
+		(move: ProgrammaticCardMoveInFlight, delayMs: number) => {
+			clearProgrammaticDropSettle();
+			const settle = () => {
+				programmaticDropSettleTimeoutRef.current = null;
+				if (programmaticCardMoveInFlightRef.current !== move) {
+					return;
+				}
+				window.dispatchEvent(new Event("scroll"));
+				programmaticDropSettleTimeoutRef.current = window.setTimeout(settle, PROGRAMMATIC_DROP_SETTLE_RETRY_MS);
+			};
+			programmaticDropSettleTimeoutRef.current = window.setTimeout(settle, delayMs);
+		},
+		[clearProgrammaticDropSettle],
+	);
 
 	const requestProgrammaticCardMove = useCallback<RequestProgrammaticCardMove>(
 		(move) => {
@@ -217,6 +255,7 @@ export function KanbanBoard({
 			}
 
 			const horizontalSteps = targetOrderIndex - sourceOrderIndex;
+			clearProgrammaticDropSettle();
 			programmaticCardMoveInFlightRef.current = move;
 			setProgrammaticCardMoveInFlight(move);
 			const preDrag = sensorApi.tryGetLock(taskId);
@@ -240,6 +279,7 @@ export function KanbanBoard({
 					}
 					return false;
 				}
+				programmaticDragActionsRef.current = dragActions;
 
 				const startClientSelection = getElementClientCenter(sourceCardElement);
 				const startTime = performance.now();
@@ -261,6 +301,7 @@ export function KanbanBoard({
 						});
 						if (progress >= 1) {
 							dragActions.drop();
+							settleProgrammaticDrop(move, PROGRAMMATIC_DROP_SETTLE_DELAY_MS);
 							return;
 						}
 						window.requestAnimationFrame(animate);
@@ -286,6 +327,7 @@ export function KanbanBoard({
 				}
 				return false;
 			}
+			programmaticDragActionsRef.current = dragActions;
 
 			const moveOneStep = horizontalSteps > 0 ? dragActions.moveRight : dragActions.moveLeft;
 			const moveSteps: Array<() => void> = [];
@@ -300,6 +342,7 @@ export function KanbanBoard({
 				try {
 					if (stepIndex >= moveSteps.length) {
 						dragActions.drop();
+						settleProgrammaticDrop(move, PROGRAMMATIC_DROP_SETTLE_DELAY_MS);
 						return;
 					}
 					moveSteps[stepIndex]?.();
@@ -324,9 +367,62 @@ export function KanbanBoard({
 		[
 			canAnimateProgrammaticTopInsertion,
 			clearProgrammaticCardMoveInFlight,
+			clearProgrammaticDropSettle,
 			getElementClientCenter,
 			getProgrammaticTopTargetClientSelection,
+			settleProgrammaticDrop,
 		],
+	);
+
+	// hello-pangea never calls onDragEnd if the board unmounts mid-drag, so report the move as canceled
+	// ourselves; otherwise the parent keeps it in flight and blocks every later programmatic move.
+	useUnmount(() => {
+		clearProgrammaticDropSettle();
+		const move = programmaticCardMoveInFlightRef.current;
+		if (!move) {
+			return;
+		}
+		programmaticCardMoveInFlightRef.current = null;
+		const sourceColumn = latestDataRef.current.columns.find((column) => column.id === move.fromColumnId);
+		onDragEnd({
+			draggableId: move.taskId,
+			type: "CARD",
+			source: {
+				droppableId: move.fromColumnId,
+				index: Math.max(0, sourceColumn?.cards.findIndex((card) => card.id === move.taskId) ?? 0),
+			},
+			reason: "CANCEL",
+			mode: "FLUID",
+			destination: null,
+			combine: null,
+		});
+	});
+
+	// The moving card has `pointer-events: none`, so a click aimed at it lands on whatever is underneath.
+	// Hit-test it ourselves so the user's click wins: finish the move right away and open the card.
+	const handleBoardClickCapture = useCallback(
+		(event: ReactMouseEvent<HTMLElement>) => {
+			const move = programmaticCardMoveInFlightRef.current;
+			if (!move || move.fromColumnId === "trash") {
+				return;
+			}
+			const movingCardElement = document.querySelector<HTMLElement>(`[data-rfd-draggable-id="${move.taskId}"]`);
+			if (
+				!movingCardElement ||
+				!isPointInsideRect(event.clientX, event.clientY, movingCardElement.getBoundingClientRect())
+			) {
+				return;
+			}
+			event.preventDefault();
+			event.stopPropagation();
+			const dragActions = programmaticDragActionsRef.current;
+			if (dragActions?.isActive()) {
+				dragActions.drop();
+			}
+			settleProgrammaticDrop(move, 0);
+			onCardSelect(move.taskId);
+		},
+		[onCardSelect, settleProgrammaticDrop],
 	);
 
 	useEffect(() => {
@@ -344,7 +440,11 @@ export function KanbanBoard({
 		[data],
 	);
 
-	const handleDragStart = useCallback((_start: DragStart) => {
+	const handleDragStart = useCallback((start: DragStart) => {
+		// Only a user drag should swallow the click that ends it; runtime-driven moves must not block clicks.
+		if (programmaticCardMoveInFlightRef.current?.taskId === start.draggableId) {
+			return;
+		}
 		dragOccurredRef.current = true;
 	}, []);
 
@@ -379,6 +479,7 @@ export function KanbanBoard({
 				ref={boardRef}
 				className="kb-board kb-dependency-surface"
 				data-programmatic-card-move={programmaticCardMoveInFlight ? "true" : undefined}
+				onClickCapture={handleBoardClickCapture}
 			>
 				{data.columns.map((column) => (
 					<BoardColumn
