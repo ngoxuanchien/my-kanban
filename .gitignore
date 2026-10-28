@@ -26,3 +26,9 @@ packages/desktop/runtime-child.js
 packages/desktop/runtime-child-env.js
 packages/desktop/desktop-preflight.js
 packages/desktop/cli
+
+# Local-only harness files (never committed; Kanban symlinks them into task worktrees)
+CLAUDE.local.md
+.claude/settings.local.json
+/contexte/
+/livrables/
