@@ -258,54 +258,27 @@ describe("prepareAgentLaunch hook strategies", () => {
 		expect(plugin).toContain('currentState = "idle"');
 	});
 
-	it("loads OpenCode preferred model from LOCALAPPDATA state and auth paths", async () => {
+	it("builds OpenCode v2 TUI args without --model even when OpenCode model state exists", async () => {
 		const homePath = setupTempHome();
-		const localAppDataPath = join(homePath, "AppData", "Local");
-		process.env.LOCALAPPDATA = localAppDataPath;
-
-		const statePath = join(localAppDataPath, "opencode", "state");
+		const statePath = join(homePath, ".local", "state", "opencode");
 		mkdirSync(statePath, { recursive: true });
 		writeFileSync(
 			join(statePath, "model.json"),
-			JSON.stringify(
-				{
-					recent: [
-						{ providerID: "anthropic", modelID: "claude-3-7-sonnet" },
-						{ providerID: "openai", modelID: "gpt-4o" },
-					],
-				},
-				null,
-				2,
-			),
-			"utf8",
-		);
-
-		const authPath = join(localAppDataPath, "opencode");
-		mkdirSync(authPath, { recursive: true });
-		writeFileSync(
-			join(authPath, "auth.json"),
-			JSON.stringify(
-				{
-					openai: { key: "sk-test" },
-				},
-				null,
-				2,
-			),
+			JSON.stringify({ recent: [{ providerID: "opencode", modelID: "big-pickle" }] }),
 			"utf8",
 		);
 
 		const launch = await prepareAgentLaunch({
-			taskId: "task-opencode-model",
+			taskId: "task-opencode-v2-args",
 			agentId: "opencode",
 			binary: "opencode",
 			args: [],
+			autonomousModeEnabled: true,
 			cwd: "/tmp",
-			prompt: "",
+			prompt: "  Fix the bug  ",
 		});
 
-		const modelIndex = launch.args.indexOf("--model");
-		expect(modelIndex).toBeGreaterThan(-1);
-		expect(launch.args[modelIndex + 1]).toBe("openai/gpt-4o");
+		expect(launch.args).toEqual(["--auto", "--prompt", "Fix the bug"]);
 	});
 
 	it("writes Droid settings with hook transitions and runtime autonomy mode", async () => {
