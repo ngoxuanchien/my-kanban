@@ -110,7 +110,19 @@ describe("buildReviewerCommand", () => {
 		});
 		expect(buildReviewerCommand("cline")).toBeNull();
 		expect(buildReviewerCommand("gemini")).toBeNull();
-		expect(buildReviewerCommand("opencode")).toBeNull();
+		expect(buildReviewerCommand("opencode")).toEqual({
+			binary: "opencode",
+			args: ["run", "--standalone", "--auto"],
+			promptVia: "arg",
+			env: {
+				OPENCODE_CONFIG_CONTENT: JSON.stringify({
+					permissions: [
+						{ action: "edit", resource: "*", effect: "deny" },
+						{ action: "question", resource: "*", effect: "deny" },
+					],
+				}),
+			},
+		});
 	});
 });
 
@@ -131,6 +143,22 @@ describe("startReviewerRun", () => {
 		const handle = startReviewerRun({ ...baseInput, agentId: "kiro", cwd: tempDir, spawnImpl: fake.spawnImpl });
 		await expect(handle.done).resolves.toEqual({ kind: "completed", output: "ok" });
 		expect(fake.calls[0]?.args.at(-1)).toBe("review this");
+	});
+
+	it("runs opencode with the prompt as an arg, the read-only config and PWD set to cwd", async () => {
+		const fake = fakeAgent(
+			`process.stdout.write(JSON.stringify({ config: process.env.OPENCODE_CONFIG_CONTENT, pwd: process.env.PWD }))`,
+		);
+		const handle = startReviewerRun({ ...baseInput, agentId: "opencode", cwd: tempDir, spawnImpl: fake.spawnImpl });
+		const outcome = await handle.done;
+		expect(outcome.kind).toBe("completed");
+		const env = outcome.kind === "completed" ? JSON.parse(outcome.output) : null;
+		expect(JSON.parse(env.config).permissions[0]).toEqual({ action: "edit", resource: "*", effect: "deny" });
+		expect(env.pwd).toBe(tempDir);
+		expect(fake.calls[0]).toEqual({
+			command: "opencode",
+			args: ["run", "--standalone", "--auto", "review this"],
+		});
 	});
 
 	it("returns crashed on a non-zero exit with no output", async () => {

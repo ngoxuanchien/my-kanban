@@ -25,7 +25,17 @@ export interface ReviewerCommand {
 	binary: string;
 	args: string[];
 	promptVia: "stdin" | "arg";
+	env?: Record<string, string>;
 }
+
+// OpenCode run has no read-only flag. This config is applied last, so its edit deny beats user/agent
+// rules that --auto would otherwise approve; question is denied because nobody can answer it.
+const OPENCODE_REVIEWER_CONFIG = JSON.stringify({
+	permissions: [
+		{ action: "edit", resource: "*", effect: "deny" },
+		{ action: "question", resource: "*", effect: "deny" },
+	],
+});
 
 type SpawnReviewer = (command: string, args: string[], options: SpawnOptions) => ChildProcess;
 
@@ -78,6 +88,14 @@ export function buildReviewerCommand(agentId: RuntimeAgentId): ReviewerCommand |
 			return { binary: entry.binary, args: ["exec", ...entry.autonomousArgs], promptVia: "arg" };
 		case "kiro":
 			return { binary: entry.binary, args: ["chat", "--no-interactive", "--trust-all-tools"], promptVia: "arg" };
+		case "opencode":
+			// --standalone: private server per run, so the tree kill also stops it (see task launches).
+			return {
+				binary: entry.binary,
+				args: ["run", "--standalone", ...entry.autonomousArgs],
+				promptVia: "arg",
+				env: { OPENCODE_CONFIG_CONTENT: OPENCODE_REVIEWER_CONFIG },
+			};
 		default:
 			return null;
 	}
@@ -131,7 +149,8 @@ function startProcessReviewerRun(command: ReviewerCommand, input: StartReviewerR
 	const args = command.promptVia === "arg" ? [...command.args, input.prompt] : command.args;
 	const child = (input.spawnImpl ?? spawn)(command.binary, args, {
 		cwd: input.cwd,
-		env: process.env,
+		// OpenCode resolves its project directory from PWD, not the process cwd.
+		env: { ...process.env, ...command.env, PWD: input.cwd },
 		detached: true,
 		stdio: [command.promptVia === "stdin" ? "pipe" : "ignore", "pipe", "pipe"],
 	});
