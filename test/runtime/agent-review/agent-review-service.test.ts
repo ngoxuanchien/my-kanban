@@ -1,5 +1,5 @@
-import { type ChildProcess, type SpawnOptions, spawn, spawnSync } from "node:child_process";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from "vitest";
@@ -10,7 +10,6 @@ import {
 	createAgentReviewService,
 	TASK_TURN_START_TIMEOUT_MS,
 } from "../../../src/agent-review/agent-review-service";
-import { AGENT_REVIEW_RESULT_END, AGENT_REVIEW_RESULT_START } from "../../../src/agent-review/reviewer-output";
 import {
 	type ReviewerRunHandle,
 	type ReviewerRunOutcome,
@@ -102,7 +101,7 @@ function reviewerOutput(result: Partial<RuntimeAgentReviewResult>): string {
 		notes: null,
 		...result,
 	};
-	return `Reviewed.\n${AGENT_REVIEW_RESULT_START}\n${JSON.stringify(full)}\n${AGENT_REVIEW_RESULT_END}\n`;
+	return JSON.stringify(full);
 }
 
 const PASS_OUTPUT = reviewerOutput({});
@@ -395,7 +394,7 @@ describe.sequential("AgentReviewService", () => {
 	it("reviews on turn end, passes, commits and completes to Done with meta saved before the worktree is deleted", async () => {
 		addChange();
 		await startService([{ card: createCard("A"), columnId: "in_progress" }]);
-		scriptOutcome({ kind: "completed", output: PASS_OUTPUT });
+		scriptOutcome({ kind: "completed", verdict: PASS_OUTPUT });
 
 		emit(turnEnd("A"));
 		await waitForReview("A", { status: "committing" });
@@ -435,7 +434,7 @@ describe.sequential("AgentReviewService", () => {
 		expect(broadcasts).toBeGreaterThan(0);
 	});
 
-	it("exposes the reviewer's live output and keeps it after the run ends", async () => {
+	it("exposes the reviewer run and gives it a verdict file outside the worktree, removed after the run", async () => {
 		addChange();
 		await startService([{ card: createCard("A"), columnId: "in_progress" }]);
 		const run = scriptDeferred();
@@ -443,44 +442,50 @@ describe.sequential("AgentReviewService", () => {
 		emit(turnEnd("A"));
 		await vi.waitFor(() => expect(reviewerInputs).toHaveLength(1));
 		expect(service?.getReviewerLog("A")).toMatchObject({ reviewerAgentId: "cline", round: 0, finishedAt: null });
-		reviewerInputs[0]?.onOutput?.("checking tests\n");
-		expect(service?.getReviewerLog("A")?.output).toBe("checking tests\n");
+		const input = reviewerInputs[0];
+		expect(input).toMatchObject({ workspaceId: "workspace-1", reviewKey: "agent-review:A" });
+		expect(input?.verdictPath.startsWith(repoPath)).toBe(false);
+		expect(input?.prompt).toContain(input?.verdictPath);
+		expect(existsSync(join(input?.verdictPath ?? "", ".."))).toBe(true);
 
 		run.resolve({ kind: "crashed", error: "boom" });
-		await waitForReview("A", { status: "needs_user", reason: "reviewer_crashed" });
-		expect(service?.getReviewerLog("A")).toMatchObject({ output: "checking tests\n\nboom" });
+		await waitForReview("A", { status: "needs_user", reason: "reviewer_crashed", reasonDetail: "boom" });
 		expect(service?.getReviewerLog("A")?.finishedAt).toEqual(expect.any(Number));
 		expect(service?.getReviewerLog("B")).toBeNull();
+		await vi.waitFor(() => expect(existsSync(join(input?.verdictPath ?? "", ".."))).toBe(false));
 	});
 
-	it("streams a real claude reviewer process into the log while it runs, then passes to Done", async () => {
+	it("runs a PTY reviewer that writes its verdict file, ends its session and passes to Done", async () => {
 		addChange();
 		configOverrides = { reviewerAgent: "claude" };
-		const releaseDir = createTempDir("kanban-reviewer-release-");
-		cleanups.push(releaseDir.cleanup);
-		const releaseFile = join(releaseDir.path, "release");
-		const line = (event: object) => JSON.stringify(`${JSON.stringify(event)}\n`);
-		const script = `
-			process.stdout.write(${line({ type: "assistant", message: { content: [{ type: "tool_use", name: "Bash", input: { command: "npm test" } }] } })});
-			const timer = setInterval(() => {
-				if (!require("node:fs").existsSync(${JSON.stringify(releaseFile)})) return;
-				clearInterval(timer);
-				process.stdout.write(${line({ type: "assistant", message: { content: [{ type: "text", text: PASS_OUTPUT }] } })});
-				process.stdout.write(${line({ type: "result", subtype: "success", result: PASS_OUTPUT })});
-			}, 20);
-		`;
-		const spawnImpl = (_command: string, _args: string[], options: SpawnOptions): ChildProcess =>
-			spawn(process.execPath, ["-e", script], options);
-		reviewerScripts.push((input) => startReviewerRun({ ...input, isAgentInstalled: () => true, spawnImpl }));
+		const stopped: string[] = [];
+		const exitListeners: Array<(code: number | null) => void> = [];
+		const terminalManager = {
+			startTaskSession: async () => summary("agent-review:A", {}),
+			stopTaskSession: (taskId: string) => {
+				stopped.push(taskId);
+				setTimeout(() => {
+					for (const onExit of exitListeners) onExit(null);
+				}, 0);
+				return null;
+			},
+			attach: (_taskId: string, listener: { onExit?: (code: number | null) => void }) => {
+				if (listener.onExit) exitListeners.push(listener.onExit);
+				return () => {};
+			},
+		};
+		reviewerScripts.push((input) =>
+			startReviewerRun({ ...input, isAgentInstalled: () => true, terminalManager, pollIntervalMs: 20 }),
+		);
 		await startService([{ card: createCard("A"), columnId: "in_progress" }]);
 
 		emit(turnEnd("A"));
-		await vi.waitFor(() => expect(service?.getReviewerLog("A")?.output).toBe("$ npm test\n"), { timeout: 5000 });
-		expect(service?.getReviewerLog("A")).toMatchObject({ reviewerAgentId: "claude", finishedAt: null });
+		await vi.waitFor(() => expect(reviewerInputs).toHaveLength(1));
 		expect((await findCard("A"))?.agentReview?.status).toBe("reviewing");
+		writeFileSync(reviewerInputs[0]?.verdictPath ?? "", PASS_OUTPUT);
 
-		writeFileSync(releaseFile, "");
 		await waitForReview("A", { status: "committing" });
+		expect(stopped).toEqual(["agent-review:A"]);
 		emit(running("A"));
 		await waitForColumn("A", "in_progress");
 		git(repoPath, ["add", "-A"]);
@@ -488,11 +493,30 @@ describe.sequential("AgentReviewService", () => {
 		emit(turnEnd("A"));
 		await waitForColumn("A", "trash");
 		expect((await findCard("A", "trash"))?.agentReview?.meta).toMatchObject({ reviewerAgentId: "claude" });
+		expect(service?.getReviewerLog("A")).toMatchObject({ reviewerAgentId: "claude", finishedAt: expect.any(Number) });
+	});
 
-		const log = service?.getReviewerLog("A");
-		expect(log?.output).toContain("$ npm test\nReviewed.\n");
-		expect(log?.output).toContain("● Reviewer finished (success)\n");
-		expect(log?.finishedAt).toEqual(expect.any(Number));
+	it("sends the card to needs_user when the verdict file is missing or malformed", async () => {
+		addChange();
+		await startService([
+			{ card: createCard("A"), columnId: "in_progress" },
+			{ card: createCard("B"), columnId: "in_progress" },
+		]);
+		scriptOutcome({ kind: "completed", verdict: null });
+		scriptOutcome({ kind: "completed", verdict: "{not json" });
+
+		emit(turnEnd("A"));
+		await waitForReview("A", {
+			status: "needs_user",
+			reason: "reviewer_bad_output",
+			reasonDetail: "reviewer did not write the verdict file",
+		});
+		emit(turnEnd("B"));
+		await waitForReview("B", {
+			status: "needs_user",
+			reason: "reviewer_bad_output",
+			reasonDetail: "verdict file contains invalid JSON",
+		});
 	});
 
 	it("cross reviewer reviews an opencode task with codex", async () => {
@@ -516,7 +540,7 @@ describe.sequential("AgentReviewService", () => {
 	it("sends a fix prompt on fail and moves the card to in_progress when the agent runs", async () => {
 		addChange();
 		await startService([{ card: createCard("A"), columnId: "in_progress" }]);
-		scriptOutcome({ kind: "completed", output: failOutput("1. Fix the button.") });
+		scriptOutcome({ kind: "completed", verdict: failOutput("1. Fix the button.") });
 
 		emit(turnEnd("A"));
 		await waitForReview("A", { status: "fixing", round: 1, fixPrompts: ["1. Fix the button."] });
@@ -532,7 +556,7 @@ describe.sequential("AgentReviewService", () => {
 		addChange();
 		await startService([{ card: createCard("A"), columnId: "in_progress" }]);
 		for (let round = 1; round <= 4; round += 1) {
-			scriptOutcome({ kind: "completed", output: failOutput(`fix ${round}`) });
+			scriptOutcome({ kind: "completed", verdict: failOutput(`fix ${round}`) });
 		}
 
 		for (let round = 1; round <= 3; round += 1) {
@@ -579,7 +603,7 @@ describe.sequential("AgentReviewService", () => {
 			{ card: createCard("B"), columnId: "in_progress" },
 		]);
 		const first = scriptDeferred();
-		scriptOutcome({ kind: "completed", output: CANNOT_VERIFY_OUTPUT });
+		scriptOutcome({ kind: "completed", verdict: CANNOT_VERIFY_OUTPUT });
 
 		emit(turnEnd("A"));
 		emit(turnEnd("B"));
@@ -587,7 +611,7 @@ describe.sequential("AgentReviewService", () => {
 		await settle();
 		expect(reviewerInputs.map((input) => input.reviewKey)).toEqual(["agent-review:A"]);
 
-		first.resolve({ kind: "completed", output: CANNOT_VERIFY_OUTPUT });
+		first.resolve({ kind: "completed", verdict: CANNOT_VERIFY_OUTPUT });
 		await waitForReview("B", { status: "needs_user", reason: "cannot_verify" });
 		expect(reviewerInputs.map((input) => input.reviewKey)).toEqual(["agent-review:A", "agent-review:B"]);
 		await waitForReview("A", { status: "needs_user", reason: "cannot_verify" });
@@ -596,7 +620,7 @@ describe.sequential("AgentReviewService", () => {
 	it("reviewer that edits a tracked file sends the task to user_review with the path", async () => {
 		addChange();
 		await startService([{ card: createCard("A"), columnId: "in_progress" }]);
-		scriptOutcome({ kind: "completed", output: PASS_OUTPUT }, (input) => {
+		scriptOutcome({ kind: "completed", verdict: PASS_OUTPUT }, (input) => {
 			writeFileSync(join(input.cwd, "README.md"), "rewritten\n");
 		});
 
@@ -627,7 +651,7 @@ describe.sequential("AgentReviewService", () => {
 
 			expect((await findCard("A"))?.agentReview).toBeUndefined();
 
-			run.resolve({ kind: "completed", output: PASS_OUTPUT });
+			run.resolve({ kind: "completed", verdict: PASS_OUTPUT });
 			await settle();
 			const final = await loadWorkspaceState(repoPath);
 			expect(final.revision).toBe(afterMove.revision);
@@ -646,7 +670,7 @@ describe.sequential("AgentReviewService", () => {
 			await vi.waitFor(() => expect(run.cancel).toHaveBeenCalled(), { timeout: 5000 });
 			const afterDelete = await loadWorkspaceState(repoPath);
 
-			run.resolve({ kind: "completed", output: PASS_OUTPUT });
+			run.resolve({ kind: "completed", verdict: PASS_OUTPUT });
 			await settle();
 			expect((await loadWorkspaceState(repoPath)).revision).toBe(afterDelete.revision);
 			expect(await columnOf("A")).toBeNull();
@@ -672,13 +696,13 @@ describe.sequential("AgentReviewService", () => {
 		await vi.waitFor(() => expect(run.cancel).toHaveBeenCalled(), { timeout: 5000 });
 		await waitForReview("A", { round: 0, fixPrompts: [] });
 
-		run.resolve({ kind: "completed", output: failOutput("stale") });
+		run.resolve({ kind: "completed", verdict: failOutput("stale") });
 		await settle();
 		expect(sentPrompts).toHaveLength(0);
 
 		// The stale run is replaced, not dropped: the card must not stay "reviewing" with no reviewer.
 		await vi.waitFor(() => expect(reviewerInputs).toHaveLength(2), { timeout: 5000 });
-		rerun.resolve({ kind: "completed", output: CANNOT_VERIFY_OUTPUT });
+		rerun.resolve({ kind: "completed", verdict: CANNOT_VERIFY_OUTPUT });
 		await waitForReview("A", { status: "needs_user", reason: "cannot_verify", round: 0 });
 	});
 
@@ -686,7 +710,7 @@ describe.sequential("AgentReviewService", () => {
 		addChange();
 		await startService([{ card: createCard("A"), columnId: "in_progress" }]);
 		const runs = [scriptDeferred(), scriptDeferred(), scriptDeferred()];
-		scriptOutcome({ kind: "completed", output: CANNOT_VERIFY_OUTPUT });
+		scriptOutcome({ kind: "completed", verdict: CANNOT_VERIFY_OUTPUT });
 		emit(turnEnd("A"));
 		await waitForReview("A", { status: "reviewing" });
 
@@ -705,7 +729,7 @@ describe.sequential("AgentReviewService", () => {
 		addChange();
 		await startService([{ card: createCard("A"), columnId: "in_progress" }]);
 		const first = scriptDeferred();
-		scriptOutcome({ kind: "completed", output: CANNOT_VERIFY_OUTPUT });
+		scriptOutcome({ kind: "completed", verdict: CANNOT_VERIFY_OUTPUT });
 		emit(turnEnd("A"));
 		await waitForReview("A", { status: "reviewing" });
 
@@ -722,7 +746,7 @@ describe.sequential("AgentReviewService", () => {
 		addChange();
 		await startService([{ card: createCard("A"), columnId: "in_progress" }]);
 		const first = scriptDeferred();
-		scriptOutcome({ kind: "completed", output: CANNOT_VERIFY_OUTPUT });
+		scriptOutcome({ kind: "completed", verdict: CANNOT_VERIFY_OUTPUT });
 		emit(turnEnd("A"));
 		await waitForReview("A", { status: "reviewing" });
 
@@ -776,7 +800,7 @@ describe.sequential("AgentReviewService", () => {
 			{ card: createCard("A", { baseRef: "missing-branch" }), columnId: "in_progress" },
 			{ card: createCard("B"), columnId: "in_progress" },
 		]);
-		scriptOutcome({ kind: "completed", output: CANNOT_VERIFY_OUTPUT });
+		scriptOutcome({ kind: "completed", verdict: CANNOT_VERIFY_OUTPUT });
 
 		emit(turnEnd("A"));
 		emit(turnEnd("B"));
@@ -791,7 +815,7 @@ describe.sequential("AgentReviewService", () => {
 	it("commit step timeout → commit_failed", async () => {
 		addChange();
 		await startService([{ card: createCard("A"), columnId: "in_progress" }]);
-		scriptOutcome({ kind: "completed", output: PASS_OUTPUT });
+		scriptOutcome({ kind: "completed", verdict: PASS_OUTPUT });
 		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
 
 		emit(turnEnd("A"));
@@ -806,7 +830,7 @@ describe.sequential("AgentReviewService", () => {
 	it("commit prompt that never starts a turn fails fast instead of waiting for the commit timeout", async () => {
 		addChange();
 		await startService([{ card: createCard("A"), columnId: "in_progress" }]);
-		scriptOutcome({ kind: "completed", output: PASS_OUTPUT });
+		scriptOutcome({ kind: "completed", verdict: PASS_OUTPUT });
 		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
 
 		emit(turnEnd("A"));
@@ -823,7 +847,7 @@ describe.sequential("AgentReviewService", () => {
 	it("commit turn that starts in time is not failed by the turn-start check", async () => {
 		addChange();
 		await startService([{ card: createCard("A"), columnId: "in_progress" }]);
-		scriptOutcome({ kind: "completed", output: PASS_OUTPUT });
+		scriptOutcome({ kind: "completed", verdict: PASS_OUTPUT });
 		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
 
 		emit(turnEnd("A"));
@@ -839,7 +863,7 @@ describe.sequential("AgentReviewService", () => {
 	it("fix prompt that never starts a turn goes to user_review with a reason", async () => {
 		addChange();
 		await startService([{ card: createCard("A"), columnId: "in_progress" }]);
-		scriptOutcome({ kind: "completed", output: failOutput("1. Fix the button.") });
+		scriptOutcome({ kind: "completed", verdict: failOutput("1. Fix the button.") });
 		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
 
 		emit(turnEnd("A"));
@@ -854,7 +878,7 @@ describe.sequential("AgentReviewService", () => {
 
 	it("restart recovery re-runs a review that was reviewing, same round", async () => {
 		addChange();
-		scriptOutcome({ kind: "completed", output: failOutput("fix 3") });
+		scriptOutcome({ kind: "completed", verdict: failOutput("fix 3") });
 		await startService([
 			{
 				card: createCard("A", {
@@ -889,7 +913,7 @@ describe.sequential("AgentReviewService", () => {
 	it("commit cherry-picked onto the base with the worktree removed → passed + Done with the base commit", async () => {
 		addChange();
 		await startService([{ card: createCard("A"), columnId: "in_progress" }]);
-		scriptOutcome({ kind: "completed", output: PASS_OUTPUT });
+		scriptOutcome({ kind: "completed", verdict: PASS_OUTPUT });
 		emit(turnEnd("A"));
 		await waitForReview("A", { status: "committing" });
 		emit(running("A"));
@@ -911,7 +935,7 @@ describe.sequential("AgentReviewService", () => {
 	it("an agent that exits after the commit turn (no turn-end hook) still finishes the commit step", async () => {
 		addChange();
 		await startService([{ card: createCard("A"), columnId: "in_progress" }]);
-		scriptOutcome({ kind: "completed", output: PASS_OUTPUT });
+		scriptOutcome({ kind: "completed", verdict: PASS_OUTPUT });
 		emit(turnEnd("A"));
 		await waitForReview("A", { status: "committing" });
 		emit(running("A"));

@@ -23,8 +23,6 @@ const liveLog: RuntimeAgentReviewLog = {
 	round: 1,
 	startedAt: 10_000,
 	finishedAt: null,
-	output: "running npm test\n",
-	truncated: false,
 };
 
 describe("formatElapsed", () => {
@@ -68,14 +66,14 @@ describe("AgentReviewActivityPanel", () => {
 	});
 
 	it("ignores a finished log from the previous run while the next one starts", () => {
-		const previous = { ...liveLog, round: 0, finishedAt: 5000, output: "old run" };
+		const previous = { ...liveLog, round: 0, finishedAt: 5000 };
 		act(() => root.render(<AgentReviewActivityPanel state={reviewing} log={previous} />));
 		expect(container.textContent).toContain("Starting…");
 	});
 
 	it("keeps only the fix prompts after the review ends", () => {
 		const done: RuntimeAgentReviewState = { ...reviewing, status: "needs_user", reason: "reviewer_crashed" };
-		const finished = { ...liveLog, finishedAt: 20_000, output: "tail" };
+		const finished = { ...liveLog, finishedAt: 20_000 };
 		act(() => root.render(<AgentReviewActivityPanel state={done} log={finished} />));
 		expect(container.textContent).toContain("Fix prompts sent (1)");
 		expect(container.textContent).not.toContain("Reviewer running");

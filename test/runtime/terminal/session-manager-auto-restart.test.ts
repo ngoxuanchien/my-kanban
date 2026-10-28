@@ -107,6 +107,34 @@ describe("TerminalSessionManager auto-restart", () => {
 		expect(manager.getSummary("task-1")?.pid).toBe(222);
 	});
 
+	it("does not restart an attached session started with disableAutoRestart", async () => {
+		const spawnedSessions: Array<ReturnType<typeof createMockPtySession>> = [];
+		ptySessionSpawnMock.mockImplementation((request: MockSpawnRequest) => {
+			const session = createMockPtySession(111, request);
+			spawnedSessions.push(session);
+			return session;
+		});
+
+		const manager = new TerminalSessionManager();
+		manager.attach("agent-review:task-1", { onState: vi.fn(), onOutput: vi.fn(), onExit: vi.fn() });
+
+		await manager.startTaskSession({
+			taskId: "agent-review:task-1",
+			agentId: "claude",
+			binary: "claude",
+			args: [],
+			cwd: "/tmp/task-1",
+			prompt: "Review",
+			disableAutoRestart: true,
+		});
+
+		spawnedSessions[0]?.triggerExit(0);
+		await new Promise((resolve) => setTimeout(resolve, 10));
+
+		expect(ptySessionSpawnMock).toHaveBeenCalledTimes(1);
+		expect(manager.getSummary("agent-review:task-1")?.pid).toBeNull();
+	});
+
 	it("does not restart an attached agent session after an explicit stop", async () => {
 		const spawnedSessions: Array<ReturnType<typeof createMockPtySession>> = [];
 		ptySessionSpawnMock.mockImplementation((request: MockSpawnRequest) => {

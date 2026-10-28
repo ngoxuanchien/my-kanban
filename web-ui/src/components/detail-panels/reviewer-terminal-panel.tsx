@@ -1,20 +1,34 @@
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 
 import { formatElapsed, getReviewerRoundLabel } from "@/components/agent-review-activity-panel";
+import { AgentTerminalPanel } from "@/components/detail-panels/agent-terminal-panel";
 import { Spinner } from "@/components/ui/spinner";
-import type { RuntimeAgentReviewLog, RuntimeAgentReviewState } from "@/runtime/types";
+import type { RuntimeAgentReviewLog, RuntimeAgentReviewState, RuntimeTaskSessionSummary } from "@/runtime/types";
 import { useInterval } from "@/utils/react-use";
 
-// Within this many pixels of the bottom counts as "following" the output.
-const FOLLOW_THRESHOLD_PX = 24;
+/** The reviewer's terminal session id; mirrors AGENT_REVIEW_SESSION_KEY_PREFIX in src/agent-review/task-session-signals.ts. */
+export function getReviewerSessionKey(taskId: string): string {
+	return `agent-review:${taskId}`;
+}
 
-/** Read-only, terminal-style view of the reviewer's output. Follows new output unless scrolled up. */
+/** Live terminal of the reviewer agent's own TUI (same terminal as the task agent), with a run header. */
 export function ReviewerTerminalPanel({
+	taskId,
+	workspaceId,
 	state,
 	log,
+	summary,
+	terminalBackgroundColor,
+	cursorColor,
 }: {
+	taskId: string;
+	workspaceId: string | null;
 	state: RuntimeAgentReviewState;
 	log: RuntimeAgentReviewLog | null;
+	/** Summary of the reviewer's terminal session, so the terminal resets when a new run starts. */
+	summary: RuntimeTaskSessionSummary | null;
+	terminalBackgroundColor: string;
+	cursorColor: string;
 }): React.ReactElement {
 	const isReviewing = state.status === "reviewing";
 	// While reviewing, a finished log still belongs to the previous run until the next poll lands.
@@ -22,18 +36,16 @@ export function ReviewerTerminalPanel({
 	const [now, setNow] = useState(() => Date.now());
 	useInterval(() => setNow(Date.now()), isReviewing ? 1000 : null);
 
-	const scrollRef = useRef<HTMLPreElement>(null);
-	const followRef = useRef(true);
-	useEffect(() => {
-		const element = scrollRef.current;
-		if (element && followRef.current) {
-			element.scrollTop = element.scrollHeight;
-		}
-	}, [shownLog?.output]);
-
 	const agentLabel = shownLog?.reviewerAgentId ?? (isReviewing ? "starting…" : "no run yet");
 	const round = shownLog?.round ?? state.round;
 	const finishedAt = shownLog?.finishedAt ?? null;
+	const placeholder = !shownLog
+		? isReviewing
+			? "Starting the reviewer…"
+			: "No reviewer run yet."
+		: shownLog.reviewerAgentId === "cline"
+			? "The Cline reviewer runs inside Kanban, so there is no terminal to show."
+			: null;
 
 	return (
 		<section aria-label="Reviewer output" className="flex min-h-0 min-w-0 flex-1 flex-col bg-surface-0">
@@ -47,22 +59,20 @@ export function ReviewerTerminalPanel({
 						{finishedAt === null ? "" : " · finished"}
 					</span>
 				) : null}
-				<span className="text-text-tertiary">Read-only</span>
 			</header>
-			{shownLog?.truncated ? (
-				<p className="m-0 shrink-0 px-3 pt-2 text-xs text-text-tertiary">Showing the end of the output.</p>
-			) : null}
-			<pre
-				ref={scrollRef}
-				onScroll={(event) => {
-					const element = event.currentTarget;
-					followRef.current =
-						element.scrollHeight - element.scrollTop - element.clientHeight <= FOLLOW_THRESHOLD_PX;
-				}}
-				className="m-0 min-h-0 flex-1 overflow-auto whitespace-pre-wrap break-words p-3 font-mono text-xs leading-5 text-text-primary"
-			>
-				{shownLog?.output || (isReviewing ? "Waiting for reviewer output…" : "No reviewer output.")}
-			</pre>
+			{placeholder ? (
+				<p className="m-0 p-3 text-xs text-text-secondary">{placeholder}</p>
+			) : (
+				<AgentTerminalPanel
+					taskId={getReviewerSessionKey(taskId)}
+					workspaceId={workspaceId}
+					summary={summary}
+					showSessionToolbar={false}
+					panelBackgroundColor="var(--color-surface-0)"
+					terminalBackgroundColor={terminalBackgroundColor}
+					cursorColor={cursorColor}
+				/>
+			)}
 		</section>
 	);
 }

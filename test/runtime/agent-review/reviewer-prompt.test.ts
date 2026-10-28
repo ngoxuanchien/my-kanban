@@ -3,20 +3,21 @@ import { describe, expect, it } from "vitest";
 import { buildFixPromptMessage, buildReviewerPrompt } from "../../../src/agent-review/reviewer-prompt";
 
 describe("buildReviewerPrompt", () => {
-	it("includes title, verbatim prompt, baseRef and result markers", () => {
+	it("includes title, verbatim prompt, baseRef and the verdict file", () => {
 		const prompt = buildReviewerPrompt({
 			title: "Fix it",
 			prompt: "Original\nrequest",
 			baseRef: "main",
 			round: 1,
 			previousFixPrompts: [],
+			verdictPath: "/tmp/review/verdict.json",
 		});
 		expect(prompt).toContain("Fix it");
 		expect(prompt).toContain("Original\nrequest");
 		expect(prompt).toContain("main");
 		expect(prompt).toContain("git diff <merge-base>...HEAD");
-		expect(prompt).toContain("<<<KANBAN_AGENT_REVIEW_RESULT");
-		expect(prompt).toContain("KANBAN_AGENT_REVIEW_RESULT>>>");
+		expect(prompt).toContain("/tmp/review/verdict.json");
+		expect(prompt).toContain('"verdict": "pass | fail | cannot_verify"');
 	});
 
 	it("lists earlier fix prompts numbered from round 2", () => {
@@ -26,6 +27,7 @@ describe("buildReviewerPrompt", () => {
 			baseRef: "main",
 			round: 3,
 			previousFixPrompts: ["first", "second"],
+			verdictPath: "/tmp/review/verdict.json",
 		});
 		expect(prompt).toContain("1. first");
 		expect(prompt).toContain("2. second");
@@ -38,6 +40,7 @@ describe("buildReviewerPrompt", () => {
 			baseRef: "main",
 			round: 1,
 			previousFixPrompts: [],
+			verdictPath: "/tmp/review/verdict.json",
 		});
 		expect(prompt).not.toContain("Earlier fix prompts");
 	});

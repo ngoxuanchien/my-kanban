@@ -1,5 +1,9 @@
 // One agent-review loop per workspace: watches task-session summaries, drives
 // reduceAgentReview, runs the reviewer (one at a time) and saves state on the card.
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
 import type { ClineTaskSessionService } from "../cline-sdk/cline-task-session-service";
 import type { RuntimeConfigState } from "../config/runtime-config";
 import { getRuntimeAgentCatalogEntry } from "../core/agent-catalog";
@@ -37,8 +41,8 @@ import {
 	reduceAgentReview,
 } from "./agent-review-reducer";
 import { resolveReviewerAgentId } from "./reviewer-agent";
-import { appendReviewerLog, createReviewerLog } from "./reviewer-log";
-import { parseReviewerOutput } from "./reviewer-output";
+import { createReviewerLog } from "./reviewer-log";
+import { parseReviewerVerdict } from "./reviewer-output";
 import { buildFixPromptMessage, buildReviewerPrompt } from "./reviewer-prompt";
 import { type ReviewerRunHandle, type ReviewerRunOutcome, startReviewerRun } from "./reviewer-runner";
 import { sendPromptToTask } from "./send-prompt-to-task";
@@ -76,7 +80,7 @@ export interface AgentReviewService {
 	notifyUserInput(taskId: string): void;
 	/** Call after any browser/CLI save so user moves, toggles and deletions are seen. */
 	notifyBoardChanged(): Promise<void>;
-	/** Output of the task's latest reviewer run, live while it runs. */
+	/** The task's latest reviewer run (its live terminal is the "agent-review:<taskId>" session). */
 	getReviewerLog(taskId: string): RuntimeAgentReviewLog | null;
 	dispose(): Promise<void>;
 }
@@ -102,6 +106,8 @@ interface PreparedRun {
 	reviewerAgentId: RuntimeAgentId;
 	fingerprint: string;
 	cwd: string;
+	/** Temp dir holding the verdict file, outside the worktree. Removed after the run. */
+	verdictDir: string | null;
 	before: WorktreeSnapshot | null;
 	failure: string | null;
 }
@@ -539,6 +545,10 @@ export function createAgentReviewService(deps: AgentReviewServiceDeps): AgentRev
 				// A result for an older round (user input, a later review) is stale.
 				{ guard: (card) => card.agentReview?.status === "reviewing" && card.agentReview.round === prepared.round },
 			);
+		}).finally(async () => {
+			if (prepared.verdictDir) {
+				await rm(prepared.verdictDir, { recursive: true, force: true }).catch(() => {});
+			}
 		});
 	}
 
@@ -574,6 +584,7 @@ export function createAgentReviewService(deps: AgentReviewServiceDeps): AgentRev
 			reviewerAgentId: resolveReviewerAgentId(config.reviewerAgent, taskAgentId),
 			fingerprint: "",
 			cwd: "",
+			verdictDir: null,
 			before: null,
 			failure: null,
 		};
@@ -593,13 +604,16 @@ export function createAgentReviewService(deps: AgentReviewServiceDeps): AgentRev
 				await computeTaskReviewFingerprint({ cwd: prepared.cwd, baseRef: card.baseRef })
 			).fingerprint;
 			prepared.before = await captureWorktreeSnapshot(prepared.cwd);
+			prepared.verdictDir = await mkdtemp(join(tmpdir(), "kanban-review-verdict-"));
 		} catch (error) {
 			prepared.failure = errorMessage(error);
-			updateLog((log) => ({ ...appendReviewerLog(log, prepared.failure ?? ""), finishedAt: now() }));
+			updateLog((log) => ({ ...log, finishedAt: now() }));
 			return prepared;
 		}
+		const verdictPath = join(prepared.verdictDir, "verdict.json");
 		run.handle = runReviewer({
 			agentId: prepared.reviewerAgentId,
+			workspaceId: deps.workspaceId,
 			cwd: prepared.cwd,
 			prompt: buildReviewerPrompt({
 				title: card.title ?? "",
@@ -607,27 +621,16 @@ export function createAgentReviewService(deps: AgentReviewServiceDeps): AgentRev
 				baseRef: card.baseRef,
 				round: round + 1,
 				previousFixPrompts: fixPrompts,
+				verdictPath,
 			}),
+			verdictPath,
 			timeoutMs: REVIEWER_RUN_TIMEOUT_MS,
 			isAgentInstalled,
+			terminalManager: deps.terminalManager,
 			clineService: deps.clineService,
 			reviewKey: `${AGENT_REVIEW_SESSION_KEY_PREFIX}${card.id}`,
-			onOutput: (chunk) => updateLog((log) => appendReviewerLog(log, chunk)),
 		});
-		void run.handle.done.then((outcome) =>
-			updateLog((log) => {
-				// Cline runs do not stream; their final message is the output.
-				const extra =
-					outcome.kind === "completed" && log.output === ""
-						? outcome.output
-						: outcome.kind === "crashed"
-							? `\n${outcome.error}`
-							: outcome.kind === "unavailable"
-								? outcome.reason
-								: "";
-				return { ...appendReviewerLog(log, extra), finishedAt: now() };
-			}),
-		);
+		void run.handle.done.then(() => updateLog((log) => ({ ...log, finishedAt: now() })));
 		return prepared;
 	}
 
@@ -654,7 +657,7 @@ export function createAgentReviewService(deps: AgentReviewServiceDeps): AgentRev
 		}
 		switch (runOutcome.kind) {
 			case "completed": {
-				const parsed = parseReviewerOutput(runOutcome.output);
+				const parsed = parseReviewerVerdict(runOutcome.verdict);
 				return parsed.ok ? { kind: "result", result: parsed.result } : { kind: "bad_output", error: parsed.error };
 			}
 			case "timeout":

@@ -1,11 +1,10 @@
-import { AGENT_REVIEW_RESULT_END, AGENT_REVIEW_RESULT_START } from "./reviewer-output";
-
 export function buildReviewerPrompt(input: {
 	title: string;
 	prompt: string;
 	baseRef: string;
 	round: number;
 	previousFixPrompts: string[];
+	verdictPath: string;
 }): string {
 	const previousFixes =
 		input.round > 1 && input.previousFixPrompts.length > 0
@@ -29,8 +28,10 @@ Run the project's tests and verify that the app runs. Find app run instructions 
 
 If the app cannot run for reasons outside this task, set appVerified to false and explain why in appCheck; that is not a pass. If it fails because of this task's changes, use verdict fail and provide a concrete fixPrompt.
 
-Return exactly one JSON object between these markers, with no other result blocks:
-${AGENT_REVIEW_RESULT_START}
+When you are done, write your result as exactly one JSON object to this file, using a shell command (for example \`cat > FILE <<'EOF'\`), because file-editing tools are disabled:
+${input.verdictPath}
+
+Write it once, as your last action. Kanban ends this session as soon as the file holds a valid result. The file must contain only this JSON object:
 {
   "verdict": "pass | fail | cannot_verify",
   "appVerified": true,
@@ -39,8 +40,7 @@ ${AGENT_REVIEW_RESULT_START}
   "summary": { "whatWasDone": "...", "whatItAffects": "...", "againstRequest": "...", "howVerified": "...", "risks": "..." },
   "fixPrompt": null,
   "notes": null
-}
-${AGENT_REVIEW_RESULT_END}`;
+}`;
 }
 
 export function buildFixPromptMessage(input: { fixPrompt: string; round: number; maxRounds: number }): string {

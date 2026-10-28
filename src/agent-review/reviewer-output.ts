@@ -1,23 +1,14 @@
 import { type RuntimeAgentReviewResult, runtimeAgentReviewResultSchema } from "../core/api-contract";
 
-export const AGENT_REVIEW_RESULT_START = "<<<KANBAN_AGENT_REVIEW_RESULT";
-export const AGENT_REVIEW_RESULT_END = "KANBAN_AGENT_REVIEW_RESULT>>>";
+export type ParsedReviewerVerdict = { ok: true; result: RuntimeAgentReviewResult } | { ok: false; error: string };
 
-export type ParsedReviewerOutput = { ok: true; result: RuntimeAgentReviewResult } | { ok: false; error: string };
-
-export function parseReviewerOutput(output: string): ParsedReviewerOutput {
-	const start = output.lastIndexOf(AGENT_REVIEW_RESULT_START);
-	if (start < 0) {
-		return { ok: false, error: "no result block found" };
+/** Parses the verdict file the reviewer wrote; null means the file does not exist. */
+export function parseReviewerVerdict(content: string | null): ParsedReviewerVerdict {
+	if (content === null) {
+		return { ok: false, error: "reviewer did not write the verdict file" };
 	}
 
-	const contentStart = start + AGENT_REVIEW_RESULT_START.length;
-	const end = output.indexOf(AGENT_REVIEW_RESULT_END, contentStart);
-	if (end < 0) {
-		return { ok: false, error: "result block has no end marker" };
-	}
-
-	let json = output.slice(contentStart, end).trim();
+	let json = content.trim();
 	const fence = json.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
 	if (fence) json = fence[1] ?? "";
 
@@ -25,7 +16,7 @@ export function parseReviewerOutput(output: string): ParsedReviewerOutput {
 	try {
 		value = JSON.parse(json);
 	} catch {
-		return { ok: false, error: "result block contains invalid JSON" };
+		return { ok: false, error: "verdict file contains invalid JSON" };
 	}
 
 	const parsed = runtimeAgentReviewResultSchema.safeParse(value);

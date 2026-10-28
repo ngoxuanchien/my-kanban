@@ -12,7 +12,7 @@ interface TaskReviewerLog {
 	log: RuntimeAgentReviewLog | null;
 }
 
-/** Polls the reviewer output while the task is reviewing; fetches once per status change otherwise. */
+/** Polls the reviewer run while the task is reviewing; fetches once per status change otherwise. */
 export function useAgentReviewLog(
 	workspaceId: string | null,
 	taskId: string,

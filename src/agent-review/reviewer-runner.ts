@@ -1,17 +1,24 @@
-// Runs one reviewer pass as a one-shot agent process (or a Cline SDK session)
-// and reports how it ended. The caller parses the output.
-import { type ChildProcess, type SpawnOptions, spawn } from "node:child_process";
-import treeKill from "tree-kill";
+// Runs one reviewer pass and reports how it ended. CLI reviewers run as an interactive PTY session in
+// the workspace's TerminalSessionManager (the same machinery and browser terminal as task agents) under
+// the "agent-review:<taskId>" key; Cline runs as an in-process SDK session. Either way the reviewer
+// writes its result to `verdictPath`, and the caller parses it.
+import { readFile } from "node:fs/promises";
+import { dirname } from "node:path";
 
 import type { ClineTaskSessionService } from "../cline-sdk/cline-task-session-service";
 import { getRuntimeAgentCatalogEntry, isRuntimeAgentLaunchSupported } from "../core/agent-catalog";
 import type { RuntimeAgentId, RuntimeTaskSessionSummary } from "../core/api-contract";
-import { createClaudeStreamParser } from "./claude-stream-json";
+import type { TerminalSessionManager } from "../terminal/session-manager";
+import { parseReviewerVerdict } from "./reviewer-output";
+import { classifyTurnEnd } from "./task-session-signals";
 
-const MAX_CAPTURED_OUTPUT_CHARS = 1024 * 1024;
+export const VERDICT_POLL_INTERVAL_MS = 1000;
+// After asking the PTY to stop, wait this long for it to exit before reporting the outcome anyway.
+export const REVIEWER_EXIT_GRACE_MS = 5000;
 
 export type ReviewerRunOutcome =
-	| { kind: "completed"; output: string }
+	/** `verdict` is the verdict file's content, or null when the reviewer did not write it. */
+	| { kind: "completed"; verdict: string | null }
 	| { kind: "timeout" }
 	| { kind: "crashed"; error: string }
 	| { kind: "cancelled" }
@@ -22,17 +29,14 @@ export interface ReviewerRunHandle {
 	cancel(): void;
 }
 
-export interface ReviewerCommand {
+export interface ReviewerLaunch {
 	binary: string;
 	args: string[];
-	promptVia: "stdin" | "arg";
 	env?: Record<string, string>;
-	/** stdout is Claude stream-json: shown as readable lines, verdict taken from the result event. */
-	stdoutFormat?: "claude-stream-json";
 }
 
-// OpenCode run has no read-only flag. This config is applied last, so its edit deny beats user/agent
-// rules that --auto would otherwise approve; question is denied because nobody can answer it.
+// OpenCode has no read-only flag. This config is applied last, so its edit deny beats user/agent
+// rules that --auto would otherwise approve; question is denied because nobody should need to answer it.
 const OPENCODE_REVIEWER_CONFIG = JSON.stringify({
 	permissions: [
 		{ action: "edit", resource: "*", effect: "deny" },
@@ -40,7 +44,7 @@ const OPENCODE_REVIEWER_CONFIG = JSON.stringify({
 	],
 });
 
-type SpawnReviewer = (command: string, args: string[], options: SpawnOptions) => ChildProcess;
+export type ReviewerTerminalManager = Pick<TerminalSessionManager, "startTaskSession" | "stopTaskSession" | "attach">;
 
 type ReviewerClineService = Pick<
 	ClineTaskSessionService,
@@ -49,68 +53,76 @@ type ReviewerClineService = Pick<
 
 export interface StartReviewerRunInput {
 	agentId: RuntimeAgentId;
+	workspaceId: string;
 	cwd: string;
 	prompt: string;
+	/** File the prompt tells the reviewer to write its JSON result to. Must be outside the worktree. */
+	verdictPath: string;
 	timeoutMs: number;
 	isAgentInstalled(agentId: RuntimeAgentId): boolean;
+	terminalManager: ReviewerTerminalManager;
 	clineService?: ReviewerClineService;
-	/** Session key for Cline runs: "agent-review:<taskId>". Never the task's own id. */
+	/** Session key: "agent-review:<taskId>". Never the task's own id. */
 	reviewKey: string;
-	/** Receives readable stdout/stderr as it arrives (process runs only). */
-	onOutput?: (chunk: string) => void;
-	spawnImpl?: SpawnReviewer;
+	pollIntervalMs?: number;
 }
 
-/** Returns null when the agent has no confirmed non-interactive mode. */
-export function buildReviewerCommand(agentId: RuntimeAgentId): ReviewerCommand | null {
+/**
+ * Launch command for an interactive reviewer session; the adapter adds the prompt, hooks and autonomous
+ * flags. Null when the agent cannot run as a PTY reviewer.
+ */
+export function buildReviewerLaunch(agentId: RuntimeAgentId, verdictDir: string): ReviewerLaunch | null {
 	const entry = getRuntimeAgentCatalogEntry(agentId);
 	if (!entry || !isRuntimeAgentLaunchSupported(agentId)) {
 		return null;
 	}
 	switch (agentId) {
 		case "claude":
+			// Single comma-joined values: these options are variadic and the adapter appends the prompt last.
 			return {
 				binary: entry.binary,
 				args: [
-					"-p",
+					...entry.baseArgs,
 					"--strict-mcp-config",
 					"--mcp-config",
 					'{"mcpServers":{}}',
-					"--output-format",
-					"stream-json",
-					"--verbose",
-					"--disallowedTools",
-					"Edit",
-					"Write",
-					"NotebookEdit",
 					"--allowedTools",
-					"Bash",
-					"Read",
-					"Grep",
-					"Glob",
+					"Bash,Read,Grep,Glob",
+					"--disallowedTools",
+					"Edit,Write,NotebookEdit",
+					"--add-dir",
+					verdictDir,
 				],
-				promptVia: "stdin",
-				stdoutFormat: "claude-stream-json",
 			};
 		// Codex and OpenCode have no MCP-specific flag to disable every configured server.
-		// The others print readable progress as they go, so their raw output is shown.
 		case "codex":
-			return { binary: entry.binary, args: ["exec", "-", ...entry.autonomousArgs], promptVia: "stdin" };
 		case "droid":
-			return { binary: entry.binary, args: ["exec", ...entry.autonomousArgs], promptVia: "arg" };
 		case "kiro":
-			return { binary: entry.binary, args: ["chat", "--no-interactive", "--trust-all-tools"], promptVia: "arg" };
+			return { binary: entry.binary, args: [...entry.baseArgs] };
 		case "opencode":
-			// --standalone: private server per run, so the tree kill also stops it (see task launches).
 			return {
 				binary: entry.binary,
-				args: ["run", "--standalone", ...entry.autonomousArgs],
-				promptVia: "arg",
+				args: [...entry.baseArgs],
 				env: { OPENCODE_CONFIG_CONTENT: OPENCODE_REVIEWER_CONFIG },
 			};
 		default:
 			return null;
 	}
+}
+
+export async function readVerdictFile(verdictPath: string): Promise<string | null> {
+	try {
+		return await readFile(verdictPath, "utf8");
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+			return null;
+		}
+		throw error;
+	}
+}
+
+function errorMessage(error: unknown): string {
+	return error instanceof Error ? error.message : String(error);
 }
 
 function settledHandle(outcome: ReviewerRunOutcome): ReviewerRunHandle {
@@ -130,117 +142,138 @@ export function startReviewerRun(input: StartReviewerRunInput): ReviewerRunHandl
 		}
 		return startClineReviewerRun(input.clineService, input);
 	}
-	const command = buildReviewerCommand(input.agentId);
-	if (!command) {
-		return settledHandle({
-			kind: "unavailable",
-			reason: `Agent "${input.agentId}" has no non-interactive mode for reviews.`,
-		});
+	const launch = buildReviewerLaunch(input.agentId, dirname(input.verdictPath));
+	if (!launch) {
+		return settledHandle({ kind: "unavailable", reason: `Agent "${input.agentId}" cannot run as a reviewer.` });
 	}
-	return startProcessReviewerRun(command, input);
+	return startPtyReviewerRun(launch, input);
 }
 
-function startProcessReviewerRun(command: ReviewerCommand, input: StartReviewerRunInput): ReviewerRunHandle {
+function startPtyReviewerRun(launch: ReviewerLaunch, input: StartReviewerRunInput): ReviewerRunHandle {
+	const { terminalManager, reviewKey } = input;
 	let resolveDone: (outcome: ReviewerRunOutcome) => void = () => {};
 	const done = new Promise<ReviewerRunOutcome>((resolve) => {
 		resolveDone = resolve;
 	});
-	let stopReason: "timeout" | "cancelled" | null = null;
-	let settled = false;
-	let output = "";
+	let started = false;
+	// True once there is no process left to wait for (it exited, or it never started).
+	let gone = false;
+	let outcome: ReviewerRunOutcome | null = null;
+	let detach: (() => void) | null = null;
+	let exitGraceTimer: ReturnType<typeof setTimeout> | null = null;
 
-	const settle = (outcome: ReviewerRunOutcome) => {
-		if (settled) {
-			return;
+	const resolveWithOutcome = () => {
+		if (exitGraceTimer) {
+			clearTimeout(exitGraceTimer);
+			exitGraceTimer = null;
 		}
-		settled = true;
-		clearTimeout(timer);
-		resolveDone(outcome);
+		detach?.();
+		detach = null;
+		if (outcome) {
+			resolveDone(outcome);
+		}
 	};
 
-	const args = command.promptVia === "arg" ? [...command.args, input.prompt] : command.args;
-	const child = (input.spawnImpl ?? spawn)(command.binary, args, {
-		cwd: input.cwd,
-		// OpenCode resolves its project directory from PWD, not the process cwd.
-		env: { ...process.env, ...command.env, PWD: input.cwd },
-		detached: true,
-		stdio: [command.promptVia === "stdin" ? "pipe" : "ignore", "pipe", "pipe"],
-	});
-
-	const streamParser = command.stdoutFormat === "claude-stream-json" ? createClaudeStreamParser() : null;
-	const emit = (text: string) => {
-		if (text) {
-			input.onOutput?.(text);
-		}
-	};
-	const capture = (text: string) => {
-		emit(text);
-		output += text;
-		if (output.length > MAX_CAPTURED_OUTPUT_CHARS) {
-			output = output.slice(-MAX_CAPTURED_OUTPUT_CHARS);
-		}
-	};
-	// setEncoding keeps a multi-byte character split across chunks intact.
-	child.stdout?.setEncoding("utf8");
-	child.stderr?.setEncoding("utf8");
-	child.stdout?.on("data", (text: string) => {
-		if (streamParser) {
-			emit(streamParser.push(text));
-		} else {
-			capture(text);
-		}
-	});
-	child.stderr?.on("data", capture);
-
-	if (command.promptVia === "stdin" && child.stdin) {
-		// The agent may exit before reading stdin; that shows up in the exit code, not here.
-		child.stdin.on("error", () => {});
-		child.stdin.end(input.prompt);
-	}
-
-	const killTree = (reason: "timeout" | "cancelled") => {
-		if (settled || stopReason) {
-			return;
-		}
-		stopReason = reason;
-		if (typeof child.pid === "number") {
-			// detached: the reviewer leads its own process group, which still holds children it orphaned.
-			try {
-				process.kill(-child.pid, "SIGKILL");
-			} catch {}
-			treeKill(child.pid, "SIGKILL", () => {});
-		}
-		// Do not wait for "close": a process that escaped the group can keep the output pipes open forever.
-		settle({ kind: reason });
+	const stopAndWaitForExit = () => {
+		terminalManager.stopTaskSession(reviewKey);
+		exitGraceTimer = setTimeout(resolveWithOutcome, REVIEWER_EXIT_GRACE_MS);
 	};
 
-	const timer = setTimeout(() => killTree("timeout"), input.timeoutMs);
+	// Records the outcome, ends the session, and resolves once the process is gone so the next run
+	// under the same key never finds this one still alive. While the session is still starting, the
+	// start callbacks below finish the job.
+	const finish = (next: ReviewerRunOutcome) => {
+		if (outcome) {
+			return;
+		}
+		outcome = next;
+		clearTimeout(timeoutTimer);
+		clearInterval(pollTimer);
+		if (gone) {
+			resolveWithOutcome();
+		} else if (started) {
+			stopAndWaitForExit();
+		}
+	};
 
-	child.on("error", (error) => {
-		settle(stopReason ? { kind: stopReason } : { kind: "crashed", error: error.message });
-	});
-	child.on("close", (code, signal) => {
-		if (stopReason) {
-			settle({ kind: stopReason });
+	const finishWithVerdict = async (exitCode: number | null) => {
+		let verdict: string | null;
+		try {
+			verdict = await readVerdictFile(input.verdictPath);
+		} catch (error) {
+			finish({ kind: "crashed", error: `Could not read the verdict file: ${errorMessage(error)}` });
 			return;
 		}
-		let finalOutput = output;
-		if (streamParser) {
-			const finished = streamParser.finish();
-			emit(finished.display);
-			finalOutput = finished.output;
-		}
-		if (code === 0 || finalOutput.trim().length > 0) {
-			settle({ kind: "completed", output: finalOutput });
+		if (verdict === null && exitCode !== null && exitCode !== 0) {
+			finish({ kind: "crashed", error: `Reviewer exited with code ${exitCode}.` });
 			return;
 		}
-		settle({
-			kind: "crashed",
-			error: signal ? `Reviewer was killed by ${signal}.` : `Reviewer exited with code ${code}.`,
+		finish({ kind: "completed", verdict });
+	};
+
+	const pollVerdict = async () => {
+		if (outcome) {
+			return;
+		}
+		// A file that does not parse yet may still be being written; the turn end or timeout decides then.
+		const verdict = await readVerdictFile(input.verdictPath).catch(() => null);
+		if (verdict !== null && parseReviewerVerdict(verdict).ok) {
+			finish({ kind: "completed", verdict });
+		}
+	};
+
+	const timeoutTimer = setTimeout(() => finish({ kind: "timeout" }), input.timeoutMs);
+	const pollTimer = setInterval(() => void pollVerdict(), input.pollIntervalMs ?? VERDICT_POLL_INTERVAL_MS);
+
+	void terminalManager
+		.startTaskSession({
+			taskId: reviewKey,
+			agentId: input.agentId,
+			binary: launch.binary,
+			args: launch.args,
+			// Nobody is there to approve tool calls; read-only is enforced by the launch args and the snapshot check.
+			autonomousModeEnabled: true,
+			cwd: input.cwd,
+			prompt: input.prompt,
+			env: launch.env,
+			workspaceId: input.workspaceId,
+			disableAutoRestart: true,
+			// The reviewer tab must still show the reviewer's last screen after the review is done.
+			suppressAlternateScreen: true,
+		})
+		.then(() => {
+			started = true;
+			detach = terminalManager.attach(reviewKey, {
+				onState: (summary: RuntimeTaskSessionSummary) => {
+					// A permission prompt ("needs_user") stays open: the user can answer it in the live terminal.
+					if (!outcome && classifyTurnEnd(summary) === "turn_end") {
+						void finishWithVerdict(null);
+					}
+				},
+				onExit: (exitCode) => {
+					gone = true;
+					if (outcome) {
+						resolveWithOutcome();
+					} else {
+						void finishWithVerdict(exitCode);
+					}
+				},
+			});
+			if (outcome) {
+				// Cancelled or timed out while the session was starting.
+				stopAndWaitForExit();
+			}
+		})
+		.catch((error: unknown) => {
+			gone = true;
+			if (outcome) {
+				resolveWithOutcome();
+			} else {
+				finish({ kind: "crashed", error: errorMessage(error) });
+			}
 		});
-	});
 
-	return { done, cancel: () => killTree("cancelled") };
+	return { done, cancel: () => finish({ kind: "cancelled" }) };
 }
 
 function startClineReviewerRun(service: ReviewerClineService, input: StartReviewerRunInput): ReviewerRunHandle {
@@ -277,7 +310,11 @@ function startClineReviewerRun(service: ReviewerClineService, input: StartReview
 			settle({ kind: "crashed", error: summary.warningMessage ?? "Cline reviewer session failed." });
 			return;
 		}
-		settle({ kind: "completed", output: summary.latestHookActivity?.finalMessage ?? "" });
+		void readVerdictFile(input.verdictPath).then(
+			(verdict) => settle({ kind: "completed", verdict }),
+			(error: unknown) =>
+				settle({ kind: "crashed", error: `Could not read the verdict file: ${errorMessage(error)}` }),
+		);
 	};
 
 	const unsubscribe = service.onSummary(handleSummary);
@@ -295,7 +332,7 @@ function startClineReviewerRun(service: ReviewerClineService, input: StartReview
 			handleSummary(service.getSummary(key) ?? summary);
 		})
 		.catch((error: unknown) => {
-			settle({ kind: "crashed", error: error instanceof Error ? error.message : String(error) });
+			settle({ kind: "crashed", error: errorMessage(error) });
 		});
 
 	return { done, cancel: () => settle({ kind: "cancelled" }) };

@@ -9,11 +9,14 @@ export interface TerminalProtocolFilterState {
 	pendingChunk: Buffer | null;
 	interceptOscColorQueries: boolean;
 	suppressDeviceAttributeQueries: boolean;
+	suppressAlternateScreen: boolean;
 }
 
 export interface CreateTerminalProtocolFilterStateOptions {
 	interceptOscColorQueries?: boolean;
 	suppressDeviceAttributeQueries?: boolean;
+	/** Drops alternate-screen switches so a TUI's last frame stays on screen (and in restores) after it exits. */
+	suppressAlternateScreen?: boolean;
 }
 
 export interface FilterTerminalProtocolOutputOptions {
@@ -28,6 +31,7 @@ export function createTerminalProtocolFilterState(
 		pendingChunk: null,
 		interceptOscColorQueries: options.interceptOscColorQueries ?? false,
 		suppressDeviceAttributeQueries: options.suppressDeviceAttributeQueries ?? false,
+		suppressAlternateScreen: options.suppressAlternateScreen ?? false,
 	};
 }
 
@@ -49,6 +53,21 @@ function shouldSuppressDeviceAttributeQuery(
 	}
 	const body = sequenceBody.toString("utf8");
 	return body === "" || body === "0" || body === ">" || body === ">0";
+}
+
+// ponytail: only single-mode sequences (what TUIs emit); a combined "?1049;1h" passes through unchanged.
+const ALTERNATE_SCREEN_MODES = new Set(["?47", "?1047", "?1049"]);
+
+function shouldSuppressAlternateScreenSwitch(
+	state: TerminalProtocolFilterState,
+	sequenceBody: Buffer,
+	finalByte: number,
+): boolean {
+	return (
+		state.suppressAlternateScreen &&
+		(finalByte === 0x68 || finalByte === 0x6c) &&
+		ALTERNATE_SCREEN_MODES.has(sequenceBody.toString("latin1"))
+	);
 }
 
 export function filterTerminalProtocolOutput(
@@ -148,7 +167,11 @@ export function filterTerminalProtocolOutput(
 			}
 
 			const finalByte = source[finalIndex] as number;
-			if (!shouldSuppressDeviceAttributeQuery(state, source.subarray(sequenceStart + 2, finalIndex), finalByte)) {
+			const sequenceBody = source.subarray(sequenceStart + 2, finalIndex);
+			if (
+				!shouldSuppressDeviceAttributeQuery(state, sequenceBody, finalByte) &&
+				!shouldSuppressAlternateScreenSwitch(state, sequenceBody, finalByte)
+			) {
 				segments.push(source.subarray(sequenceStart, finalIndex + 1));
 			}
 

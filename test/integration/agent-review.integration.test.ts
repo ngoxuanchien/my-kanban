@@ -448,7 +448,9 @@ describe.sequential("agent review runtime integration", () => {
 				const server = await startKanbanServer(activePath, testEnv);
 				try {
 					const reviewerPid = await waitFor("the reviewer process", () => {
-						const line = readStubLog(testEnv.stubLogPath).find((entry) => entry.includes(" -p "));
+						const line = readStubLog(testEnv.stubLogPath).find((entry) =>
+							entry.includes("--disallowedTools Edit,Write,NotebookEdit"),
+						);
 						return line ? Number(line.split(" ")[0]) : null;
 					});
 					expect(isProcessAlive(reviewerPid)).toBe(true);

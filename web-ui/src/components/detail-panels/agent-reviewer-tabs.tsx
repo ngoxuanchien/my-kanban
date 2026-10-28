@@ -1,21 +1,20 @@
 import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
 
-import { ReviewerTerminalPanel } from "@/components/detail-panels/reviewer-terminal-panel";
 import { cn } from "@/components/ui/cn";
-import type { RuntimeAgentReviewLog, RuntimeAgentReviewState } from "@/runtime/types";
+import type { RuntimeAgentReviewState } from "@/runtime/types";
 
 type AgentReviewerTab = "agent" | "reviewer";
 
-/** Switches between the task agent panel and the reviewer output; jumps to the reviewer when a review starts. */
+/** Switches between the task agent panel and the reviewer panel; jumps to the reviewer when a review starts. */
 export function AgentReviewerTabs({
 	agentPanel,
+	reviewerPanel,
 	state,
-	log,
 }: {
 	agentPanel: ReactNode;
+	reviewerPanel: ReactNode;
 	state: RuntimeAgentReviewState;
-	log: RuntimeAgentReviewLog | null;
 }): React.ReactElement {
 	const isReviewing = state.status === "reviewing";
 	const [tab, setTab] = useState<AgentReviewerTab>(isReviewing ? "reviewer" : "agent");
@@ -48,7 +47,7 @@ export function AgentReviewerTabs({
 			</div>
 			{/* The task terminal stays mounted so its session stays connected while hidden. */}
 			<div className={cn("min-h-0 min-w-0 flex-1", tab === "agent" ? "flex" : "hidden")}>{agentPanel}</div>
-			{tab === "reviewer" ? <ReviewerTerminalPanel state={state} log={log} /> : null}
+			{tab === "reviewer" ? reviewerPanel : null}
 		</div>
 	);
 }

@@ -1,3 +1,4 @@
+import { AGENT_REVIEW_SESSION_KEY_PREFIX } from "../agent-review/task-session-signals";
 import type {
 	RuntimeHookEvent,
 	RuntimeHookIngestResponse,
@@ -84,7 +85,9 @@ export function createHooksApi(deps: CreateHooksApiDependencies): RuntimeTrpcCon
 					} satisfies RuntimeHookIngestResponse;
 				}
 
-				if (event === "to_review") {
+				// Reviewer sessions are not tasks: no turn checkpoints, no ready-for-review notification.
+				const isTaskSession = !taskId.startsWith(AGENT_REVIEW_SESSION_KEY_PREFIX);
+				if (event === "to_review" && isTaskSession) {
 					const nextTurn = (transitionedSummary.latestTurnCheckpoint?.turn ?? 0) + 1;
 					const checkpointCwd = transitionedSummary.workspacePath ?? workspacePath;
 					const staleRef = transitionedSummary.previousTurnCheckpoint?.ref ?? null;
@@ -113,7 +116,7 @@ export function createHooksApi(deps: CreateHooksApiDependencies): RuntimeTrpcCon
 				}
 
 				void deps.broadcastRuntimeWorkspaceStateUpdated(workspaceId, workspacePath);
-				if (event === "to_review") {
+				if (event === "to_review" && isTaskSession) {
 					deps.broadcastTaskReadyForReview(workspaceId, taskId);
 				}
 

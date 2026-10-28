@@ -12,6 +12,7 @@ import { ClineAgentChatPanel, type ClineAgentChatPanelHandle } from "@/component
 import { ColumnContextPanel } from "@/components/detail-panels/column-context-panel";
 import { type DiffLineComment, DiffViewerPanel } from "@/components/detail-panels/diff-viewer-panel";
 import { FileTreePanel } from "@/components/detail-panels/file-tree-panel";
+import { getReviewerSessionKey, ReviewerTerminalPanel } from "@/components/detail-panels/reviewer-terminal-panel";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
 import { useAgentReviewLog } from "@/hooks/use-agent-review-log";
@@ -713,7 +714,21 @@ export function CardDetailView({
 		/>
 	);
 	const agentChatPanel = selection.card.agentReview ? (
-		<AgentReviewerTabs agentPanel={taskAgentPanel} state={selection.card.agentReview} log={agentReviewLog} />
+		<AgentReviewerTabs
+			agentPanel={taskAgentPanel}
+			reviewerPanel={
+				<ReviewerTerminalPanel
+					taskId={selection.card.id}
+					workspaceId={currentProjectId}
+					state={selection.card.agentReview}
+					log={agentReviewLog}
+					summary={taskSessions[getReviewerSessionKey(selection.card.id)] ?? null}
+					terminalBackgroundColor={terminalThemeColors.surfacePrimary}
+					cursorColor={terminalThemeColors.textPrimary}
+				/>
+			}
+			state={selection.card.agentReview}
+		/>
 	) : (
 		taskAgentPanel
 	);

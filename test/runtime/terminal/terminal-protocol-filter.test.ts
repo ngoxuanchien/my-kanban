@@ -125,4 +125,13 @@ describe("terminal protocol filter", () => {
 		expect(secondChunk.toString("utf8")).toBe("after");
 		expect(state.pendingChunk).toBeNull();
 	});
+	it("drops alternate-screen switches only when asked, keeping other private modes", () => {
+		const output = "\u001b[?1049h\u001b[?25lframe\u001b[?47h\u001b[?1047l\u001b[?1049l";
+		const suppressing = createTerminalProtocolFilterState({ suppressAlternateScreen: true });
+		expect(filterTerminalProtocolOutput(suppressing, Buffer.from(output, "utf8")).toString("utf8")).toBe(
+			"\u001b[?25lframe",
+		);
+		const passthrough = createTerminalProtocolFilterState();
+		expect(filterTerminalProtocolOutput(passthrough, Buffer.from(output, "utf8")).toString("utf8")).toBe(output);
+	});
 });

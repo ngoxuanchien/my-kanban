@@ -171,14 +171,12 @@ export const runtimeAgentReviewStateSchema = z.object({
 });
 export type RuntimeAgentReviewState = z.infer<typeof runtimeAgentReviewStateSchema>;
 
-/** Reviewer stdout/stderr for the latest run of a task. In memory only, tail-capped. */
+/** The latest reviewer run of a task. In memory only; its output is the "agent-review:<taskId>" terminal session. */
 export const runtimeAgentReviewLogSchema = z.object({
 	reviewerAgentId: runtimeAgentIdSchema,
 	round: z.number().int().min(0),
 	startedAt: z.number(),
 	finishedAt: z.number().nullable(),
-	output: z.string(),
-	truncated: z.boolean(),
 });
 export type RuntimeAgentReviewLog = z.infer<typeof runtimeAgentReviewLogSchema>;
 

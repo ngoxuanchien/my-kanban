@@ -18,8 +18,6 @@ const log: RuntimeAgentReviewLog = {
 	round: 0,
 	startedAt: 1,
 	finishedAt: null,
-	output: "hello",
-	truncated: false,
 };
 
 function reviewState(status: RuntimeAgentReviewState["status"]): RuntimeAgentReviewState {
@@ -74,7 +72,7 @@ describe("useAgentReviewLog", () => {
 		await act(async () => vi.advanceTimersByTime(AGENT_REVIEW_LOG_POLL_INTERVAL_MS * 2));
 		expect(getAgentReviewLogQueryMock).toHaveBeenCalledTimes(3);
 
-		// The status change fetches the final output once, then polling stops.
+		// The status change fetches the finished run once, then polling stops.
 		await act(async () => root.render(<Harness state={reviewState("needs_user")} />));
 		expect(getAgentReviewLogQueryMock).toHaveBeenCalledTimes(4);
 		await act(async () => vi.advanceTimersByTime(AGENT_REVIEW_LOG_POLL_INTERVAL_MS * 3));
