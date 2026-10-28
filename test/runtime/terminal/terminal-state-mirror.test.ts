@@ -55,6 +55,20 @@ describe("TerminalStateMirror", () => {
 		expect(snapshot.snapshot).toContain("after resize");
 	});
 
+	it("restores SGR mouse encoding along with mouse tracking", async () => {
+		const mirror = createMirror();
+
+		// OpenCode's startup modes. Without ?1006h a restored viewer reports the mouse as X10, which
+		// OpenCode reads as typed text (a leading "!" even switches its prompt to shell mode).
+		mirror.applyOutput(Buffer.from("\u001b[?1000h\u001b[?1002h\u001b[?1003h\u001b[?1006h", "utf8"));
+		const enabled = (await mirror.getSnapshot()).snapshot;
+		expect(enabled).toContain("\u001b[?1003h");
+		expect(enabled).toContain("\u001b[?1006h");
+
+		mirror.applyOutput(Buffer.from("\u001b[?1006l", "utf8"));
+		expect((await mirror.getSnapshot()).snapshot).not.toContain("\u001b[?1006h");
+	});
+
 	it("emits terminal query responses through the optional callback", async () => {
 		const onInputResponse = vi.fn();
 		const mirror = new TerminalStateMirror(80, 24, {

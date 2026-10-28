@@ -8,6 +8,7 @@ import {
 	type AgentReviewService,
 	COMMIT_STEP_TIMEOUT_MS,
 	createAgentReviewService,
+	TASK_TURN_START_TIMEOUT_MS,
 } from "../../../src/agent-review/agent-review-service";
 import { AGENT_REVIEW_RESULT_END, AGENT_REVIEW_RESULT_START } from "../../../src/agent-review/reviewer-output";
 import {
@@ -766,6 +767,55 @@ describe.sequential("AgentReviewService", () => {
 
 		await vi.advanceTimersByTimeAsync(COMMIT_STEP_TIMEOUT_MS);
 		await waitForReview("A", { status: "needs_user", reason: "commit_failed", summary: SUMMARY });
+		await waitForColumn("A", "user_review");
+	});
+
+	it("commit prompt that never starts a turn fails fast instead of waiting for the commit timeout", async () => {
+		addChange();
+		await startService([{ card: createCard("A"), columnId: "in_progress" }]);
+		scriptOutcome({ kind: "completed", output: PASS_OUTPUT });
+		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+
+		emit(turnEnd("A"));
+		await waitForReview("A", { status: "committing" });
+		await vi.waitFor(() => expect(sentPrompts).toHaveLength(1), { timeout: 5000 });
+
+		// The prompt was written but the agent never reports running (OpenCode ran it as a shell command).
+		await vi.advanceTimersByTimeAsync(TASK_TURN_START_TIMEOUT_MS);
+		await waitForReview("A", { status: "needs_user", reason: "commit_failed" });
+		expect((await findCard("A"))?.agentReview?.reasonDetail).toContain("did not start");
+		await waitForColumn("A", "user_review");
+	});
+
+	it("commit turn that starts in time is not failed by the turn-start check", async () => {
+		addChange();
+		await startService([{ card: createCard("A"), columnId: "in_progress" }]);
+		scriptOutcome({ kind: "completed", output: PASS_OUTPUT });
+		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+
+		emit(turnEnd("A"));
+		await waitForReview("A", { status: "committing" });
+		await vi.waitFor(() => expect(sentPrompts).toHaveLength(1), { timeout: 5000 });
+		emit(running("A"));
+		await waitForColumn("A", "in_progress");
+
+		await vi.advanceTimersByTimeAsync(TASK_TURN_START_TIMEOUT_MS);
+		expect((await findCard("A"))?.agentReview?.status).toBe("committing");
+	});
+
+	it("fix prompt that never starts a turn goes to user_review with a reason", async () => {
+		addChange();
+		await startService([{ card: createCard("A"), columnId: "in_progress" }]);
+		scriptOutcome({ kind: "completed", output: failOutput("1. Fix the button.") });
+		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+
+		emit(turnEnd("A"));
+		await waitForReview("A", { status: "fixing", round: 1 });
+		await vi.waitFor(() => expect(sentPrompts).toHaveLength(1), { timeout: 5000 });
+
+		await vi.advanceTimersByTimeAsync(TASK_TURN_START_TIMEOUT_MS);
+		await waitForReview("A", { status: "needs_user", reason: "task_agent_not_running" });
+		expect((await findCard("A"))?.agentReview?.reasonDetail).toContain("did not start");
 		await waitForColumn("A", "user_review");
 	});
 

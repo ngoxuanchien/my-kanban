@@ -28,9 +28,9 @@ export type AgentReviewEvent =
 	  }
 	// The review run threw before it could report an outcome.
 	| { type: "review_failed"; error: string }
-	| { type: "fix_send_failed" }
+	| { type: "fix_send_failed"; detail?: string }
 	| { type: "commit_finished"; ok: true; commitHash: string; prUrl: string | null }
-	| { type: "commit_finished"; ok: false }
+	| { type: "commit_finished"; ok: false; detail?: string }
 	| { type: "user_input" }
 	| { type: "moved_by_user"; to: RuntimeBoardColumnId }
 	| { type: "toggled_off" }
@@ -203,13 +203,13 @@ export function reduceAgentReview(input: AgentReviewReducerInput): AgentReviewRe
 			}
 			return toNeedsUser(state, "reviewer_crashed", event.error, now);
 		case "fix_send_failed":
-			return state ? toNeedsUser(state, "task_agent_not_running", null, now) : unchanged;
+			return state ? toNeedsUser(state, "task_agent_not_running", event.detail ?? null, now) : unchanged;
 		case "commit_finished": {
 			if (state?.status !== "committing") {
 				return unchanged;
 			}
 			if (!event.ok) {
-				return toNeedsUser(state, "commit_failed", null, now);
+				return toNeedsUser(state, "commit_failed", event.detail ?? null, now);
 			}
 			return {
 				state: {

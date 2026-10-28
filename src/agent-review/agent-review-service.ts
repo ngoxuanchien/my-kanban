@@ -7,6 +7,7 @@ import type {
 	RuntimeAgentId,
 	RuntimeAgentReviewLog,
 	RuntimeAgentReviewState,
+	RuntimeAgentReviewStatus,
 	RuntimeBoardCard,
 	RuntimeBoardColumnId,
 	RuntimeBoardData,
@@ -43,6 +44,9 @@ import { AGENT_REVIEW_SESSION_KEY_PREFIX, classifyTurnEnd } from "./task-session
 
 export const REVIEWER_RUN_TIMEOUT_MS = 20 * 60_000;
 export const COMMIT_STEP_TIMEOUT_MS = 10 * 60_000;
+// A prompt can reach the terminal without starting a turn (e.g. OpenCode ran it as a shell command),
+// so a fix/commit prompt whose turn has not started by then fails instead of waiting for a turn end.
+export const TASK_TURN_START_TIMEOUT_MS = 60_000;
 
 const PR_URL_PATTERN = /https:\/\/github\.com\/\S+?\/pull\/\d+/g;
 
@@ -145,6 +149,10 @@ function isAgentInstalled(agentId: RuntimeAgentId): boolean {
 	return entry ? isBinaryAvailableOnPath(entry.binary) : false;
 }
 
+function turnNotStartedDetail(prompt: string): string {
+	return `The task agent did not start working within ${TASK_TURN_START_TIMEOUT_MS / 1000}s of the ${prompt} prompt. Check its terminal: the prompt may not have been submitted.`;
+}
+
 function findLastPrUrl(message: string | null | undefined): string | null {
 	return message?.match(PR_URL_PATTERN)?.at(-1) ?? null;
 }
@@ -157,6 +165,7 @@ export function createAgentReviewService(deps: AgentReviewServiceDeps): AgentRev
 	const lastSessionKinds = new Map<string, string>();
 	const reviewQueue: string[] = [];
 	const commitTimers = new Map<string, ReturnType<typeof setTimeout>>();
+	const turnStartTimers = new Map<string, ReturnType<typeof setTimeout>>();
 	const reviewerLogs = new Map<string, RuntimeAgentReviewLog>();
 	let activeRun: ActiveRun | null = null;
 	let unsubscribes: Array<() => void> = [];
@@ -274,7 +283,12 @@ export function createAgentReviewService(deps: AgentReviewServiceDeps): AgentRev
 				});
 				if (!(await sendToTask(card, message)).ok) {
 					await applyEvent(card.id, { type: "fix_send_failed" });
+					return;
 				}
+				watchTurnStart(card.id, "fixing", {
+					type: "fix_send_failed",
+					detail: turnNotStartedDetail("fix"),
+				});
 				return;
 			}
 			case "send_commit": {
@@ -297,6 +311,11 @@ export function createAgentReviewService(deps: AgentReviewServiceDeps): AgentRev
 						void serialize(() => applyEvent(card.id, { type: "commit_finished", ok: false }));
 					}, COMMIT_STEP_TIMEOUT_MS),
 				);
+				watchTurnStart(card.id, "committing", {
+					type: "commit_finished",
+					ok: false,
+					detail: turnNotStartedDetail(effect.action === "pr" ? "PR" : "commit"),
+				});
 				return;
 			}
 			case "complete_done": {
@@ -309,6 +328,28 @@ export function createAgentReviewService(deps: AgentReviewServiceDeps): AgentRev
 				rememberCard(result.state.board, card.id);
 				return;
 			}
+		}
+	}
+
+	function watchTurnStart(taskId: string, status: RuntimeAgentReviewStatus, onTimeout: AgentReviewEvent): void {
+		clearTurnStartTimer(taskId);
+		turnStartTimers.set(
+			taskId,
+			setTimeout(() => {
+				turnStartTimers.delete(taskId);
+				clearCommitTimer(taskId);
+				void serialize(() =>
+					applyEvent(taskId, onTimeout, { guard: (card) => card.agentReview?.status === status }),
+				);
+			}, TASK_TURN_START_TIMEOUT_MS),
+		);
+	}
+
+	function clearTurnStartTimer(taskId: string): void {
+		const timer = turnStartTimers.get(taskId);
+		if (timer) {
+			clearTimeout(timer);
+			turnStartTimers.delete(taskId);
 		}
 	}
 
@@ -401,6 +442,7 @@ export function createAgentReviewService(deps: AgentReviewServiceDeps): AgentRev
 			return;
 		}
 		if (kind === "running") {
+			clearTurnStartTimer(summary.taskId);
 			await handleTaskRunning(summary.taskId);
 		} else if (kind === "turn_end") {
 			await handleTurnEnd(summary.taskId, summary);
@@ -697,6 +739,9 @@ export function createAgentReviewService(deps: AgentReviewServiceDeps): AgentRev
 			unsubscribes = [];
 			for (const taskId of [...commitTimers.keys()]) {
 				clearCommitTimer(taskId);
+			}
+			for (const taskId of [...turnStartTimers.keys()]) {
+				clearTurnStartTimer(taskId);
 			}
 			reviewQueue.length = 0;
 			if (activeRun) {
