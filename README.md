@@ -70,6 +70,16 @@ When the work looks good, hit **Commit** or **Open PR**. Kanban sends a dynamic 
 ### 7. Keep track with git interface
 Click the branch name in the navbar to open a full git interface to browse commit history, switch branches, fetch, pull, push, and visualize your git all without leaving Kanban. Keep track of everything your agents are doing across branches as work is completed.
 
+## Desktop app (macOS)
+
+Install the Apple Silicon desktop app from this checkout with one command:
+
+```bash
+npm run desktop:install
+```
+
+This builds Kanban and installs the unsigned app at `/Applications/Kanban.app`. Open it from Applications, then pin it to your Dock by right-clicking its Dock icon and choosing **Options → Keep in Dock**.
+
 ---
 
 [Apache 2.0 © 2026 Cline Bot Inc.](./LICENSE)

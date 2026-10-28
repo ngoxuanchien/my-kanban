@@ -5,6 +5,29 @@
 - Node.js 20+
 - npm 10+
 
+## Desktop app (macOS)
+
+Install dependencies from the repository root with `npm run install:all`, then run the desktop app in development mode:
+
+```bash
+npm --prefix packages/desktop run dev
+```
+
+To build a local unsigned Apple Silicon DMG, first build the runtime and web UI, then build the desktop package:
+
+```bash
+npm run build
+CSC_IDENTITY_AUTO_DISCOVERY=false npm --prefix packages/desktop run build:mac:arm64
+```
+
+The DMG is written under `packages/desktop/out`. For a one-command local install to `/Applications/Kanban.app`, run `npm run desktop:install` from the repository root; this builds both packages and installs the unsigned arm64 app.
+
+macOS may block an unsigned build with a Gatekeeper warning. To open it, Control-click or right-click `Kanban.app` in Finder and choose **Open**, then confirm. If quarantine still prevents launch, remove the quarantine attribute from the app bundle:
+
+```bash
+xattr -dr com.apple.quarantine /Applications/Kanban.app
+```
+
 ## Install
 
 ```bash
