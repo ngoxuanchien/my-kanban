@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { cpSync, existsSync, rmSync } from "node:fs";
+import { existsSync, rmSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -38,5 +38,6 @@ if (!existsSync(appPath)) {
 
 run("osascript", ["-e", 'if application "Kanban" is running then tell application "Kanban" to quit']);
 rmSync(installPath, { recursive: true, force: true });
-cpSync(appPath, installPath, { recursive: true });
+run("ditto", [appPath, installPath]);
+run("codesign", ["--verify", "--deep", "--strict", installPath]);
 console.log(`desktop:install: installed ${installPath}`);
