@@ -2,6 +2,7 @@ import { realpathSync } from "node:fs";
 
 import packageJson from "../../package.json" with { type: "json" };
 
+import { RUNTIME_LAUNCH_SUPPORTED_AGENT_IDS } from "../core/agent-catalog";
 import type { RuntimeAgentId } from "../core/api-contract";
 import { isHomeAgentSessionId } from "../core/home-agent-session";
 import { resolveKanbanCommandParts } from "../core/kanban-command";
@@ -10,6 +11,7 @@ import { detectAutoUpdateInstallation, UpdatePackageManager } from "../update/up
 
 const DEFAULT_COMMAND_PREFIX = "kanban";
 const KANBAN_VERSION = typeof packageJson.version === "string" ? packageJson.version : "0.1.0";
+const RUNTIME_AGENT_IDS_TEXT = RUNTIME_LAUNCH_SUPPORTED_AGENT_IDS.join(" | ");
 
 export interface ResolveAppendSystemPromptCommandPrefixOptions {
 	currentVersion?: string;
@@ -200,7 +202,7 @@ Command:
 Purpose: create a new task in \`backlog\`, with optional plan mode and auto-review behavior.
 
 Command:
-\`${kanbanCommand} task create [--title "<text>"] --prompt "<text>" [--project-path <path>] [--base-ref <branch>] [--start-in-plan-mode <true|false>] [--auto-review-enabled <true|false>] [--auto-review-mode commit|pr]\`
+\`${kanbanCommand} task create [--title "<text>"] --prompt "<text>" [--project-path <path>] [--base-ref <branch>] [--start-in-plan-mode <true|false>] [--auto-review-enabled <true|false>] [--auto-review-mode commit|pr] [--agent-id <${RUNTIME_AGENT_IDS_TEXT}>] [--agent-review-enabled <true|false>]\`
 
 Parameters:
 - \`--title "<text>"\` optional task title. If omitted, Kanban derives one from the prompt.
@@ -210,13 +212,15 @@ Parameters:
 - \`--start-in-plan-mode <true|false>\` optional. Default false. Set true only when explicitly requested.
 - \`--auto-review-enabled <true|false>\` optional. Default false. Enables automatic action once task reaches review.
 - \`--auto-review-mode commit|pr\` optional auto-review action. Default \`commit\`.
+- \`--agent-id <${RUNTIME_AGENT_IDS_TEXT}>\` optional runtime agent for this task.
+- \`--agent-review-enabled <true|false>\` optional. Default false. When true, the sidebar agent reviews the task when it reaches Review, with up to 3 fix rounds before \`task handoff\`.
 
 ## task update
 
 Purpose: update an existing task, including prompt, base ref, plan mode, and auto-review behavior.
 
 Command:
-\`${kanbanCommand} task update --task-id <task_id> [--title "<text>"] [--prompt "<text>"] [--project-path <path>] [--base-ref <branch>] [--start-in-plan-mode <true|false>] [--auto-review-enabled <true|false>] [--auto-review-mode commit|pr]\`
+\`${kanbanCommand} task update --task-id <task_id> [--title "<text>"] [--prompt "<text>"] [--project-path <path>] [--base-ref <branch>] [--start-in-plan-mode <true|false>] [--auto-review-enabled <true|false>] [--auto-review-mode commit|pr] [--agent-id <${RUNTIME_AGENT_IDS_TEXT}|default>] [--agent-review-enabled <true|false>]\`
 
 Parameters:
 - \`--task-id <task_id>\` required task ID.
@@ -227,6 +231,8 @@ Parameters:
 - \`--start-in-plan-mode <true|false>\` optional replacement of plan-mode behavior.
 - \`--auto-review-enabled <true|false>\` optional replacement of auto-review toggle. Set false to cancel pending automatic review actions.
 - \`--auto-review-mode commit|pr\` optional replacement auto-review action.
+- \`--agent-id <${RUNTIME_AGENT_IDS_TEXT}|default>\` optional replacement runtime agent. Use \`default\` to clear the override.
+- \`--agent-review-enabled <true|false>\` optional replacement of agent review behavior. When true, the sidebar agent reviews the task when it reaches Review, with up to 3 fix rounds before \`task handoff\`.
 
 Notes:
 - Provide at least one field to change in addition to \`--task-id\`.

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { RUNTIME_LAUNCH_SUPPORTED_AGENT_IDS } from "../../src/core/agent-catalog";
 import {
 	renderAppendSystemPrompt,
 	resolveAppendSystemPromptCommandPrefix,
@@ -55,6 +56,26 @@ describe("resolveAppendSystemPromptCommandPrefix", () => {
 });
 
 describe("renderAppendSystemPrompt", () => {
+	it("documents agent selection and review for task creation and updates", () => {
+		const rendered = renderAppendSystemPrompt("kanban");
+		const agentIds = RUNTIME_LAUNCH_SUPPORTED_AGENT_IDS.join(" | ");
+		const createSection = rendered.slice(rendered.indexOf("## task create"), rendered.indexOf("## task update"));
+		const updateSection = rendered.slice(rendered.indexOf("## task update"), rendered.indexOf("## task done"));
+
+		for (const [section, agentIdParameter] of [
+			[createSection, `--agent-id <${agentIds}>`],
+			[updateSection, `--agent-id <${agentIds}|default>`],
+		] as const) {
+			const commandLine = section.split("Command:\n")[1]?.split("\n")[0] ?? "";
+			expect(commandLine).toContain("--agent-id");
+			expect(commandLine).toContain("--agent-review-enabled");
+			expect(section).toContain(`- \`${agentIdParameter}\``);
+			expect(section).toContain("- `--agent-review-enabled <true|false>`");
+			expect(section).toContain("When true, the sidebar agent reviews the task when it reaches Review");
+		}
+		expect(updateSection).toContain("Use `default` to clear the override.");
+	});
+
 	it("renders Kanban sidebar guidance and command reference", () => {
 		const rendered = renderAppendSystemPrompt("kanban");
 		expect(rendered).toContain("Kanban sidebar agent");
