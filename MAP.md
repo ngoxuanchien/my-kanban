@@ -38,6 +38,8 @@ Update this file whenever a file or folder is created or moved.
 | `docs/superpowers/specs/2026-10-29-done-task-history-design.md` | Spec: clickable Done cards with a read-only history timeline, commit diff, and agent transcript viewer. |
 | `docs/superpowers/plans/2026-10-29-done-task-history.md` | Plan for the Done task history spec, split into 3 chained Kanban tasks. |
 | `docs/superpowers/plans/2026-10-29-quota-handoff.md` | Plan for the quota handoff spec (1 Kanban task). |
+| `docs/superpowers/specs/2026-10-29-quota-continue-nudge-design.md` | Spec: send `continue` once to a stuck agent before quota handoff / Out of quota. |
+| `docs/superpowers/plans/2026-10-29-quota-continue-nudge.md` | Plan for the quota continue nudge spec (1 Kanban task). |
 | `docs/superpowers/specs/2026-10-29-review-on-by-default-design.md` | Spec: agent review on by default for new tasks; enabling it on a finished task starts a review. |
 | `docs/superpowers/specs/2026-10-29-card-review-label-design.md` | Spec: show review state (Review n/3, Handed off) on the card's agent line. |
 | `docs/superpowers/specs/2026-10-29-antigravity-agent-design.md` | Spec: Antigravity (`agy`) as a third task agent; handoff chain over codex/opencode/antigravity, up to 9 review rounds. |
