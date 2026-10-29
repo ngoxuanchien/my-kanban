@@ -10,6 +10,12 @@ describe("detectUsageLimit", () => {
 		expect(detectUsageLimit("FREE USAGE LIMIT REACHED")).toBe("Free usage limit reached");
 	});
 
+	it("matches an OpenCode error wrapped across terminal rows", () => {
+		expect(detectUsageLimit("AI.Error.QuotaExceeded: Free usage limit\nreached. Free models work in OpenCode")).toBe(
+			"Free usage limit reached",
+		);
+	});
+
 	it("ignores phrases above the last 40 lines", () => {
 		expect(
 			detectUsageLimit(["hit your usage limit", ...Array.from({ length: 40 }, () => "still running")].join("\n")),

@@ -6,7 +6,8 @@ export function detectUsageLimit(screenText: string): string | null {
 		.replace(new RegExp(`${escapeChar}(?:\\[[0-?]*[ -/]*[@-~]|\\][^\\u0007]*(?:\\u0007|${escapeChar}\\\\))`, "g"), "")
 		.split("\n")
 		.slice(-40)
-		.join("\n")
+		.join(" ")
+		.replace(/\s+/g, " ")
 		.toLowerCase();
 	return USAGE_LIMIT_PHRASES.find((phrase) => recentText.includes(phrase.toLowerCase())) ?? null;
 }

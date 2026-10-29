@@ -671,6 +671,27 @@ describe("createSidebarReviewService", () => {
 		service.dispose();
 	});
 
+	it("hands off OpenCode when its quota message wraps across terminal rows", async () => {
+		const { card, listeners, service } = await startUsageLimitTurn({
+			agentId: "opencode",
+			getRestoreSnapshot: async () => ({
+				snapshot: "AI.Error.QuotaExceeded: Free usage limit\nreached. Free models work in OpenCode",
+				cols: 80,
+				rows: 24,
+			}),
+		});
+		for (const listener of listeners) listener(summary("task-1", "awaiting_review"));
+		await vi.waitFor(() =>
+			expect(handOffTask).toHaveBeenCalledWith(
+				"task-1",
+				'The previous agent hit its usage limit ("Free usage limit reached").',
+			),
+		);
+		expect(card.reviewRound).toBe(0);
+		expect(sendPromptToSession).not.toHaveBeenCalled();
+		service.dispose();
+	});
+
 	it("leaves a handed-off task in Review when the other agent also hits its usage limit", async () => {
 		const { card, listeners, broadcastStateUpdated, warn, service } = await startUsageLimitTurn({
 			agentId: "opencode",
