@@ -73,15 +73,15 @@ Three Kanban tasks, chained: Task 2 waits on Task 1, Task 3 waits on Task 2. Age
   ```
   `SidebarReviewTask` gains `handedOff?: boolean`.
 
-- [ ] **Step 1: Failing tests**
+- [x] **Step 1: Failing tests**
   - queue: `handedOff: true, reviewRound: 3` → `onTaskTurnEnd` returns `{ round: 4 }` and `onSidebarIdle()` is `... round 4/6. Review it now.`; `reviewRound: 6` → `null`; not handed off `reviewRound: 3` → `null` (unchanged).
   - service `start()`: card in review, `handedOff: true`, `reviewRound: 5` → queued (Review Focus 2). `notifyBoardChanged` with review turned off → `handedOff` saved as `false`.
   - `hand-off-task.test.ts` (mock `loadWorkspaceState`/`mutateWorkspaceState` like `sidebar-review-service.test.ts` does): codex→opencode and opencode→codex; refuses `handedOff`, review-off, `claude`, unknown id (board unchanged); `stopTaskSession` called before `startTaskSession` (Review Focus 1); start input has the new `agentId`, the card's `baseRef`, and `buildHandOffPrompt(...)`; card saved with new `agentId`, `handedOff: true`, column `in_progress`, `reviewRound` unchanged; start returns `{ ok: false, error: "x" }` → result `{ ok: false, error: "x" }`, card still `handedOff: true` (Review Focus 5).
   - `buildHandOffPrompt` equals the exact Global Constraints text.
   - board-state: card without `handedOff` normalizes to `false`.
-- [ ] **Step 2:** `npx vitest run test/runtime/server` → new tests FAIL.
-- [ ] **Step 3: Implement.** Queue cap = `task.handedOff === true ? 6 : 3` in `onTaskTurnEnd` and the wake-up text. Service restore range `1..cap`. `handOffTask`: validate on loaded state → `stopTaskSession` → `mutateWorkspaceState` (set `agentId`, `handedOff: true`, then `moveTaskToColumn(board, taskId, "in_progress")` from `src/core/task-board-mutations.ts`) → `startTaskSession` → `broadcastStateUpdated`.
-- [ ] **Step 4:** `npm run typecheck && npm run test:fast && npm run lint && npm --prefix web-ui run test` → PASS.
+- [x] **Step 2:** `npx vitest run test/runtime/server` → new tests FAIL.
+- [x] **Step 3: Implement.** Queue cap = `task.handedOff === true ? 6 : 3` in `onTaskTurnEnd` and the wake-up text. Service restore range `1..cap`. `handOffTask`: validate on loaded state → `stopTaskSession` → `mutateWorkspaceState` (set `agentId`, `handedOff: true`, then `moveTaskToColumn(board, taskId, "in_progress")` from `src/core/task-board-mutations.ts`) → `startTaskSession` → `broadcastStateUpdated`.
+- [x] **Step 4:** `npm run typecheck && npm run test:fast && npm run lint && npm --prefix web-ui run test` → PASS.
 
 ### Task 2: tRPC endpoint, CLI `task handoff`, sidebar instructions (opencode)
 
@@ -103,10 +103,10 @@ New "Reviewing tasks" steps 3–4 (exact):
 4. If it fails on round 3/3, run `task handoff --task-id <task_id> --message "<the same concrete fix list>"` and report it in one chat line. If handoff returns an error, or it fails on round 6/6, do not send another fix request: leave it in Review and report the reasons to the user in the chat.
 ```
 
-- [ ] **Step 1: Failing tests:** request schema rejects empty `reason`; CLI prints `{ ok: true, taskId, fromAgentId, toAgentId }` on success and exits non-zero with the error on `{ ok: false }` (Review Focus 3); system prompt contains `task handoff` and both new steps verbatim.
-- [ ] **Step 2:** run them → FAIL.
-- [ ] **Step 3:** implement the files above.
-- [ ] **Step 4:** `npm run typecheck && npm run test:fast && npm run lint` → PASS.
+- [x] **Step 1: Failing tests:** request schema rejects empty `reason`; CLI prints `{ ok: true, taskId, fromAgentId, toAgentId }` on success and exits non-zero with the error on `{ ok: false }` (Review Focus 3); system prompt contains `task handoff` and both new steps verbatim.
+- [x] **Step 2:** run them → FAIL.
+- [x] **Step 3:** implement the files above.
+- [x] **Step 4:** `npm run typecheck && npm run test:fast && npm run lint` → PASS.
 
 ### Task 3: Crash trigger (codex)
 
@@ -120,7 +120,7 @@ New "Reviewing tasks" steps 3–4 (exact):
 
 Crash = summary for a non-home task, previous state not crashed, and (`state === "failed"` or `reviewReason === "error"` or (`reviewReason === "exit"` and `exitCode !== 0`)). For a review-enabled, not handed-off, not trash card whose `agentId` is codex/opencode → call `deps.handOffTask(taskId, "The previous agent stopped with an error (exit code <n>).")`, do not queue a review; on `{ ok: false }` → `deps.warn` and fall through to today's behaviour.
 
-- [ ] **Step 1: Failing tests:** crash (`failed`) on codex review-enabled card → `handOffTask` called with the exact reason, sidebar not woken, `reviewRound` unchanged; crash with `exitCode: null` → reason ends `(exit code unknown).`; crash on `handedOff: true` card → no `handOffTask` (Review Focus 4); `exit` with code 0 → normal review path; review-off card → nothing.
-- [ ] **Step 2:** run → FAIL.
-- [ ] **Step 3:** implement.
-- [ ] **Step 4:** `npm run typecheck && npm run test:fast && npm run lint` → PASS.
+- [x] **Step 1: Failing tests:** crash (`failed`) on codex review-enabled card → `handOffTask` called with the exact reason, sidebar not woken, `reviewRound` unchanged; crash with `exitCode: null` → reason ends `(exit code unknown).`; crash on `handedOff: true` card → no `handOffTask` (Review Focus 4); `exit` with code 0 → normal review path; review-off card → nothing.
+- [x] **Step 2:** run → FAIL.
+- [x] **Step 3:** implement.
+- [x] **Step 4:** `npm run typecheck && npm run test:fast && npm run lint` → PASS.

@@ -38,7 +38,7 @@
 - Consumes: `deps.terminalManager.getRestoreSnapshot(taskId): Promise<{ snapshot: string; cols: number; rows: number } | null>`; `deps.handOffTask(taskId, reason)`.
 - Produces: `export const USAGE_LIMIT_PHRASES: readonly string[]`; `export function detectUsageLimit(screenText: string): string | null`.
 
-- [ ] **Step 1: Failing tests** — the 4 detector tests and 5 service tests listed in spec section 5.
-- [ ] **Step 2:** `npx vitest run test/runtime/server` → new tests FAIL.
-- [ ] **Step 3: Implement** per spec sections 3–4.
-- [ ] **Step 4:** `npm run typecheck && npm run test:fast && npm run lint` → PASS.
+- [x] **Step 1: Failing tests** — the 4 detector tests and 5 service tests listed in spec section 5.
+- [x] **Step 2:** `npx vitest run test/runtime/server` → new tests FAIL.
+- [x] **Step 3: Implement** per spec sections 3–4.
+- [x] **Step 4:** `npm run typecheck && npm run test:fast && npm run lint` → PASS.

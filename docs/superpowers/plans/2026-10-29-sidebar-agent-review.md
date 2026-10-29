@@ -56,15 +56,15 @@
 - Produces: CLI `task send --task-id <id> --message <text> [--project-path <path>]`, JSON output `{ ok, taskId }` or `{ ok: false, error }` with exit code 1.
 - Produces: `task list` items include `agentReviewEnabled`, `reviewRound`, `baseRef`, `worktreePath`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
   - `send-prompt-to-session.test.ts`: PTY path writes `\x1b[200~fix it\x1b[201~` then `\r` (fake `terminalManager.writeInput` records buffers, fake `sleep`); returns `{ ok: false, reason: "session_not_running" }` when `writeInput` returns `null`; Cline path calls `sendTaskSessionInput(id, prompt, "act")`.
   - `runtime-api.test.ts`: `sendTaskMessage` for an unknown task → `{ ok: false, error: expect.stringContaining("not running") }`.
   - `api-validation.test.ts`: a card without the new fields parses with them absent; a card with `agentReviewEnabled: true, reviewRound: 2` keeps both.
   - `cli-compat.integration.test.ts`: `task send --help` lists `--task-id` and `--message`; `task create --agent-review-enabled true` stores the field.
-- [ ] **Step 2: Run and confirm they fail** — `npx vitest run test/runtime/terminal/send-prompt-to-session.test.ts test/runtime/trpc/runtime-api.test.ts test/runtime/api-validation.test.ts`. Expected: FAIL (module / route / field missing).
-- [ ] **Step 3: Implement** the interfaces above. `sendTaskMessage` resolves the task's agent from its card (`card.agentId ?? config.selectedAgentId`). OpenCode v2 caveat from commit 33669791: a prompt can land in the terminal without starting a turn — out of scope here; just document it in a code comment. Spec §4.1 "Review → In Progress after a send": first check whether the existing session-state handling already moves the card when the agent starts running again; only if it does not, move the card to `in_progress` in `sendTaskMessage` through the existing workspace-state mutation path, and add a `runtime-api.test.ts` case for it.
-- [ ] **Step 4: Run and confirm they pass** (same command) and `npx vitest run test/integration/cli-compat.integration.test.ts`.
-- [ ] **Step 5: Full checks** — `npm run typecheck && npm run lint && npm run test:fast`, all exit 0.
+- [x] **Step 2: Run and confirm they fail** — `npx vitest run test/runtime/terminal/send-prompt-to-session.test.ts test/runtime/trpc/runtime-api.test.ts test/runtime/api-validation.test.ts`. Expected: FAIL (module / route / field missing).
+- [x] **Step 3: Implement** the interfaces above. `sendTaskMessage` resolves the task's agent from its card (`card.agentId ?? config.selectedAgentId`). OpenCode v2 caveat from commit 33669791: a prompt can land in the terminal without starting a turn — out of scope here; just document it in a code comment. Spec §4.1 "Review → In Progress after a send": first check whether the existing session-state handling already moves the card when the agent starts running again; only if it does not, move the card to `in_progress` in `sendTaskMessage` through the existing workspace-state mutation path, and add a `runtime-api.test.ts` case for it.
+- [x] **Step 4: Run and confirm they pass** (same command) and `npx vitest run test/integration/cli-compat.integration.test.ts`.
+- [x] **Step 5: Full checks** — `npm run typecheck && npm run lint && npm run test:fast`, all exit 0.
 
 ---
 
@@ -84,17 +84,17 @@
 - Reset `reviewRound` to 0 when the card goes to trash/Done or `agentReviewEnabled` is set false.
 - Restart: on service start, every card in `review` with `agentReviewEnabled` and `reviewRound` in 1..3 is queued again with its current round (no increment).
 
-- [ ] **Step 1: Write the failing tests** for `sidebar-review-queue.test.ts`:
+- [x] **Step 1: Write the failing tests** for `sidebar-review-queue.test.ts`:
   - `"ignores tasks with review off"`: `onTaskTurnEnd({ id: "a", title: "A" })` → `null`; `onSidebarIdle()` → `null`.
   - `"queues round 1 and formats the wake-up line"`: `onTaskTurnEnd({ id: "a", title: "A", agentReviewEnabled: true, reviewRound: 0 })` → `{ round: 1 }`; `onSidebarIdle()` → `'[Kanban review] Task a "A" is in Review, round 1/3. Review it now.'`.
   - `"never queues round 4"`: `reviewRound: 3` → `null`.
   - `"one task per idle period"`: two tasks queued; first `onSidebarIdle()` → task a line, second → task b line, third → `null`.
   - `"done clears a queued task"`: queue a, `onTaskDone("a")`, `onSidebarIdle()` → `null`.
   - In `sidebar-review-service.test.ts` (fake terminal manager emitting summaries): a task turn end while the sidebar summary is `running` sends nothing; when the sidebar summary turns `awaiting_review`, exactly one `sendPromptToSession` call with the sidebar session id.
-- [ ] **Step 2: Run and confirm they fail** — `npx vitest run test/runtime/server/sidebar-review-queue.test.ts test/runtime/server/sidebar-review-service.test.ts`.
-- [ ] **Step 3: Implement** the queue (pure, no timers), then the service and its wiring in `runtime-server.ts`, persisting `reviewRound` through the existing workspace-state mutation path and broadcasting the state update.
-- [ ] **Step 4: Prompt section** in `append-system-prompt.ts`: the four review steps from spec §4.4 (read prompt + diff, run checks, pass → commit per `DEFAULT_COMMIT_PROMPT_TEMPLATE` steps then `task done`, fail < 3 → `task send` fix list, fail at 3 → report to user). Test: the generated prompt contains `"[Kanban review]"` and `"task send"`.
-- [ ] **Step 5: Run and confirm they pass**, then `npm run typecheck && npm run lint && npm run test:fast`, all exit 0.
+- [x] **Step 2: Run and confirm they fail** — `npx vitest run test/runtime/server/sidebar-review-queue.test.ts test/runtime/server/sidebar-review-service.test.ts`.
+- [x] **Step 3: Implement** the queue (pure, no timers), then the service and its wiring in `runtime-server.ts`, persisting `reviewRound` through the existing workspace-state mutation path and broadcasting the state update.
+- [x] **Step 4: Prompt section** in `append-system-prompt.ts`: the four review steps from spec §4.4 (read prompt + diff, run checks, pass → commit per `DEFAULT_COMMIT_PROMPT_TEMPLATE` steps then `task done`, fail < 3 → `task send` fix list, fail at 3 → report to user). Test: the generated prompt contains `"[Kanban review]"` and `"task send"`.
+- [x] **Step 5: Run and confirm they pass**, then `npm run typecheck && npm run lint && npm run test:fast`, all exit 0.
 
 ---
 
@@ -107,9 +107,9 @@
 **Interfaces:**
 - Consumes: Task 1 card field `agentReviewEnabled?: boolean`. Look at the deleted toggle in `git show 449f93b0 -- web-ui/src/components/task-create-dialog.tsx web-ui/src/hooks/use-task-editor.ts` for the earlier layout; reuse it.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
   - `use-task-editor.test.tsx`: `"creates a task with agentReviewEnabled when the toggle is on"` → the created card has `agentReviewEnabled: true`; default is `false`.
   - `use-review-auto-actions.test.tsx`: `"skips auto-commit for agent-reviewed tasks"` → a review card with `autoReviewEnabled: true, agentReviewEnabled: true` triggers no commit action.
-- [ ] **Step 2: Run and confirm they fail** — `npm --prefix web-ui run test -- use-task-editor use-review-auto-actions`.
-- [ ] **Step 3: Implement** a checkbox/switch labelled **"Agent review (sidebar agent reviews and commits)"** in the create dialog and inline create card; when it is on, the auto-review controls are disabled.
-- [ ] **Step 4: Run and confirm they pass**, then `npm run web:typecheck && npm run web:test && npm run lint`, all exit 0.
+- [x] **Step 2: Run and confirm they fail** — `npm --prefix web-ui run test -- use-task-editor use-review-auto-actions`.
+- [x] **Step 3: Implement** a checkbox/switch labelled **"Agent review (sidebar agent reviews and commits)"** in the create dialog and inline create card; when it is on, the auto-review controls are disabled.
+- [x] **Step 4: Run and confirm they pass**, then `npm run web:typecheck && npm run web:test && npm run lint`, all exit 0.

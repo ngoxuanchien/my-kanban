@@ -2,6 +2,8 @@
 
 # Agent Review Implementation Plan
 
+> Superseded: this feature was removed in 78c57604 (see docs/superpowers/specs/2026-10-29-remove-agent-review-design.md).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** When a task with Agent review on reaches Review, a Kanban-run reviewer agent checks it server-side, sends fix prompts to the task agent for up to 3 rounds, and then either commits it and moves it to Done with a summary, or moves it to a new **Needs your review** column.

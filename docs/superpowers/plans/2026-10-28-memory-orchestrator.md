@@ -65,7 +65,7 @@
 - Produces: `RuntimeReviewerAgentSetting` now includes `"cross"`. Task 2 relies on this.
 - Produces: `resolveReviewerAgentId(setting: RuntimeReviewerAgentSetting, taskAgentId: RuntimeAgentId): RuntimeAgentId`, exported from `src/agent-review/reviewer-agent.ts`.
 
-- [ ] **Step 1: Write the failing unit test** `test/runtime/agent-review/reviewer-agent.test.ts`
+- [x] **Step 1: Write the failing unit test** `test/runtime/agent-review/reviewer-agent.test.ts`
 
 ```ts
 describe("resolveReviewerAgentId", () => {
@@ -87,29 +87,29 @@ describe("resolveReviewerAgentId", () => {
 });
 ```
 
-- [ ] **Step 2: Run it and confirm it fails**
+- [x] **Step 2: Run it and confirm it fails**
 
 Run: `npx vitest run test/runtime/agent-review/reviewer-agent.test.ts`
 Expected: FAIL, module `src/agent-review/reviewer-agent` not found.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
   - Change the schema to `z.union([z.literal("same_as_task"), z.literal("cross"), runtimeAgentIdSchema])`.
   - Add `resolveReviewerAgentId` in `src/agent-review/reviewer-agent.ts`, with the mapping kept as a small const record `{ opencode: "codex", codex: "opencode" }`.
   - In `agent-review-service.ts`, replace the inline ternary at `:572-573` with `resolveReviewerAgentId(config.reviewerAgent, resolveTaskAgentId(card, config))`.
 
-- [ ] **Step 4: Run it and confirm it passes**
+- [x] **Step 4: Run it and confirm it passes**
 
 Run: `npx vitest run test/runtime/agent-review/reviewer-agent.test.ts`
 Expected: PASS (4 tests).
 
-- [ ] **Step 5: Config round-trip test** in `test/runtime/config/runtime-config.test.ts`
+- [x] **Step 5: Config round-trip test** in `test/runtime/config/runtime-config.test.ts`
 
 Add `it("saves and reloads reviewerAgent = cross")`, a copy of the existing `"saves and reloads reviewerAgent = codex"` test (`:469`) with `"cross"`. It asserts that `updated.reviewerAgent` and the global payload's `reviewerAgent` both equal `"cross"`.
 
 Run: `npx vitest run test/runtime/config/runtime-config.test.ts`
 Expected: PASS.
 
-- [ ] **Step 6: Service test** in `test/runtime/agent-review/agent-review-service.test.ts`
+- [x] **Step 6: Service test** in `test/runtime/agent-review/agent-review-service.test.ts`
 
 Add `it("cross reviewer reviews an opencode task with codex")`:
 - `configOverrides = { reviewerAgent: "cross" }`;
@@ -121,12 +121,12 @@ Add `it("cross reviewer uses the selected agent when the card has none")`: the c
 Run: `npx vitest run test/runtime/agent-review/agent-review-service.test.ts`
 Expected: PASS.
 
-- [ ] **Step 7: Full checks**
+- [x] **Step 7: Full checks**
 
 Run: `npm run typecheck && npm run lint && npm run test:fast`
 Expected: all exit 0.
 
-- [ ] **Step 8: Commit (only when the user asks)**
+- [x] **Step 8: Commit (only when the user asks)**
 
 ```bash
 git add src/core/api-contract.ts src/agent-review/reviewer-agent.ts src/agent-review/agent-review-service.ts test/runtime/agent-review/reviewer-agent.test.ts test/runtime/agent-review/agent-review-service.test.ts test/runtime/config/runtime-config.test.ts
@@ -144,30 +144,30 @@ git commit -m "feat(agent-review): add cross reviewer setting (codex <-> opencod
 **Interfaces:**
 - Consumes: `RuntimeReviewerAgentSetting` including `"cross"` (Task 1).
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
   - Add `it("settings dialog saves reviewerAgent = cross")`, a copy of `"settings dialog saves reviewerAgent"` (`:265-287`) with `reviewerSelect.value = "cross"`. It expects `saveRuntimeConfigMock` to be called with `expect.objectContaining({ reviewerAgent: "cross" })`.
   - Add `it("settings dialog shows the saved cross reviewer")`: the loaded config has `reviewerAgent: "cross"`; assert the reviewer `<select>` has `value === "cross"`.
 
-- [ ] **Step 2: Run them and confirm they fail**
+- [x] **Step 2: Run them and confirm they fail**
 
 Run: `npm --prefix web-ui run test -- runtime-settings-dialog`
 Expected: FAIL, because no `cross` option exists and the select value is not set.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Add `<option value="cross">Cross (Codex ↔ OpenCode)</option>` directly after the `Same as task` option. Nothing else changes.
 
-- [ ] **Step 4: Run them and confirm they pass**
+- [x] **Step 4: Run them and confirm they pass**
 
 Run: `npm --prefix web-ui run test -- runtime-settings-dialog`
 Expected: PASS.
 
-- [ ] **Step 5: Full checks**
+- [x] **Step 5: Full checks**
 
 Run: `npm run web:typecheck && npm run web:test && npm run lint`
 Expected: all exit 0.
 
-- [ ] **Step 6: Commit (only when the user asks)**
+- [x] **Step 6: Commit (only when the user asks)**
 
 ```bash
 git add web-ui/src/components/runtime-settings-dialog.tsx web-ui/src/components/runtime-settings-dialog.test.tsx
@@ -189,17 +189,17 @@ git commit -m "feat(web-ui): add cross option to reviewer agent setting"
 - Produces: `docs/agents/task-prompt-template.md`, which the planner uses for every later task.
 - Produces: the `.gitignore` entries `/.mcp.json` and `/opencode.json`. Task 4 relies on them, because Kanban only symlinks ignored paths into worktrees (`src/workspace/task-worktree.ts:273-277`).
 
-- [ ] **Step 1:** Create `docs/agents/task-prompt-template.md` with the template from spec §4.4 verbatim, plus one opening sentence saying the planner fills it in for every Kanban task.
-- [ ] **Step 2:** Add an `AGENTS.md` section titled `Shared memory` with the four rules from spec §4.6. Open it with this sentence: "Applies to implementing agents and to planning. Reviewers ignore this section." Keep it to 6 lines or fewer, because every agent loads this file on every call.
-- [ ] **Step 3:** Add a rule to `CLAUDE.md`: `10. When creating Kanban tasks from a plan: alternate --agent-id opencode/codex, and fill docs/agents/task-prompt-template.md (copy needed context from memory into the prompt).`
-- [ ] **Step 4:** Add `/.mcp.json` and `/opencode.json` under the "Local-only harness files" comment in `.gitignore`.
-- [ ] **Step 5:** Add `docs/agents/task-prompt-template.md` to `MAP.md` ("Where to find things").
-- [ ] **Step 6: Verify**
+- [x] **Step 1:** Create `docs/agents/task-prompt-template.md` with the template from spec §4.4 verbatim, plus one opening sentence saying the planner fills it in for every Kanban task.
+- [x] **Step 2:** Add an `AGENTS.md` section titled `Shared memory` with the four rules from spec §4.6. Open it with this sentence: "Applies to implementing agents and to planning. Reviewers ignore this section." Keep it to 6 lines or fewer, because every agent loads this file on every call.
+- [x] **Step 3:** Add a rule to `CLAUDE.md`: `10. When creating Kanban tasks from a plan: alternate --agent-id opencode/codex, and fill docs/agents/task-prompt-template.md (copy needed context from memory into the prompt).`
+- [x] **Step 4:** Add `/.mcp.json` and `/opencode.json` under the "Local-only harness files" comment in `.gitignore`.
+- [x] **Step 5:** Add `docs/agents/task-prompt-template.md` to `MAP.md` ("Where to find things").
+- [x] **Step 6: Verify**
 
 Run: `git check-ignore -v .mcp.json opencode.json && npm run lint`
 Expected: both paths are reported as ignored by `.gitignore`; lint exits 0.
 
-- [ ] **Step 7: Commit (only when the user asks)**
+- [x] **Step 7: Commit (only when the user asks)**
 
 ```bash
 git add docs/agents/task-prompt-template.md AGENTS.md CLAUDE.md .gitignore MAP.md
@@ -212,17 +212,17 @@ git commit -m "docs: add task prompt template, shared memory rules, ignore memor
 
 Every step marked **(approval)** needs the user's explicit yes for that exact change.
 
-- [ ] **Step 1: Install.**
+- [x] **Step 1: Install.**
   - Pick the latest `basic-memory` release that is at least two weeks old.
   - Run `uv tool install basic-memory==<version>`, then `basic-memory --version`.
   - Expected: it prints the version. Record it in `contexte/memory-orchestrator.md`.
-- [ ] **Step 2: Copy test.**
+- [x] **Step 2: Copy test.**
   - Copy `contexte/` to a folder in the scratchpad.
   - Run `basic-memory project add mk-copy <copy>`, then `basic-memory sync --project mk-copy` (or the version's equivalent).
   - Run `diff -r <original contexte> <copy>`.
   - Expected: no differences, or only added frontmatter. **Any other difference → stop and ask the user.**
   - Remove the `mk-copy` project afterwards.
-- [ ] **Step 3: (approval) Real project and LaunchAgent.**
+- [x] **Step 3: (approval) Real project and LaunchAgent.**
   - Run `basic-memory project add my-kanban /Users/xuanchien/Project/claude-app/my-kanban/contexte`.
   - Write `~/Library/LaunchAgents/local.basic-memory.my-kanban.plist`:
     - `ProgramArguments`: `<uv tool bin>/basic-memory mcp --transport streamable-http --host 127.0.0.1 --port 8765 --project my-kanban`;
@@ -230,23 +230,23 @@ Every step marked **(approval)** needs the user's explicit yes for that exact ch
     - stdout and stderr to `~/Library/Logs/basic-memory.log`.
   - Run `launchctl bootstrap gui/$(id -u) <plist>`.
   - Verify: `lsof -iTCP:8765 -sTCP:LISTEN` shows the process, bound to 127.0.0.1 only.
-- [ ] **Step 4: Measure baseline.**
+- [x] **Step 4: Measure baseline.**
   - Start a fresh Claude Code session in a new task worktree and send one trivial prompt.
   - Record the first-call context (input + cache-create + cache-read) from its `~/.claude/projects/<dir>/*.jsonl`, using the method of spec §1.1.
-- [ ] **Step 5: Client config** (repo-local, gitignored after Task 3). In the main checkout:
+- [x] **Step 5: Client config** (repo-local, gitignored after Task 3). In the main checkout:
   - create `.mcp.json` and `opencode.json` with the contents in spec §6;
   - add `"enabledMcpjsonServers": ["basic-memory"]` to `.claude/settings.local.json`.
   - Verify: in a fresh task worktree, `ls -l .mcp.json opencode.json` shows symlinks.
-- [ ] **Step 6: Smoke test.** In a fresh task worktree:
+- [x] **Step 6: Smoke test.** In a fresh task worktree:
   - in Claude Code, `/mcp` lists `basic-memory` as connected, and a memory search for "parallel sessions" returns `parallel-sessions.md`;
   - in OpenCode, run the same search.
   - Expected: both return the note.
-- [ ] **Step 7: Measure after.**
+- [x] **Step 7: Measure after.**
   - Repeat Step 4.
   - Expected: the first-call context grew by ≤ ~5 k tokens. If it grew more, report the number to the user and do not continue (spec AG5).
-- [ ] **Step 8:** Update `contexte/memory-orchestrator.md` with the version, the before/after numbers and the date.
+- [x] **Step 8:** Update `contexte/memory-orchestrator.md` with the version, the before/after numbers and the date.
 
 ### Task 5: Switch on cross review
 
-- [ ] After Task 2 is merged and the runtime rebuilt: Settings → Reviewer agent → **Cross (Codex ↔ OpenCode)** → Save.
-- [ ] Verify: the next OpenCode task's reviewer log shows `reviewerAgentId: "codex"`.
+- [ ] After Task 2 is merged and the runtime rebuilt: Settings → Reviewer agent → **Cross (Codex ↔ OpenCode)** → Save. — not done: cross review was replaced by sidebar agent review (see plan status above).
+- [ ] Verify: the next OpenCode task's reviewer log shows `reviewerAgentId: "codex"`. — not done: cross review was replaced by sidebar agent review (see plan status above).
