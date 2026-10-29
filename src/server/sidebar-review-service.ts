@@ -5,6 +5,8 @@ import { createHomeAgentSessionId, isHomeAgentSessionId } from "../core/home-age
 import { loadWorkspaceState, mutateWorkspaceState } from "../state/workspace-state";
 import { sendPromptToSession } from "../terminal/send-prompt-to-session";
 import type { TerminalSessionManager } from "../terminal/session-manager";
+import { runGit } from "../workspace/git-utils";
+import { getTaskWorkspacePathInfo } from "../workspace/task-worktree";
 import { createSidebarReviewQueue } from "./sidebar-review-queue";
 
 export interface CreateSidebarReviewServiceDependencies {
@@ -42,6 +44,7 @@ function findCard(board: { columns: Array<{ id: string; cards: RuntimeBoardCard[
 export function createSidebarReviewService(deps: CreateSidebarReviewServiceDependencies): SidebarReviewService {
 	const queue = reviewQueue();
 	const previousSummaries = new Map<string, RuntimeTaskSessionSummary>();
+	const nudgedTaskIds = new Set<string>();
 	let sidebarIdleAvailable = false;
 	let started = false;
 	const unsubscribers: Array<() => void> = [];
@@ -106,6 +109,35 @@ export function createSidebarReviewService(deps: CreateSidebarReviewServiceDepen
 			if (!found || found.card.agentReviewEnabled !== true || found.columnId === "trash") {
 				return;
 			}
+			if ((found.card.reviewRound ?? 0) < 3) {
+				try {
+					const { path: worktreePath } = await getTaskWorkspacePathInfo({
+						cwd: deps.workspacePath,
+						taskId: summary.taskId,
+						baseRef: found.card.baseRef,
+					});
+					const status = await runGit(worktreePath, ["status", "--porcelain"]);
+					if (!status.ok) throw new Error(status.error || status.stdout);
+					const commits = await runGit(worktreePath, ["rev-list", "--count", `${found.card.baseRef}..HEAD`]);
+					if (!commits.ok) throw new Error(commits.error || commits.stdout);
+					if (!status.stdout && commits.stdout === "0" && !nudgedTaskIds.has(summary.taskId)) {
+						nudgedTaskIds.add(summary.taskId);
+						const result = await sendPromptToSession({
+							sessionId: summary.taskId,
+							agentId: summary.agentId,
+							prompt: `[Kanban] No changes found in your worktree (git status is clean and there are no commits since ${found.card.baseRef}). The task is not done. Make the changes the task asks for, run every acceptance command, and paste the output.`,
+							terminalManager: deps.terminalManager,
+							clineService: deps.clineService,
+						});
+						if (!result.ok)
+							deps.warn(`[sidebar-review] Could not nudge task ${summary.taskId}: session is not running`);
+						return;
+					}
+				} catch (error) {
+					deps.warn(`[sidebar-review] Could not check worktree for ${summary.taskId}: ${errorMessage(error)}`);
+				}
+			}
+			nudgedTaskIds.delete(summary.taskId);
 			const mutation = await mutateWorkspaceState(deps.workspacePath, (current) => {
 				const currentCard = findCard(current.board, summary.taskId)?.card;
 				if (!currentCard) {
@@ -168,9 +200,12 @@ export function createSidebarReviewService(deps: CreateSidebarReviewServiceDepen
 				const columns = state.board.columns.map((column) => ({
 					...column,
 					cards: column.cards.map((card) => {
-						if ((column.id === "trash" || !card.agentReviewEnabled) && (card.reviewRound ?? 0) !== 0) {
-							changed = true;
-							return { ...card, reviewRound: 0 };
+						if (column.id === "trash" || !card.agentReviewEnabled) {
+							nudgedTaskIds.delete(card.id);
+							if ((card.reviewRound ?? 0) !== 0) {
+								changed = true;
+								return { ...card, reviewRound: 0 };
+							}
 						}
 						return card;
 					}),

@@ -41,8 +41,13 @@ const workspaceState = vi.hoisted(() => ({
 }));
 
 const sendPromptToSession = vi.hoisted(() =>
-	vi.fn(async (_input: { prompt: string }): Promise<SendPromptToSessionResult> => ({ ok: true })),
+	vi.fn(
+		async (_input: { prompt: string; sessionId: string; agentId: string }): Promise<SendPromptToSessionResult> => ({
+			ok: true,
+		}),
+	),
 );
+const runGit = vi.hoisted(() => vi.fn());
 
 vi.mock("../../../src/state/workspace-state", () => ({
 	loadWorkspaceState: vi.fn(async () => ({ board: workspaceState.board })),
@@ -63,6 +68,10 @@ vi.mock("../../../src/state/workspace-state", () => ({
 }));
 
 vi.mock("../../../src/terminal/send-prompt-to-session", () => ({ sendPromptToSession }));
+vi.mock("../../../src/workspace/task-worktree", () => ({
+	getTaskWorkspacePathInfo: vi.fn(async () => ({ path: "/worktree/task-1" })),
+}));
+vi.mock("../../../src/workspace/git-utils", () => ({ runGit }));
 
 import { createSidebarReviewService } from "../../../src/server/sidebar-review-service";
 
@@ -89,6 +98,8 @@ describe("createSidebarReviewService", () => {
 		workspaceState.board.columns[0].cards[0].reviewRound = 0;
 		workspaceState.board.columns[0].cards[1].reviewRound = 0;
 		sendPromptToSession.mockClear();
+		runGit.mockReset();
+		runGit.mockResolvedValueOnce({ ok: true, stdout: " M file" }).mockResolvedValueOnce({ ok: true, stdout: "0" });
 	});
 
 	it("waits for the running sidebar's turn to end before sending one review", async () => {
@@ -246,6 +257,137 @@ describe("createSidebarReviewService", () => {
 				agentId: "codex",
 			}),
 		);
+		service.dispose();
+	});
+
+	it("nudges the task once when its worktree is empty", async () => {
+		const listeners = new Set<(value: RuntimeTaskSessionSummary) => void>();
+		const terminalManager = {
+			listSummaries: () => [summary("task-1", "running")],
+			onSummary: (listener: (value: RuntimeTaskSessionSummary) => void) => {
+				listeners.add(listener);
+				return () => listeners.delete(listener);
+			},
+		};
+		const service = createSidebarReviewService({
+			workspaceId: "workspace-1",
+			workspacePath: "/repo",
+			terminalManager: terminalManager as unknown as TerminalSessionManager,
+			clineService: { listSummaries: () => [], onSummary: () => () => {} } as unknown as ClineTaskSessionService,
+			loadRuntimeConfig: async () => ({ selectedAgentId: "claude" }) as RuntimeConfigState,
+			broadcastStateUpdated: vi.fn(),
+			warn: vi.fn(),
+		});
+		runGit.mockReset();
+		runGit.mockResolvedValueOnce({ ok: true, stdout: "" }).mockResolvedValueOnce({ ok: true, stdout: "0" });
+		await service.start();
+		for (const listener of listeners) listener(summary("task-1", "awaiting_review"));
+		await vi.waitFor(() => expect(sendPromptToSession).toHaveBeenCalledTimes(1));
+		expect(sendPromptToSession).toHaveBeenCalledWith(
+			expect.objectContaining({
+				sessionId: "task-1",
+				agentId: "claude",
+				prompt:
+					"[Kanban] No changes found in your worktree (git status is clean and there are no commits since main). The task is not done. Make the changes the task asks for, run every acceptance command, and paste the output.",
+			}),
+		);
+		expect(workspaceState.board.columns[0].cards[0].reviewRound).toBe(0);
+		service.dispose();
+	});
+
+	it("wakes the sidebar after a second empty turn following a nudge", async () => {
+		const listeners = new Set<(value: RuntimeTaskSessionSummary) => void>();
+		const terminalManager = {
+			listSummaries: () => [summary("task-1", "running"), summary("__home_agent__:workspace-1:claude", "running")],
+			onSummary: (listener: (value: RuntimeTaskSessionSummary) => void) => {
+				listeners.add(listener);
+				return () => listeners.delete(listener);
+			},
+		};
+		const service = createSidebarReviewService({
+			workspaceId: "workspace-1",
+			workspacePath: "/repo",
+			terminalManager: terminalManager as unknown as TerminalSessionManager,
+			clineService: { listSummaries: () => [], onSummary: () => () => {} } as unknown as ClineTaskSessionService,
+			loadRuntimeConfig: async () => ({ selectedAgentId: "claude" }) as RuntimeConfigState,
+			broadcastStateUpdated: vi.fn(),
+			warn: vi.fn(),
+		});
+		runGit.mockReset();
+		runGit
+			.mockResolvedValueOnce({ ok: true, stdout: "" })
+			.mockResolvedValueOnce({ ok: true, stdout: "0" })
+			.mockResolvedValueOnce({ ok: true, stdout: "" })
+			.mockResolvedValueOnce({ ok: true, stdout: "0" });
+		await service.start();
+		for (const listener of listeners) listener(summary("task-1", "awaiting_review"));
+		await vi.waitFor(() => expect(sendPromptToSession).toHaveBeenCalledTimes(1));
+		for (const listener of listeners) listener(summary("task-1", "running"));
+		for (const listener of listeners) listener(summary("task-1", "awaiting_review"));
+		await vi.waitFor(() => expect(workspaceState.board.columns[0].cards[0].reviewRound).toBe(1));
+		for (const listener of listeners) listener(summary("__home_agent__:workspace-1:claude", "awaiting_review"));
+		await vi.waitFor(() => expect(sendPromptToSession).toHaveBeenCalledTimes(2));
+		expect(sendPromptToSession.mock.calls[1]?.[0].sessionId).toBe("__home_agent__:workspace-1:claude");
+		service.dispose();
+	});
+
+	it("wakes the sidebar without a nudge when the worktree has changes", async () => {
+		const listeners = new Set<(value: RuntimeTaskSessionSummary) => void>();
+		const terminalManager = {
+			listSummaries: () => [summary("task-1", "running"), summary("__home_agent__:workspace-1:claude", "running")],
+			onSummary: (listener: (value: RuntimeTaskSessionSummary) => void) => {
+				listeners.add(listener);
+				return () => listeners.delete(listener);
+			},
+		};
+		const service = createSidebarReviewService({
+			workspaceId: "workspace-1",
+			workspacePath: "/repo",
+			terminalManager: terminalManager as unknown as TerminalSessionManager,
+			clineService: { listSummaries: () => [], onSummary: () => () => {} } as unknown as ClineTaskSessionService,
+			loadRuntimeConfig: async () => ({ selectedAgentId: "claude" }) as RuntimeConfigState,
+			broadcastStateUpdated: vi.fn(),
+			warn: vi.fn(),
+		});
+		runGit.mockReset();
+		runGit.mockResolvedValueOnce({ ok: true, stdout: " M file" }).mockResolvedValueOnce({ ok: true, stdout: "0" });
+		await service.start();
+		for (const listener of listeners) listener(summary("task-1", "awaiting_review"));
+		await vi.waitFor(() => expect(workspaceState.board.columns[0].cards[0].reviewRound).toBe(1));
+		for (const listener of listeners) listener(summary("__home_agent__:workspace-1:claude", "awaiting_review"));
+		await vi.waitFor(() => expect(sendPromptToSession).toHaveBeenCalledTimes(1));
+		expect(sendPromptToSession.mock.calls[0]?.[0].sessionId).toBe("__home_agent__:workspace-1:claude");
+		service.dispose();
+	});
+
+	it("wakes the sidebar when the worktree git check fails", async () => {
+		const listeners = new Set<(value: RuntimeTaskSessionSummary) => void>();
+		const terminalManager = {
+			listSummaries: () => [summary("task-1", "running"), summary("__home_agent__:workspace-1:claude", "running")],
+			onSummary: (listener: (value: RuntimeTaskSessionSummary) => void) => {
+				listeners.add(listener);
+				return () => listeners.delete(listener);
+			},
+		};
+		const warn = vi.fn();
+		const service = createSidebarReviewService({
+			workspaceId: "workspace-1",
+			workspacePath: "/repo",
+			terminalManager: terminalManager as unknown as TerminalSessionManager,
+			clineService: { listSummaries: () => [], onSummary: () => () => {} } as unknown as ClineTaskSessionService,
+			loadRuntimeConfig: async () => ({ selectedAgentId: "claude" }) as RuntimeConfigState,
+			broadcastStateUpdated: vi.fn(),
+			warn,
+		});
+		runGit.mockReset();
+		runGit.mockResolvedValueOnce({ ok: false, stdout: "", error: "missing worktree" });
+		await service.start();
+		for (const listener of listeners) listener(summary("task-1", "awaiting_review"));
+		await vi.waitFor(() => expect(workspaceState.board.columns[0].cards[0].reviewRound).toBe(1));
+		for (const listener of listeners) listener(summary("__home_agent__:workspace-1:claude", "awaiting_review"));
+		await vi.waitFor(() => expect(sendPromptToSession).toHaveBeenCalledTimes(1));
+		expect(sendPromptToSession.mock.calls[0]?.[0].sessionId).toBe("__home_agent__:workspace-1:claude");
+		expect(warn).toHaveBeenCalled();
 		service.dispose();
 	});
 });
