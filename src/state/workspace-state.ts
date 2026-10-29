@@ -19,6 +19,7 @@ import {
 import { createGitProcessEnv } from "../core/git-process-env";
 import { updateTaskDependencies } from "../core/task-board-mutations";
 import { type LockRequest, lockedFileSystem } from "../fs/locked-file-system";
+import { loadAgentScores } from "./agent-scores";
 
 const RUNTIME_HOME_PARENT_DIR = ".cline";
 const RUNTIME_HOME_DIR = "kanban";
@@ -537,18 +538,20 @@ async function resolveWorkspacePath(cwd: string): Promise<string> {
 	}
 }
 
-function toWorkspaceStateResponse(
+async function toWorkspaceStateResponse(
 	context: RuntimeWorkspaceContext,
 	board: RuntimeBoardData,
 	sessions: Record<string, RuntimeTaskSessionSummary>,
 	revision: number,
-): RuntimeWorkspaceStateResponse {
+): Promise<RuntimeWorkspaceStateResponse> {
+	const agentScores = await loadAgentScores(context.workspaceId);
 	return {
 		repoPath: context.repoPath,
 		statePath: context.statePath,
 		git: context.git,
 		board,
 		sessions,
+		agentScores,
 		revision,
 	};
 }
@@ -657,7 +660,7 @@ export async function loadWorkspaceState(cwd: string): Promise<RuntimeWorkspaceS
 	const board = await readWorkspaceBoard(context.workspaceId);
 	const sessions = await readWorkspaceSessions(context.workspaceId);
 	const meta = await readWorkspaceMeta(context.workspaceId);
-	return toWorkspaceStateResponse(context, board, sessions, meta.revision);
+	return await toWorkspaceStateResponse(context, board, sessions, meta.revision);
 }
 
 export async function saveWorkspaceState(
@@ -696,7 +699,7 @@ export async function saveWorkspaceState(
 			lock: null,
 		});
 
-		return toWorkspaceStateResponse(context, board, sessions, nextRevision);
+		return await toWorkspaceStateResponse(context, board, sessions, nextRevision);
 	});
 }
 
@@ -722,7 +725,7 @@ export async function mutateWorkspaceState<T>(
 		const currentBoard = await readWorkspaceBoard(context.workspaceId);
 		const currentSessions = await readWorkspaceSessions(context.workspaceId);
 		const currentMeta = await readWorkspaceMeta(context.workspaceId);
-		const currentState = toWorkspaceStateResponse(context, currentBoard, currentSessions, currentMeta.revision);
+		const currentState = await toWorkspaceStateResponse(context, currentBoard, currentSessions, currentMeta.revision);
 
 		const mutation = mutate(currentState);
 		if (mutation.save === false) {
@@ -753,7 +756,7 @@ export async function mutateWorkspaceState<T>(
 
 		return {
 			value: mutation.value,
-			state: toWorkspaceStateResponse(context, nextBoard, nextSessions, nextRevision),
+			state: await toWorkspaceStateResponse(context, nextBoard, nextSessions, nextRevision),
 			saved: true,
 		};
 	});

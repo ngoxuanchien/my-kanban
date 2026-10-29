@@ -323,12 +323,22 @@ export const runtimeTaskSessionSummarySchema = z.object({
 });
 export type RuntimeTaskSessionSummary = z.infer<typeof runtimeTaskSessionSummarySchema>;
 
+export const runtimeAgentScoreSchema = z.object({
+	agentId: z.string(),
+	score: z.number().int(),
+	passes: z.number().int().min(0),
+	fails: z.number().int().min(0),
+	tasks: z.number().int().min(0),
+});
+export type RuntimeAgentScore = z.infer<typeof runtimeAgentScoreSchema>;
+
 export const runtimeWorkspaceStateResponseSchema = z.object({
 	repoPath: z.string(),
 	statePath: z.string(),
 	git: runtimeGitRepositoryInfoSchema,
 	board: runtimeBoardDataSchema,
 	sessions: z.record(z.string(), runtimeTaskSessionSummarySchema),
+	agentScores: z.array(runtimeAgentScoreSchema).optional(),
 	revision: z.number(),
 });
 export type RuntimeWorkspaceStateResponse = z.infer<typeof runtimeWorkspaceStateResponseSchema>;
