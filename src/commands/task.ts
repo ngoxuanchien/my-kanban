@@ -540,13 +540,7 @@ async function createTask(input: {
 			},
 			() => globalThis.crypto.randomUUID(),
 		);
-		if (input.agentReviewEnabled === undefined) {
-			return {
-				board: result.board,
-				value: result.task,
-			};
-		}
-		const reviewed = setTaskAgentReviewEnabled(result.board, result.task.id, input.agentReviewEnabled);
+		const reviewed = setTaskAgentReviewEnabled(result.board, result.task.id, input.agentReviewEnabled ?? true);
 		return {
 			board: reviewed.board,
 			value: reviewed.task ?? result.task,

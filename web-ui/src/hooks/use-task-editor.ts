@@ -114,7 +114,7 @@ export function useTaskEditor({
 		normalizeStoredTaskAutoReviewMode,
 	);
 	const isNewTaskStartInPlanModeDisabled = false;
-	const [newTaskAgentReviewEnabled, setNewTaskAgentReviewEnabled] = useState(false);
+	const [newTaskAgentReviewEnabled, setNewTaskAgentReviewEnabled] = useState(true);
 	const [newTaskBranchRef, setNewTaskBranchRef] = useState("");
 	const [lastCreatedTaskBranchByProjectId, setLastCreatedTaskBranchByProjectId] = useState<Record<string, string>>({});
 	const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
@@ -383,7 +383,7 @@ export function useTaskEditor({
 
 			setNewTaskPrompt("");
 			setNewTaskImages([]);
-			setNewTaskAgentReviewEnabled(false);
+			setNewTaskAgentReviewEnabled(true);
 			setNewTaskBranchRef(baseRef);
 			setNewTaskAgentId(undefined);
 			setNewTaskClineSettings(undefined);
@@ -457,7 +457,7 @@ export function useTaskEditor({
 
 			setNewTaskPrompt("");
 			setNewTaskImages([]);
-			setNewTaskAgentReviewEnabled(false);
+			setNewTaskAgentReviewEnabled(true);
 			setNewTaskBranchRef(baseRef);
 			setNewTaskAgentId(undefined);
 			setNewTaskClineSettings(undefined);
@@ -501,7 +501,7 @@ export function useTaskEditor({
 		setEditTaskAgentId(undefined);
 		setEditTaskClineSettings(undefined);
 		setNewTaskImages([]);
-		setNewTaskAgentReviewEnabled(false);
+		setNewTaskAgentReviewEnabled(true);
 		setNewTaskAgentId(undefined);
 		setNewTaskClineSettings(undefined);
 	}, []);

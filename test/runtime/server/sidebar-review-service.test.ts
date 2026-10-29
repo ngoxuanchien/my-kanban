@@ -336,6 +336,161 @@ describe("createSidebarReviewService", () => {
 		service.dispose();
 	});
 
+	it("starts one review when review is enabled for a finished task", async () => {
+		const broadcastStateUpdated = vi.fn();
+		const summaries = [
+			summary("task-1", "awaiting_review"),
+			summary("__home_agent__:workspace-1:claude", "awaiting_review"),
+		];
+		const service = createSidebarReviewService({
+			workspaceId: "workspace-1",
+			workspacePath: "/repo",
+			terminalManager: {
+				listSummaries: () => summaries,
+				onSummary: () => () => {},
+			} as unknown as TerminalSessionManager,
+			clineService: { listSummaries: () => [], onSummary: () => () => {} } as unknown as ClineTaskSessionService,
+			loadRuntimeConfig: async () => ({ selectedAgentId: "claude" }) as RuntimeConfigState,
+			broadcastStateUpdated,
+			warn: vi.fn(),
+			handOffTask,
+		});
+
+		await service.start();
+		await service.notifyBoardChanged();
+		await service.notifyBoardChanged();
+
+		expect(workspaceState.board.columns[0].cards[0].reviewRound).toBe(1);
+		expect(sendPromptToSession).toHaveBeenCalledTimes(1);
+		expect(sendPromptToSession).toHaveBeenCalledWith(
+			expect.objectContaining({
+				sessionId: "__home_agent__:workspace-1:claude",
+				prompt: '[Kanban review] Task task-1 "Task one" is in Review, round 1/3. Review it now.',
+			}),
+		);
+		service.dispose();
+	});
+
+	it.each([
+		{ name: "a card outside Review", columnId: "backlog", round: 0, session: true },
+		{ name: "a card already reviewed", columnId: "review", round: 1, session: true },
+		{ name: "a task without a session", columnId: "review", round: 0, session: false },
+	])("does not start a review for $name", async ({ columnId, round, session: hasSession }) => {
+		workspaceState.board.columns[0].id = columnId;
+		workspaceState.board.columns[0].cards[0].reviewRound = round;
+		const summaries = hasSession ? [summary("task-1", "awaiting_review")] : [];
+		const service = createSidebarReviewService({
+			workspaceId: "workspace-1",
+			workspacePath: "/repo",
+			terminalManager: {
+				listSummaries: () => summaries,
+				onSummary: () => () => {},
+			} as unknown as TerminalSessionManager,
+			clineService: { listSummaries: () => [], onSummary: () => () => {} } as unknown as ClineTaskSessionService,
+			loadRuntimeConfig: async () => ({ selectedAgentId: "claude" }) as RuntimeConfigState,
+			broadcastStateUpdated: vi.fn(),
+			warn: vi.fn(),
+			handOffTask,
+		});
+
+		await service.start();
+		await service.notifyBoardChanged();
+
+		expect(sendPromptToSession).not.toHaveBeenCalled();
+		service.dispose();
+	});
+
+	it.each([
+		{ name: "a changed worktree", status: " M file", expectReview: true },
+		{ name: "an empty worktree", status: "", expectReview: false },
+	])("deduplicates a turn end racing with a board save for $name", async ({ status, expectReview }) => {
+		const listeners = new Set<(value: RuntimeTaskSessionSummary) => void>();
+		let summaries = [summary("task-1", "running"), summary("__home_agent__:workspace-1:claude", "awaiting_review")];
+		let releaseStatus: ((result: { ok: boolean; stdout: string }) => void) | undefined;
+		runGit
+			.mockReset()
+			.mockImplementationOnce(
+				() =>
+					new Promise((resolve) => {
+						releaseStatus = resolve;
+					}),
+			)
+			.mockResolvedValueOnce({ ok: true, stdout: "0" });
+		const service = createSidebarReviewService({
+			workspaceId: "workspace-1",
+			workspacePath: "/repo",
+			terminalManager: {
+				listSummaries: () => summaries,
+				onSummary: (listener: (value: RuntimeTaskSessionSummary) => void) => {
+					listeners.add(listener);
+					return () => listeners.delete(listener);
+				},
+			} as unknown as TerminalSessionManager,
+			clineService: { listSummaries: () => [], onSummary: () => () => {} } as unknown as ClineTaskSessionService,
+			loadRuntimeConfig: async () => ({ selectedAgentId: "claude" }) as RuntimeConfigState,
+			broadcastStateUpdated: vi.fn(),
+			warn: vi.fn(),
+			handOffTask,
+		});
+
+		await service.start();
+		for (const listener of listeners) listener(summary("task-1", "awaiting_review"));
+		await vi.waitFor(() => expect(runGit).toHaveBeenCalledTimes(1));
+		summaries = [
+			summary("task-1", "awaiting_review"),
+			summary("__home_agent__:workspace-1:claude", "awaiting_review"),
+		];
+		const notification = service.notifyBoardChanged();
+		releaseStatus?.({ ok: true, stdout: status });
+		await notification;
+
+		if (expectReview) {
+			await vi.waitFor(() => expect(workspaceState.board.columns[0].cards[0].reviewRound).toBe(1));
+			await vi.waitFor(() => expect(sendPromptToSession).toHaveBeenCalledTimes(1));
+			expect(sendPromptToSession).toHaveBeenCalledTimes(1);
+			expect(sendPromptToSession.mock.calls[0]?.[0].sessionId).toBe("__home_agent__:workspace-1:claude");
+		} else {
+			await vi.waitFor(() => expect(sendPromptToSession).toHaveBeenCalledTimes(1));
+			expect(workspaceState.board.columns[0].cards[0].reviewRound).toBe(0);
+			expect(sendPromptToSession.mock.calls[0]?.[0]).toMatchObject({
+				sessionId: "task-1",
+				prompt: expect.stringContaining("No changes found"),
+			});
+		}
+		service.dispose();
+	});
+
+	it("warns once when both agents hit their usage limit across board notifications", async () => {
+		const card = workspaceState.board.columns[0].cards[0];
+		card.agentId = "codex";
+		card.handedOff = true;
+		const warn = vi.fn();
+		const service = createSidebarReviewService({
+			workspaceId: "workspace-1",
+			workspacePath: "/repo",
+			terminalManager: {
+				listSummaries: () => [summary("task-1", "awaiting_review")],
+				onSummary: () => () => {},
+				getRestoreSnapshot: async () => ({ snapshot: "Free usage limit reached", cols: 80, rows: 24 }),
+			} as unknown as TerminalSessionManager,
+			clineService: { listSummaries: () => [], onSummary: () => () => {} } as unknown as ClineTaskSessionService,
+			loadRuntimeConfig: async () => ({ selectedAgentId: "claude" }) as RuntimeConfigState,
+			broadcastStateUpdated: vi.fn(),
+			warn,
+			handOffTask,
+		});
+
+		await service.start();
+		await service.notifyBoardChanged();
+		await service.notifyBoardChanged();
+
+		expect(warn).toHaveBeenCalledTimes(1);
+		expect(warn).toHaveBeenCalledWith(
+			"[sidebar-review] Task task-1: both agents hit their usage limit; leaving it in Review",
+		);
+		service.dispose();
+	});
+
 	it("waits for the running sidebar's turn to end before sending one review", async () => {
 		const terminalListeners = new Set<(value: RuntimeTaskSessionSummary) => void>();
 		const clineListeners = new Set<(value: RuntimeTaskSessionSummary) => void>();

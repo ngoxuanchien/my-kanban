@@ -514,10 +514,10 @@ describe("useTaskEditor", () => {
 		const createdCard = requireSnapshot(latestSnapshot).board.columns[0]?.cards[0];
 		expect(createdCard?.prompt).toBe("Let the sidebar agent review this");
 		expect(createdCard?.agentReviewEnabled).toBe(true);
-		expect(requireSnapshot(latestSnapshot).newTaskAgentReviewEnabled).toBe(false);
+		expect(requireSnapshot(latestSnapshot).newTaskAgentReviewEnabled).toBe(true);
 	});
 
-	it("creates tasks with agent review off by default", async () => {
+	it("creates tasks with agent review on by default and resets the toggle on", async () => {
 		let latestSnapshot: HookSnapshot | null = null;
 
 		await act(async () => {
@@ -535,7 +535,7 @@ describe("useTaskEditor", () => {
 			requireSnapshot(latestSnapshot).handleOpenCreateTask();
 		});
 
-		expect(requireSnapshot(latestSnapshot).newTaskAgentReviewEnabled).toBe(false);
+		expect(requireSnapshot(latestSnapshot).newTaskAgentReviewEnabled).toBe(true);
 
 		await act(async () => {
 			requireSnapshot(latestSnapshot).setNewTaskPrompt("Plain task");
@@ -545,6 +545,7 @@ describe("useTaskEditor", () => {
 			requireSnapshot(latestSnapshot).handleCreateTask();
 		});
 
-		expect(requireSnapshot(latestSnapshot).board.columns[0]?.cards[0]?.agentReviewEnabled).toBe(false);
+		expect(requireSnapshot(latestSnapshot).board.columns[0]?.cards[0]?.agentReviewEnabled).toBe(true);
+		expect(requireSnapshot(latestSnapshot).newTaskAgentReviewEnabled).toBe(true);
 	});
 });
