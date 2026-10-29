@@ -74,7 +74,7 @@ export type RuntimeSlashCommandsResponse = z.infer<typeof runtimeSlashCommandsRe
 export const runtimeAgentIdSchema = z.enum(["claude", "codex", "gemini", "opencode", "droid", "kiro", "cline"]);
 export type RuntimeAgentId = z.infer<typeof runtimeAgentIdSchema>;
 
-const runtimeBoardColumnIdEnum = z.enum(["backlog", "in_progress", "review", "user_review", "trash"]);
+const runtimeBoardColumnIdEnum = z.enum(["backlog", "in_progress", "review", "trash"]);
 export const runtimeBoardColumnIdSchema = z.preprocess(
 	(val) => (val === "done" ? "trash" : val),
 	runtimeBoardColumnIdEnum,
@@ -103,92 +103,6 @@ export const runtimeTaskImageSchema = z.object({
 	name: z.string().optional(),
 });
 export type RuntimeTaskImage = z.infer<typeof runtimeTaskImageSchema>;
-
-export const runtimeAgentReviewStatusSchema = z.enum([
-	"queued",
-	"reviewing",
-	"fixing",
-	"committing",
-	"passed",
-	"no_changes",
-	"needs_user",
-]);
-export type RuntimeAgentReviewStatus = z.infer<typeof runtimeAgentReviewStatusSchema>;
-
-export const runtimeAgentReviewReasonSchema = z.enum([
-	"round_limit",
-	"cannot_verify",
-	"reviewer_crashed",
-	"reviewer_timeout",
-	"reviewer_bad_output",
-	"reviewer_modified_worktree",
-	"reviewer_agent_unavailable",
-	"task_agent_not_running",
-	"commit_failed",
-]);
-export type RuntimeAgentReviewReason = z.infer<typeof runtimeAgentReviewReasonSchema>;
-
-export const runtimeAgentReviewSummarySchema = z.object({
-	whatWasDone: z.string(),
-	whatItAffects: z.string(),
-	againstRequest: z.string(),
-	howVerified: z.string(),
-	risks: z.string(),
-});
-export type RuntimeAgentReviewSummary = z.infer<typeof runtimeAgentReviewSummarySchema>;
-
-export const runtimeAgentReviewResultSchema = z.object({
-	verdict: z.enum(["pass", "fail", "cannot_verify"]),
-	appVerified: z.boolean(),
-	appCheck: z.string(),
-	tests: z.array(z.object({ command: z.string(), result: z.string() })),
-	summary: runtimeAgentReviewSummarySchema.nullable(),
-	fixPrompt: z.string().nullable(),
-	notes: z.string().nullable(),
-});
-export type RuntimeAgentReviewResult = z.infer<typeof runtimeAgentReviewResultSchema>;
-
-export const runtimeAgentReviewMetaSchema = z.object({
-	commitHash: z.string().nullable(),
-	prUrl: z.string().nullable(),
-	rounds: z.number().int().min(0),
-	reviewerAgentId: runtimeAgentIdSchema,
-	reviewedAt: z.number(),
-});
-export type RuntimeAgentReviewMeta = z.infer<typeof runtimeAgentReviewMetaSchema>;
-
-export const runtimeAgentReviewStateSchema = z.object({
-	status: runtimeAgentReviewStatusSchema,
-	round: z.number().int().min(0),
-	reason: runtimeAgentReviewReasonSchema.nullable(),
-	reasonDetail: z.string().nullable(),
-	fingerprint: z.string().nullable(),
-	lastResult: runtimeAgentReviewResultSchema.nullable(),
-	fixPrompts: z.array(z.string()),
-	summary: runtimeAgentReviewSummarySchema.nullable(),
-	meta: runtimeAgentReviewMetaSchema.nullable(),
-	updatedAt: z.number(),
-});
-export type RuntimeAgentReviewState = z.infer<typeof runtimeAgentReviewStateSchema>;
-
-/** The latest reviewer run of a task. In memory only; its output is the "agent-review:<taskId>" terminal session. */
-export const runtimeAgentReviewLogSchema = z.object({
-	reviewerAgentId: runtimeAgentIdSchema,
-	round: z.number().int().min(0),
-	startedAt: z.number(),
-	finishedAt: z.number().nullable(),
-});
-export type RuntimeAgentReviewLog = z.infer<typeof runtimeAgentReviewLogSchema>;
-
-export const runtimeAgentReviewLogRequestSchema = z.object({
-	taskId: z.string(),
-});
-export type RuntimeAgentReviewLogRequest = z.infer<typeof runtimeAgentReviewLogRequestSchema>;
-
-export const runtimeAgentReviewLogResponseSchema = z.object({
-	log: runtimeAgentReviewLogSchema.nullable(),
-});
-export type RuntimeAgentReviewLogResponse = z.infer<typeof runtimeAgentReviewLogResponseSchema>;
 
 const runtimeLegacyTaskClineReasoningEffortSchema = z.enum(["default", "low", "medium", "high", "xhigh"]);
 
@@ -223,8 +137,6 @@ export const runtimeBoardCardSchema = z
 		startInPlanMode: z.boolean(),
 		autoReviewEnabled: z.boolean().optional(),
 		autoReviewMode: runtimeTaskAutoReviewModeSchema.optional(),
-		agentReviewEnabled: z.boolean().optional(),
-		agentReview: runtimeAgentReviewStateSchema.optional(),
 		images: z.array(runtimeTaskImageSchema).optional(),
 		agentId: runtimeAgentIdSchema.optional(),
 		clineSettings: runtimeTaskClineSettingsSchema.optional(),
@@ -258,7 +170,7 @@ export const runtimeBoardCardSchema = z
 export type RuntimeBoardCard = z.infer<typeof runtimeBoardCardSchema>;
 
 export const runtimeBoardColumnSchema = z.object({
-	id: runtimeBoardColumnIdSchema,
+	id: z.preprocess((id) => (id === "user_review" ? "review" : id), runtimeBoardColumnIdSchema),
 	title: z.string(),
 	cards: z.array(runtimeBoardCardSchema),
 });
@@ -272,10 +184,20 @@ export const runtimeBoardDependencySchema = z.object({
 });
 export type RuntimeBoardDependency = z.infer<typeof runtimeBoardDependencySchema>;
 
-export const runtimeBoardDataSchema = z.object({
-	columns: z.array(runtimeBoardColumnSchema),
-	dependencies: z.array(runtimeBoardDependencySchema).default([]),
-});
+export const runtimeBoardDataSchema = z
+	.object({
+		columns: z.array(runtimeBoardColumnSchema),
+		dependencies: z.array(runtimeBoardDependencySchema).default([]),
+	})
+	.transform((board) => {
+		const columns = new Map<RuntimeBoardColumnId, RuntimeBoardColumn>();
+		for (const column of board.columns) {
+			const existing = columns.get(column.id);
+			if (existing) existing.cards.push(...column.cards);
+			else columns.set(column.id, column);
+		}
+		return { ...board, columns: [...columns.values()] };
+	});
 export type RuntimeBoardData = z.infer<typeof runtimeBoardDataSchema>;
 
 export const runtimeGitRepositoryInfoSchema = z.object({
@@ -419,7 +341,6 @@ export const runtimeProjectTaskCountsSchema = z.object({
 	backlog: z.number(),
 	in_progress: z.number(),
 	review: z.number(),
-	user_review: z.number(),
 	trash: z.number(),
 });
 export type RuntimeProjectTaskCounts = z.infer<typeof runtimeProjectTaskCountsSchema>;
@@ -1027,13 +948,6 @@ export const runtimeAgentDefinitionSchema = z.object({
 });
 export type RuntimeAgentDefinition = z.infer<typeof runtimeAgentDefinitionSchema>;
 
-export const runtimeReviewerAgentSettingSchema = z.union([
-	z.literal("same_as_task"),
-	z.literal("cross"),
-	runtimeAgentIdSchema,
-]);
-export type RuntimeReviewerAgentSetting = z.infer<typeof runtimeReviewerAgentSettingSchema>;
-
 export const runtimeConfigResponseSchema = z.object({
 	selectedAgentId: runtimeAgentIdSchema,
 	selectedShortcutLabel: z.string().nullable(),
@@ -1051,7 +965,6 @@ export const runtimeConfigResponseSchema = z.object({
 	openPrPromptTemplate: z.string(),
 	commitPromptTemplateDefault: z.string(),
 	openPrPromptTemplateDefault: z.string(),
-	reviewerAgent: runtimeReviewerAgentSettingSchema,
 });
 export type RuntimeConfigResponse = z.infer<typeof runtimeConfigResponseSchema>;
 
@@ -1063,7 +976,6 @@ export const runtimeConfigSaveRequestSchema = z.object({
 	readyForReviewNotificationsEnabled: z.boolean().optional(),
 	commitPromptTemplate: z.string().optional(),
 	openPrPromptTemplate: z.string().optional(),
-	reviewerAgent: runtimeReviewerAgentSettingSchema.optional(),
 });
 export type RuntimeConfigSaveRequest = z.infer<typeof runtimeConfigSaveRequestSchema>;
 

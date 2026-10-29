@@ -16,7 +16,6 @@ function createRuntimeConfigResponse(
 ): RuntimeConfigResponse {
 	const nextConfig: RuntimeConfigResponse = {
 		selectedAgentId,
-		reviewerAgent: "same_as_task",
 		selectedShortcutLabel: null,
 		agentAutonomousModeEnabled: true,
 		effectiveCommand: selectedAgentId === "cline" ? null : selectedAgentId,

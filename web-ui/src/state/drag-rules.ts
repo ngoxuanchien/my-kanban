@@ -39,9 +39,6 @@ export function isAllowedCrossColumnCardMove(
 	if (fromColumnId === "trash" && toColumnId === "review") {
 		return true;
 	}
-	if (fromColumnId === "user_review" && (toColumnId === "review" || toColumnId === "in_progress")) {
-		return true;
-	}
 	if (
 		(fromColumnId === "in_progress" && toColumnId === "review") ||
 		(fromColumnId === "review" && toColumnId === "in_progress")
@@ -76,10 +73,7 @@ export function isCardDropDisabled(
 	if (!activeDragSourceColumnId) {
 		return false;
 	}
-	if (columnId === "review" || columnId === "user_review") {
-		if (columnId === "user_review") {
-			return true;
-		}
+	if (columnId === "review") {
 		return !isAllowedCrossColumnCardMove(activeDragSourceColumnId, columnId, {
 			taskId: options?.activeDragTaskId,
 			programmaticCardMoveInFlight: options?.programmaticCardMoveInFlight,

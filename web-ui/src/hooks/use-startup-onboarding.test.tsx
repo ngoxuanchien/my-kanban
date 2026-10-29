@@ -17,7 +17,6 @@ type HookSnapshot = UseStartupOnboardingResult;
 function createRuntimeConfigResponse(selectedAgentId: RuntimeConfigResponse["selectedAgentId"]): RuntimeConfigResponse {
 	return {
 		selectedAgentId,
-		reviewerAgent: "same_as_task",
 		selectedShortcutLabel: null,
 		agentAutonomousModeEnabled: true,
 		effectiveCommand: selectedAgentId,

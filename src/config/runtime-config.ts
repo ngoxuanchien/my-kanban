@@ -5,12 +5,7 @@ import { readFile, rm } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { getRuntimeAgentCatalogEntry, isRuntimeAgentLaunchSupported } from "../core/agent-catalog";
-import {
-	type RuntimeAgentId,
-	type RuntimeProjectShortcut,
-	type RuntimeReviewerAgentSetting,
-	runtimeReviewerAgentSettingSchema,
-} from "../core/api-contract";
+import type { RuntimeAgentId, RuntimeProjectShortcut } from "../core/api-contract";
 import { type LockRequest, lockedFileSystem } from "../fs/locked-file-system";
 import { detectInstalledCommands } from "../terminal/agent-registry";
 import { areRuntimeProjectShortcutsEqual } from "./shortcut-utils";
@@ -22,7 +17,6 @@ interface RuntimeGlobalConfigFileShape {
 	readyForReviewNotificationsEnabled?: boolean;
 	commitPromptTemplate?: string;
 	openPrPromptTemplate?: string;
-	reviewerAgent?: RuntimeReviewerAgentSetting;
 }
 
 interface RuntimeProjectConfigFileShape {
@@ -41,7 +35,6 @@ export interface RuntimeConfigState {
 	openPrPromptTemplate: string;
 	commitPromptTemplateDefault: string;
 	openPrPromptTemplateDefault: string;
-	reviewerAgent: RuntimeReviewerAgentSetting;
 }
 
 export interface RuntimeConfigUpdateInput {
@@ -52,7 +45,6 @@ export interface RuntimeConfigUpdateInput {
 	shortcuts?: RuntimeProjectShortcut[];
 	commitPromptTemplate?: string;
 	openPrPromptTemplate?: string;
-	reviewerAgent?: RuntimeReviewerAgentSetting;
 }
 
 const RUNTIME_HOME_PARENT_DIR = ".cline";
@@ -65,7 +57,6 @@ const DEFAULT_AGENT_ID: RuntimeAgentId = "cline";
 const AUTO_SELECT_AGENT_PRIORITY: readonly RuntimeAgentId[] = ["claude", "codex", "droid", "kiro"];
 const DEFAULT_AGENT_AUTONOMOUS_MODE_ENABLED = true;
 const DEFAULT_READY_FOR_REVIEW_NOTIFICATIONS_ENABLED = true;
-const DEFAULT_REVIEWER_AGENT: RuntimeReviewerAgentSetting = "same_as_task";
 const DEFAULT_COMMIT_PROMPT_TEMPLATE = `You are in a worktree on a detached HEAD. When you are finished with the task, commit the working changes onto {{base_ref}}.
 
 - Do not run destructive commands: git reset --hard, git clean -fdx, git worktree remove, rm/mv on repository paths.
@@ -187,11 +178,6 @@ function normalizePromptTemplate(value: unknown, fallback: string): string {
 	return normalized.length > 0 ? value : fallback;
 }
 
-function normalizeReviewerAgent(value: unknown): RuntimeReviewerAgentSetting {
-	const parsed = runtimeReviewerAgentSettingSchema.safeParse(value);
-	return parsed.success ? parsed.data : DEFAULT_REVIEWER_AGENT;
-}
-
 function normalizeBoolean(value: unknown, fallback: boolean): boolean {
 	if (typeof value === "boolean") {
 		return value;
@@ -305,7 +291,6 @@ function toRuntimeConfigState({
 		),
 		commitPromptTemplateDefault: DEFAULT_COMMIT_PROMPT_TEMPLATE,
 		openPrPromptTemplateDefault: DEFAULT_OPEN_PR_PROMPT_TEMPLATE,
-		reviewerAgent: normalizeReviewerAgent(globalConfig?.reviewerAgent),
 	};
 }
 
@@ -327,7 +312,6 @@ async function writeRuntimeGlobalConfigFile(
 		readyForReviewNotificationsEnabled?: boolean;
 		commitPromptTemplate?: string;
 		openPrPromptTemplate?: string;
-		reviewerAgent?: RuntimeReviewerAgentSetting;
 	},
 ): Promise<void> {
 	const existing = await readRuntimeConfigFile<RuntimeGlobalConfigFileShape>(configPath);
@@ -356,8 +340,6 @@ async function writeRuntimeGlobalConfigFile(
 		config.openPrPromptTemplate === undefined
 			? DEFAULT_OPEN_PR_PROMPT_TEMPLATE
 			: normalizePromptTemplate(config.openPrPromptTemplate, DEFAULT_OPEN_PR_PROMPT_TEMPLATE);
-	const reviewerAgent =
-		config.reviewerAgent === undefined ? DEFAULT_REVIEWER_AGENT : normalizeReviewerAgent(config.reviewerAgent);
 
 	const payload: RuntimeGlobalConfigFileShape = {};
 	if (selectedAgentId !== undefined) {
@@ -391,9 +373,6 @@ async function writeRuntimeGlobalConfigFile(
 	}
 	if (hasOwnKey(existing, "openPrPromptTemplate") || openPrPromptTemplate !== DEFAULT_OPEN_PR_PROMPT_TEMPLATE) {
 		payload.openPrPromptTemplate = openPrPromptTemplate;
-	}
-	if (hasOwnKey(existing, "reviewerAgent") || reviewerAgent !== DEFAULT_REVIEWER_AGENT) {
-		payload.reviewerAgent = reviewerAgent;
 	}
 
 	await lockedFileSystem.writeJsonFileAtomic(configPath, payload, {
@@ -477,7 +456,6 @@ function createRuntimeConfigStateFromValues(input: {
 	shortcuts: RuntimeProjectShortcut[];
 	commitPromptTemplate: string;
 	openPrPromptTemplate: string;
-	reviewerAgent: RuntimeReviewerAgentSetting;
 }): RuntimeConfigState {
 	return {
 		globalConfigPath: input.globalConfigPath,
@@ -497,7 +475,6 @@ function createRuntimeConfigStateFromValues(input: {
 		openPrPromptTemplate: normalizePromptTemplate(input.openPrPromptTemplate, DEFAULT_OPEN_PR_PROMPT_TEMPLATE),
 		commitPromptTemplateDefault: DEFAULT_COMMIT_PROMPT_TEMPLATE,
 		openPrPromptTemplateDefault: DEFAULT_OPEN_PR_PROMPT_TEMPLATE,
-		reviewerAgent: normalizeReviewerAgent(input.reviewerAgent),
 	};
 }
 
@@ -512,7 +489,6 @@ export function toGlobalRuntimeConfigState(current: RuntimeConfigState): Runtime
 		shortcuts: [],
 		commitPromptTemplate: current.commitPromptTemplate,
 		openPrPromptTemplate: current.openPrPromptTemplate,
-		reviewerAgent: current.reviewerAgent,
 	});
 }
 
@@ -548,7 +524,6 @@ export async function saveRuntimeConfig(
 		shortcuts: RuntimeProjectShortcut[];
 		commitPromptTemplate: string;
 		openPrPromptTemplate: string;
-		reviewerAgent?: RuntimeReviewerAgentSetting;
 	},
 ): Promise<RuntimeConfigState> {
 	const { globalConfigPath, projectConfigPath } = resolveRuntimeConfigPaths(cwd);
@@ -560,7 +535,6 @@ export async function saveRuntimeConfig(
 			readyForReviewNotificationsEnabled: config.readyForReviewNotificationsEnabled,
 			commitPromptTemplate: config.commitPromptTemplate,
 			openPrPromptTemplate: config.openPrPromptTemplate,
-			reviewerAgent: config.reviewerAgent,
 		});
 		await writeRuntimeProjectConfigFile(projectConfigPath, { shortcuts: config.shortcuts });
 		return createRuntimeConfigStateFromValues({
@@ -573,7 +547,6 @@ export async function saveRuntimeConfig(
 			shortcuts: config.shortcuts,
 			commitPromptTemplate: config.commitPromptTemplate,
 			openPrPromptTemplate: config.openPrPromptTemplate,
-			reviewerAgent: config.reviewerAgent ?? DEFAULT_REVIEWER_AGENT,
 		});
 	});
 }
@@ -595,7 +568,6 @@ export async function updateRuntimeConfig(cwd: string, updates: RuntimeConfigUpd
 			shortcuts: projectConfigPath ? (updates.shortcuts ?? current.shortcuts) : current.shortcuts,
 			commitPromptTemplate: updates.commitPromptTemplate ?? current.commitPromptTemplate,
 			openPrPromptTemplate: updates.openPrPromptTemplate ?? current.openPrPromptTemplate,
-			reviewerAgent: updates.reviewerAgent ?? current.reviewerAgent,
 		};
 
 		const hasChanges =
@@ -605,7 +577,6 @@ export async function updateRuntimeConfig(cwd: string, updates: RuntimeConfigUpd
 			nextConfig.readyForReviewNotificationsEnabled !== current.readyForReviewNotificationsEnabled ||
 			nextConfig.commitPromptTemplate !== current.commitPromptTemplate ||
 			nextConfig.openPrPromptTemplate !== current.openPrPromptTemplate ||
-			nextConfig.reviewerAgent !== current.reviewerAgent ||
 			!areRuntimeProjectShortcutsEqual(nextConfig.shortcuts, current.shortcuts);
 
 		if (!hasChanges) {
@@ -619,7 +590,6 @@ export async function updateRuntimeConfig(cwd: string, updates: RuntimeConfigUpd
 			readyForReviewNotificationsEnabled: nextConfig.readyForReviewNotificationsEnabled,
 			commitPromptTemplate: nextConfig.commitPromptTemplate,
 			openPrPromptTemplate: nextConfig.openPrPromptTemplate,
-			reviewerAgent: nextConfig.reviewerAgent,
 		});
 		await writeRuntimeProjectConfigFile(projectConfigPath, {
 			shortcuts: nextConfig.shortcuts,
@@ -634,7 +604,6 @@ export async function updateRuntimeConfig(cwd: string, updates: RuntimeConfigUpd
 			shortcuts: nextConfig.shortcuts,
 			commitPromptTemplate: nextConfig.commitPromptTemplate,
 			openPrPromptTemplate: nextConfig.openPrPromptTemplate,
-			reviewerAgent: nextConfig.reviewerAgent,
 		});
 	});
 }
@@ -664,7 +633,6 @@ export async function updateGlobalRuntimeConfig(
 				shortcuts: current.shortcuts,
 				commitPromptTemplate: updates.commitPromptTemplate ?? current.commitPromptTemplate,
 				openPrPromptTemplate: updates.openPrPromptTemplate ?? current.openPrPromptTemplate,
-				reviewerAgent: updates.reviewerAgent ?? current.reviewerAgent,
 			};
 
 			const hasChanges =
@@ -673,8 +641,7 @@ export async function updateGlobalRuntimeConfig(
 				nextConfig.agentAutonomousModeEnabled !== current.agentAutonomousModeEnabled ||
 				nextConfig.readyForReviewNotificationsEnabled !== current.readyForReviewNotificationsEnabled ||
 				nextConfig.commitPromptTemplate !== current.commitPromptTemplate ||
-				nextConfig.openPrPromptTemplate !== current.openPrPromptTemplate ||
-				nextConfig.reviewerAgent !== current.reviewerAgent;
+				nextConfig.openPrPromptTemplate !== current.openPrPromptTemplate;
 
 			if (!hasChanges) {
 				return current;
@@ -687,7 +654,6 @@ export async function updateGlobalRuntimeConfig(
 				readyForReviewNotificationsEnabled: nextConfig.readyForReviewNotificationsEnabled,
 				commitPromptTemplate: nextConfig.commitPromptTemplate,
 				openPrPromptTemplate: nextConfig.openPrPromptTemplate,
-				reviewerAgent: nextConfig.reviewerAgent,
 			});
 
 			return createRuntimeConfigStateFromValues({
@@ -700,7 +666,6 @@ export async function updateGlobalRuntimeConfig(
 				shortcuts: nextConfig.shortcuts,
 				commitPromptTemplate: nextConfig.commitPromptTemplate,
 				openPrPromptTemplate: nextConfig.openPrPromptTemplate,
-				reviewerAgent: nextConfig.reviewerAgent,
 			});
 		},
 	);

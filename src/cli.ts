@@ -495,8 +495,8 @@ async function startServer(): Promise<{
 		},
 	});
 
-	// Resume first, so agent review recovery sees the relaunched task agents as running.
-	void runtimeServer.resumeInterruptedTasks().finally(() => runtimeServer.startAgentReviewForRegisteredWorkspaces());
+	// Resume task sessions before serving requests.
+	void runtimeServer.resumeInterruptedTasks();
 
 	const close = async () => {
 		await runtimeServer.close();

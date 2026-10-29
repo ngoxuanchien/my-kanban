@@ -28,7 +28,6 @@ function createRuntimeConfigState(overrides: Partial<RuntimeConfigState> = {}): 
 		openPrPromptTemplate: "pr",
 		commitPromptTemplateDefault: "commit",
 		openPrPromptTemplateDefault: "pr",
-		reviewerAgent: "same_as_task",
 		...overrides,
 	};
 }

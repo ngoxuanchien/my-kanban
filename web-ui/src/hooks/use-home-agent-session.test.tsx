@@ -62,7 +62,6 @@ function createSummary(taskId: string, agentId: RuntimeTaskSessionSummary["agent
 function createRuntimeConfig(overrides: Partial<RuntimeConfigResponse> = {}): RuntimeConfigResponse {
 	return {
 		selectedAgentId: "codex",
-		reviewerAgent: "same_as_task",
 		selectedShortcutLabel: null,
 		agentAutonomousModeEnabled: true,
 		effectiveCommand: "codex --dangerously-bypass-approvals-and-sandbox",

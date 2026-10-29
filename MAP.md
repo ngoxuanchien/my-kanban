@@ -10,7 +10,7 @@ Update this file whenever a file or folder is created or moved.
 | `.gitignore` | Also ignores local-only harness files so Kanban symlinks them into task worktrees. |
 | `.env` | Secrets only (git-ignored). Create when the first secret is needed, with a matching `.env.example`. |
 | `AGENTS.md` | Engineering conventions and tribal knowledge (TypeScript, web-ui stack, design tokens). |
-| `src/` | Runtime (Node/TS): `cli.ts` entry, `server/`, `trpc/`, `agent-review/`, `cline-sdk/`, `terminal/`, `workspace/`, `state/`, `projects/`, `prompts/`. |
+| `src/` | Runtime (Node/TS): `cli.ts` entry, `server/`, `trpc/`, `cline-sdk/`, `terminal/`, `workspace/`, `state/`, `projects/`, `prompts/`. |
 | `web-ui/` | React + Tailwind v4 frontend (`web-ui/src/`). |
 | `packages/desktop/` | Desktop (Electron) app. |
 | `test/` | Runtime tests (`runtime/`, `integration/`, `utilities/`). |
@@ -19,6 +19,7 @@ Update this file whenever a file or folder is created or moved.
 | `docs/superpowers/specs/` | Design specs (`YYYY-MM-DD-<topic>-design.md`). |
 | `docs/superpowers/plans/` | Implementation plans (`YYYY-MM-DD-<topic>.md`). |
 | `docs/superpowers/specs/2026-10-28-memory-orchestrator-design.md` | Spec: shared Basic Memory server, OpenCode/Codex split, cross review. |
+| `docs/superpowers/specs/2026-10-29-remove-agent-review-design.md` | Spec: remove the automatic reviewer and restore the four-column Review board. |
 | `docs/superpowers/plans/2026-10-28-memory-orchestrator.md` | Plan for the spec above, split into Kanban tasks. |
 | `docs/agents/task-prompt-template.md` | Prompt template the planner fills in for every Kanban task. |
 | `.plan/` | Older internal plans, handoffs, investigations (`.plan/docs/`). |

@@ -297,8 +297,6 @@ export default function App(): ReactElement {
 		setNewTaskAutoReviewEnabled,
 		newTaskAutoReviewMode,
 		setNewTaskAutoReviewMode,
-		newTaskAgentReviewEnabled,
-		setNewTaskAgentReviewEnabled,
 		isNewTaskStartInPlanModeDisabled,
 		newTaskBranchRef,
 		setNewTaskBranchRef,
@@ -317,8 +315,6 @@ export default function App(): ReactElement {
 		setEditTaskAutoReviewEnabled,
 		editTaskAutoReviewMode,
 		setEditTaskAutoReviewMode,
-		editTaskAgentReviewEnabled,
-		setEditTaskAgentReviewEnabled,
 		isEditTaskStartInPlanModeDisabled,
 		editTaskBranchRef,
 		setEditTaskBranchRef,
@@ -778,8 +774,6 @@ export default function App(): ReactElement {
 			onStartInPlanModeChange={setEditTaskStartInPlanMode}
 			startInPlanModeDisabled={isEditTaskStartInPlanModeDisabled}
 			autoReviewEnabled={editTaskAutoReviewEnabled}
-			agentReviewEnabled={editTaskAgentReviewEnabled}
-			onAgentReviewEnabledChange={setEditTaskAgentReviewEnabled}
 			onAutoReviewEnabledChange={setEditTaskAutoReviewEnabled}
 			autoReviewMode={editTaskAutoReviewMode}
 			onAutoReviewModeChange={setEditTaskAutoReviewMode}
@@ -1128,8 +1122,6 @@ export default function App(): ReactElement {
 					onStartInPlanModeChange={setNewTaskStartInPlanMode}
 					startInPlanModeDisabled={isNewTaskStartInPlanModeDisabled}
 					autoReviewEnabled={newTaskAutoReviewEnabled}
-					agentReviewEnabled={newTaskAgentReviewEnabled}
-					onAgentReviewEnabledChange={setNewTaskAgentReviewEnabled}
 					onAutoReviewEnabledChange={setNewTaskAutoReviewEnabled}
 					autoReviewMode={newTaskAutoReviewMode}
 					onAutoReviewModeChange={setNewTaskAutoReviewMode}

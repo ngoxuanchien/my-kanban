@@ -16,7 +16,6 @@ function createBoard(): RuntimeBoardData {
 			{ id: "backlog", title: "Backlog", cards: [] },
 			{ id: "in_progress", title: "In Progress", cards: [] },
 			{ id: "review", title: "Review", cards: [] },
-			{ id: "user_review", title: "Needs your review", cards: [] },
 			{ id: "trash", title: "Done", cards: [] },
 		],
 		dependencies: [],
@@ -24,7 +23,7 @@ function createBoard(): RuntimeBoardData {
 }
 
 describe("deleteTasksFromBoard", () => {
-	it("starts linked backlog tasks when a task is trashed from user_review", () => {
+	it("starts linked backlog tasks when a task is trashed from review", () => {
 		const prerequisite = addTaskToColumn(
 			createBoard(),
 			"backlog",
@@ -33,7 +32,7 @@ describe("deleteTasksFromBoard", () => {
 		);
 		const dependent = addTaskToColumn(
 			prerequisite.board,
-			"user_review",
+			"review",
 			{ prompt: "A", baseRef: "main" },
 			() => "aaaaa111",
 		);
@@ -142,16 +141,6 @@ describe("task images", () => {
 			},
 		]);
 	});
-});
-
-it("updateTask sets agentReviewEnabled", () => {
-	const created = addTaskToColumn(createBoard(), "backlog", { prompt: "Task", baseRef: "main" }, () => "aaaaa111");
-	const updated = updateTask(created.board, created.task.id, {
-		prompt: "Task",
-		baseRef: "main",
-		agentReviewEnabled: true,
-	});
-	expect(updated.task?.agentReviewEnabled).toBe(true);
 });
 
 describe("per-task agent/model/provider overrides", () => {

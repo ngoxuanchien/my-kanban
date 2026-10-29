@@ -27,7 +27,7 @@ import { loadWorkspaceContext, mutateWorkspaceState } from "../state/workspace-s
 import type { RuntimeAppRouter } from "../trpc/app-router";
 import { columnCanHaveLiveTaskSession, completeTaskToDone } from "../workspace/complete-task-to-done";
 
-const LIST_TASK_COLUMNS = ["backlog", "in_progress", "review", "user_review", "trash"] as const;
+const LIST_TASK_COLUMNS = ["backlog", "in_progress", "review", "trash"] as const;
 type ListTaskColumn = (typeof LIST_TASK_COLUMNS)[number];
 type TaskCommandTarget = { taskId?: string; column?: ListTaskColumn };
 
@@ -66,19 +66,10 @@ function parseListColumn(value: string | undefined): ListTaskColumn | undefined 
 	if (value === "done") {
 		return "trash";
 	}
-	if (value === "needs_review") {
-		return "user_review";
-	}
-	if (
-		value === "backlog" ||
-		value === "in_progress" ||
-		value === "review" ||
-		value === "user_review" ||
-		value === "trash"
-	) {
+	if (value === "backlog" || value === "in_progress" || value === "review" || value === "trash") {
 		return value;
 	}
-	throw new Error(`Invalid column "${value}". Expected one of: ${LIST_TASK_COLUMNS.join(", ")}, done, needs_review.`);
+	throw new Error(`Invalid column "${value}". Expected one of: ${LIST_TASK_COLUMNS.join(", ")}, done.`);
 }
 
 function parseAutoReviewMode(value: string | undefined): "commit" | "pr" | undefined {
@@ -363,8 +354,6 @@ function formatTaskRecord(
 		startInPlanMode: task.startInPlanMode,
 		autoReviewEnabled: task.autoReviewEnabled === true,
 		autoReviewMode: task.autoReviewMode ?? "commit",
-		agentReviewEnabled: task.agentReviewEnabled === true,
-		agentReview: task.agentReview ?? null,
 		...(task.agentId ? { agentId: task.agentId } : {}),
 		...formatTaskClineSettings(task.clineSettings),
 		createdAt: task.createdAt,
@@ -493,7 +482,6 @@ async function createTask(input: {
 	projectPath?: string;
 	baseRef?: string;
 	startInPlanMode?: boolean;
-	agentReviewEnabled?: boolean;
 	autoReviewEnabled?: boolean;
 	autoReviewMode?: "commit" | "pr";
 	agentId?: RuntimeAgentId;
@@ -514,7 +502,6 @@ async function createTask(input: {
 				title: input.title,
 				prompt: input.prompt,
 				startInPlanMode: input.startInPlanMode,
-				agentReviewEnabled: input.agentReviewEnabled,
 				autoReviewEnabled: input.autoReviewEnabled,
 				autoReviewMode: input.autoReviewMode,
 				agentId: input.agentId,
@@ -541,8 +528,6 @@ async function createTask(input: {
 			startInPlanMode: created.startInPlanMode,
 			autoReviewEnabled: created.autoReviewEnabled === true,
 			autoReviewMode: created.autoReviewMode ?? "commit",
-			agentReviewEnabled: created.agentReviewEnabled === true,
-			agentReview: created.agentReview ?? null,
 			...(created.agentId ? { agentId: created.agentId } : {}),
 			...formatTaskClineSettings(created.clineSettings),
 		},
@@ -557,7 +542,6 @@ async function updateTaskCommand(input: {
 	prompt?: string;
 	baseRef?: string;
 	startInPlanMode?: boolean;
-	agentReviewEnabled?: boolean;
 	autoReviewEnabled?: boolean;
 	autoReviewMode?: "commit" | "pr";
 	agentId?: RuntimeAgentId | null;
@@ -570,7 +554,6 @@ async function updateTaskCommand(input: {
 		input.prompt === undefined &&
 		input.baseRef === undefined &&
 		input.startInPlanMode === undefined &&
-		input.agentReviewEnabled === undefined &&
 		input.autoReviewEnabled === undefined &&
 		input.autoReviewMode === undefined &&
 		input.agentId === undefined &&
@@ -600,7 +583,6 @@ async function updateTaskCommand(input: {
 			prompt: input.prompt ?? taskRecord.task.prompt,
 			baseRef: input.baseRef ?? taskRecord.task.baseRef,
 			startInPlanMode: input.startInPlanMode ?? taskRecord.task.startInPlanMode,
-			agentReviewEnabled: input.agentReviewEnabled ?? taskRecord.task.agentReviewEnabled === true,
 			autoReviewEnabled: input.autoReviewEnabled ?? taskRecord.task.autoReviewEnabled === true,
 			autoReviewMode: input.autoReviewMode ?? taskRecord.task.autoReviewMode ?? "commit",
 			agentId: input.agentId,
@@ -1091,7 +1073,6 @@ export function registerTaskCommand(program: Command): void {
 		.option("--project-path <path>", "Workspace path. Defaults to current directory workspace.")
 		.option("--base-ref <branch>", "Task base branch/ref.")
 		.option("--start-in-plan-mode [value]", "Set plan mode (true|false). Flag-only implies true.")
-		.option("--agent-review-enabled [value]", "Enable agent review (true|false). Flag-only implies true.")
 		.option("--auto-review-enabled [value]", "Enable auto-review behavior (true|false). Flag-only implies true.")
 		.option("--auto-review-mode <mode>", "Auto-review mode: commit | pr.", parseAutoReviewMode)
 		.option("--agent-id <id>", `Agent override: ${VALID_AGENT_IDS_TEXT} | default.`)
@@ -1114,7 +1095,6 @@ export function registerTaskCommand(program: Command): void {
 				projectPath?: string;
 				baseRef?: string;
 				startInPlanMode?: unknown;
-				agentReviewEnabled?: unknown;
 				autoReviewEnabled?: unknown;
 				autoReviewMode?: "commit" | "pr";
 				agentId?: string;
@@ -1131,10 +1111,6 @@ export function registerTaskCommand(program: Command): void {
 							projectPath: options.projectPath,
 							baseRef: options.baseRef,
 							startInPlanMode: parseOptionalBooleanOption(options.startInPlanMode, "--start-in-plan-mode"),
-							agentReviewEnabled: parseOptionalBooleanOption(
-								options.agentReviewEnabled,
-								"--agent-review-enabled",
-							),
 							autoReviewEnabled: parseOptionalBooleanOption(options.autoReviewEnabled, "--auto-review-enabled"),
 							autoReviewMode: options.autoReviewMode,
 							agentId: parseAgentId(options.agentId) ?? undefined,
@@ -1157,7 +1133,6 @@ export function registerTaskCommand(program: Command): void {
 		.option("--project-path <path>", "Workspace path. Defaults to current directory workspace.")
 		.option("--base-ref <branch>", "Replacement base branch/ref.")
 		.option("--start-in-plan-mode [value]", "Set plan mode (true|false). Flag-only implies true.")
-		.option("--agent-review-enabled [value]", "Enable agent review (true|false). Flag-only implies true.")
 		.option("--auto-review-enabled [value]", "Enable auto-review behavior (true|false). Flag-only implies true.")
 		.option("--auto-review-mode <mode>", "Auto-review mode: commit | pr.", parseAutoReviewMode)
 		.option("--agent-id <id>", `Agent override: ${VALID_AGENT_IDS_TEXT}. Use "default" to clear.`)
@@ -1178,7 +1153,6 @@ export function registerTaskCommand(program: Command): void {
 				projectPath?: string;
 				baseRef?: string;
 				startInPlanMode?: unknown;
-				agentReviewEnabled?: unknown;
 				autoReviewEnabled?: unknown;
 				autoReviewMode?: "commit" | "pr";
 				agentId?: string;
@@ -1196,10 +1170,6 @@ export function registerTaskCommand(program: Command): void {
 							prompt: options.prompt,
 							baseRef: options.baseRef,
 							startInPlanMode: parseOptionalBooleanOption(options.startInPlanMode, "--start-in-plan-mode"),
-							agentReviewEnabled: parseOptionalBooleanOption(
-								options.agentReviewEnabled,
-								"--agent-review-enabled",
-							),
 							autoReviewEnabled: parseOptionalBooleanOption(options.autoReviewEnabled, "--auto-review-enabled"),
 							autoReviewMode: options.autoReviewMode,
 							agentId: parseAgentId(options.agentId),

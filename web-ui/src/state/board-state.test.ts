@@ -907,45 +907,21 @@ describe("board dependency state", () => {
 		});
 	});
 
-	it("normalizeBoardData keeps agentReviewEnabled and agentReview", () => {
-		const agentReview = {
-			status: "passed" as const,
-			round: 1,
-			reason: null,
-			reasonDetail: null,
-			fingerprint: "fingerprint",
-			lastResult: null,
-			fixPrompts: [],
-			summary: null,
-			meta: null,
-			updatedAt: 2,
-		};
-		const board = normalizeBoardData({
-			columns: [
-				{
-					id: "review",
-					cards: [
-						{ id: "task", title: "Task", prompt: "Task", baseRef: "main", agentReviewEnabled: true, agentReview },
-					],
-				},
-			],
-		});
-		expect(board?.columns.find((column) => column.id === "review")?.cards[0]).toMatchObject({
-			agentReviewEnabled: true,
-			agentReview,
-		});
-	});
-
-	it("normalizeBoardData adds an empty user_review column to an old 4-column board", () => {
+	it("normalizeBoardData loads legacy user_review cards into review", () => {
 		const board = normalizeBoardData({
 			columns: [
 				{ id: "backlog", cards: [] },
 				{ id: "in_progress", cards: [] },
-				{ id: "review", cards: [] },
+				{ id: "review", cards: [{ id: "task", title: "Task", prompt: "Task", baseRef: "main" }] },
+				{
+					id: "user_review",
+					title: "Needs your review",
+					cards: [{ id: "legacy", title: "Legacy", prompt: "Legacy", baseRef: "main" }],
+				},
 				{ id: "trash", cards: [] },
 			],
 		});
-		expect(board?.columns.map(({ id }) => id)).toEqual(["backlog", "in_progress", "review", "user_review", "trash"]);
-		expect(board?.columns[3]).toMatchObject({ title: "Needs your review", cards: [] });
+		expect(board?.columns.map(({ id }) => id)).toEqual(["backlog", "in_progress", "review", "trash"]);
+		expect(board?.columns.find(({ id }) => id === "review")?.cards.map(({ id }) => id)).toEqual(["task", "legacy"]);
 	});
 });

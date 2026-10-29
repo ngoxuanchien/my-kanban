@@ -27,7 +27,6 @@ function createBoard(cardA: RuntimeBoardCard, cardAColumnId: RuntimeBoardColumnI
 		{ id: "backlog", title: "Backlog", cards: [createCard("B")] },
 		{ id: "in_progress", title: "In Progress", cards: [] },
 		{ id: "review", title: "Review", cards: [] },
-		{ id: "user_review", title: "Needs your review", cards: [] },
 		{ id: "trash", title: "Done", cards: [] },
 	];
 	return {
@@ -122,37 +121,6 @@ describe.sequential("completeTaskToDone", () => {
 		expect(state.board.columns.find((column) => column.id === "trash")?.cards.map((card) => card.id)).toEqual(["A"]);
 	});
 
-	it("applies beforeMove inside the same board write", async () => {
-		const seededRevision = await seedBoard("review");
-
-		const result = await completeTaskToDone({
-			repoPath: workspacePath,
-			taskId: "A",
-			deps: createRecordingDeps([]),
-			beforeMove: (card) => ({
-				...card,
-				agentReview: {
-					status: "passed",
-					round: 0,
-					reason: null,
-					reasonDetail: null,
-					fingerprint: null,
-					lastResult: null,
-					fixPrompts: [],
-					summary: null,
-					meta: { commitHash: "abc123", prUrl: null, rounds: 0, reviewerAgentId: "claude", reviewedAt: 1 },
-					updatedAt: 1,
-				},
-			}),
-		});
-
-		const state = await loadWorkspaceState(workspacePath);
-		const trashed = state.board.columns.find((column) => column.id === "trash")?.cards[0];
-		expect(trashed?.agentReview?.meta?.commitHash).toBe("abc123");
-		expect(result.task?.agentReview?.meta?.commitHash).toBe("abc123");
-		expect(state.revision).toBe(seededRevision + 1);
-	});
-
 	it("is a no-op when the task is already in trash", async () => {
 		const seededRevision = await seedBoard("trash");
 		const calls: string[] = [];
@@ -167,20 +135,5 @@ describe.sequential("completeTaskToDone", () => {
 		expect(result.previousColumnId).toBe("trash");
 		expect(calls).toEqual([]);
 		expect((await loadWorkspaceState(workspacePath)).revision).toBe(seededRevision);
-	});
-
-	it("starts dependents when moved from user_review", async () => {
-		await seedBoard("user_review");
-		const calls: string[] = [];
-
-		const result = await completeTaskToDone({
-			repoPath: workspacePath,
-			taskId: "A",
-			deps: createRecordingDeps(calls),
-		});
-
-		expect(result.previousColumnId).toBe("user_review");
-		expect(result.readyTaskIds).toEqual(["B"]);
-		expect(calls).toEqual(["notify", "stop", "start:B", "delete"]);
 	});
 });

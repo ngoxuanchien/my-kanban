@@ -29,7 +29,6 @@ import type {
 	RuntimeDebugResetAllStateResponse,
 	RuntimeFeaturebaseTokenResponse,
 	RuntimeProjectShortcut,
-	RuntimeReviewerAgentSetting,
 	RuntimeRunUpdateResponse,
 	RuntimeUpdateStatusResponse,
 } from "@/runtime/types";
@@ -49,7 +48,6 @@ export async function saveRuntimeConfig(
 		readyForReviewNotificationsEnabled?: boolean;
 		commitPromptTemplate?: string;
 		openPrPromptTemplate?: string;
-		reviewerAgent?: RuntimeReviewerAgentSetting;
 	},
 ): Promise<RuntimeConfigResponse> {
 	const trpcClient = getRuntimeTrpcClient(workspaceId);

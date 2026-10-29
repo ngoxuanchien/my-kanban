@@ -1,3 +1,5 @@
+# Superseded by 2026-10-29-remove-agent-review-design.md
+
 # Agent review — design spec
 
 Date: 2026-10-28

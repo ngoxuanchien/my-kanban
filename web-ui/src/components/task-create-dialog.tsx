@@ -110,8 +110,6 @@ export function TaskCreateDialog({
 	startInPlanMode,
 	onStartInPlanModeChange,
 	autoReviewEnabled,
-	agentReviewEnabled,
-	onAgentReviewEnabledChange,
 	onAutoReviewEnabledChange,
 	autoReviewMode,
 	onAutoReviewModeChange,
@@ -143,8 +141,6 @@ export function TaskCreateDialog({
 	startInPlanMode: boolean;
 	onStartInPlanModeChange: (value: boolean) => void;
 	autoReviewEnabled: boolean;
-	agentReviewEnabled: boolean;
-	onAgentReviewEnabledChange: (value: boolean) => void;
 	onAutoReviewEnabledChange: (value: boolean) => void;
 	autoReviewMode: TaskAutoReviewMode;
 	onAutoReviewModeChange: (value: TaskAutoReviewMode) => void;
@@ -174,7 +170,6 @@ export function TaskCreateDialog({
 	const nextFocusIndexRef = useRef<number | null>(null);
 	const startInPlanModeId = useId();
 	const autoReviewEnabledId = useId();
-	const agentReviewEnabledId = useId();
 	const createMoreId = useId();
 	const [primaryStartAction, setPrimaryStartAction] = useRawLocalStorageValue<TaskCreateStartAction>(
 		LocalStorageKey.TaskCreatePrimaryStartAction,
@@ -580,21 +575,6 @@ export function TaskCreateDialog({
 							))}
 						</NativeSelect>
 					</div>
-
-					<label
-						htmlFor={agentReviewEnabledId}
-						className="flex items-center gap-2 text-[12px] text-text-primary cursor-pointer select-none"
-					>
-						<RadixSwitch.Root
-							id={agentReviewEnabledId}
-							checked={agentReviewEnabled}
-							onCheckedChange={onAgentReviewEnabledChange}
-							className="relative h-5 w-9 rounded-full bg-surface-4 data-[state=checked]:bg-accent"
-						>
-							<RadixSwitch.Thumb className="block size-4 translate-x-0.5 rounded-full bg-white transition-transform data-[state=checked]:translate-x-4" />
-						</RadixSwitch.Root>
-						Agent review
-					</label>
 
 					{onAgentIdChange && onClineSettingsChange ? (
 						<TaskAgentModelPicker

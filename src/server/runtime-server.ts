@@ -44,7 +44,6 @@ import { createHooksApi } from "../trpc/hooks-api";
 import { createProjectsApi } from "../trpc/projects-api";
 import { type CreateRuntimeApiDependencies, createRuntimeApi } from "../trpc/runtime-api";
 import { createWorkspaceApi } from "../trpc/workspace-api";
-import { createAgentReviewRegistry } from "./agent-review-registry";
 import { getWebUiDir, normalizeRequestPath, readAsset } from "./assets";
 import { handleHttpRequest, handleSocketUpgrade } from "./middleware";
 import { resumeInterruptedTasks } from "./resume-interrupted-tasks";
@@ -82,8 +81,6 @@ export interface RuntimeServer {
 	url: string;
 	/** Relaunches In Progress task agents left by the previous runtime, on every registered board. */
 	resumeInterruptedTasks: () => Promise<void>;
-	/** Picks up agent-review work left on any registered board, including non-active workspaces. */
-	startAgentReviewForRegisteredWorkspaces: () => Promise<void>;
 	close: () => Promise<void>;
 }
 
@@ -178,17 +175,7 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 		internalRuntimeApi ??= createRuntimeApi(runtimeApiDependencies);
 		return internalRuntimeApi;
 	};
-	const agentReviewRegistry = createAgentReviewRegistry({
-		ensureTerminalManagerForWorkspace: deps.ensureTerminalManagerForWorkspace,
-		getScopedClineTaskSessionService,
-		loadScopedRuntimeConfig: deps.workspaceRegistry.loadScopedRuntimeConfig,
-		getRuntimeApi: getInternalRuntimeApi,
-		broadcastRuntimeWorkspaceStateUpdated: deps.runtimeStateHub.broadcastRuntimeWorkspaceStateUpdated,
-		broadcastRuntimeProjectsUpdated: deps.runtimeStateHub.broadcastRuntimeProjectsUpdated,
-		warn: deps.warn,
-	});
 	const prepareForStateReset = async (): Promise<void> => {
-		await agentReviewRegistry.disposeAll();
 		const workspaceIds = new Set<string>();
 		for (const { workspaceId } of deps.workspaceRegistry.listManagedWorkspaces()) {
 			workspaceIds.add(workspaceId);
@@ -220,7 +207,6 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 		broadcastClineMcpAuthStatusesUpdated: deps.runtimeStateHub.broadcastClineMcpAuthStatusesUpdated,
 		broadcastTaskChatCleared: deps.runtimeStateHub.broadcastTaskChatCleared,
 		bumpClineSessionContextVersion: deps.runtimeStateHub.bumpClineSessionContextVersion,
-		onTaskUserInput: agentReviewRegistry.notifyUserInput,
 		prepareForStateReset,
 		getUpdateStatus: deps.getUpdateStatus,
 		runUpdateNow: deps.runUpdateNow,
@@ -239,10 +225,6 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 				broadcastRuntimeWorkspaceStateUpdated: deps.runtimeStateHub.broadcastRuntimeWorkspaceStateUpdated,
 				broadcastRuntimeProjectsUpdated: deps.runtimeStateHub.broadcastRuntimeProjectsUpdated,
 				buildWorkspaceStateSnapshot: deps.workspaceRegistry.buildWorkspaceStateSnapshot,
-				onWorkspaceStateChanged: (workspaceId, workspacePath) => {
-					void agentReviewRegistry.notifyBoardChanged(workspaceId, workspacePath);
-				},
-				getAgentReviewLog: agentReviewRegistry.getReviewerLog,
 			}),
 			projectsApi: createProjectsApi({
 				getActiveWorkspacePath: deps.workspaceRegistry.getActiveWorkspacePath,
@@ -258,7 +240,6 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 				broadcastRuntimeProjectsUpdated: deps.runtimeStateHub.broadcastRuntimeProjectsUpdated,
 				getTerminalManagerForWorkspace: deps.workspaceRegistry.getTerminalManagerForWorkspace,
 				disposeWorkspace: (workspaceId, options) => {
-					void agentReviewRegistry.dispose(workspaceId);
 					disposeClineTaskSessionService(workspaceId);
 					return deps.disposeWorkspace(workspaceId, options);
 				},
@@ -486,7 +467,6 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 	const terminalWebSocketBridge = createTerminalWebSocketBridge({
 		server,
 		resolveTerminalManager: (workspaceId) => deps.workspaceRegistry.getTerminalManagerForWorkspace(workspaceId),
-		onTaskUserInput: agentReviewRegistry.notifyUserInput,
 		isTerminalIoWebSocketPath: (pathname) => normalizeRequestPath(pathname) === "/api/terminal/io",
 		isTerminalControlWebSocketPath: (pathname) => normalizeRequestPath(pathname) === "/api/terminal/control",
 		validateUpgradeSession:
@@ -527,9 +507,7 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 		resumeInterruptedTasks: async () => {
 			await resumeInterruptedTasks({ startTaskSession: getInternalRuntimeApi().startTaskSession, warn: deps.warn });
 		},
-		startAgentReviewForRegisteredWorkspaces: agentReviewRegistry.startAgentReviewForRegisteredWorkspaces,
 		close: async () => {
-			await agentReviewRegistry.disposeAll();
 			await Promise.all(
 				Array.from(clineTaskSessionServiceByWorkspaceId.values()).map(async (service) => {
 					await service.dispose();

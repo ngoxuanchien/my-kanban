@@ -57,10 +57,4 @@ describe("drag rules", () => {
 	it("allows manual trash to review drops", () => {
 		expect(isCardDropDisabled("review", "trash")).toBe(false);
 	});
-
-	it("allows dragging user_review to review, in_progress and trash", () => {
-		expect(isCardDropDisabled("review", "user_review")).toBe(false);
-		expect(isCardDropDisabled("in_progress", "user_review")).toBe(false);
-		expect(isCardDropDisabled("trash", "user_review")).toBe(false);
-	});
 });

@@ -6,8 +6,6 @@ import { AlertCircle, AlertTriangle, Bot, GitBranch, Pencil, Play, RotateCcw, Tr
 import type { KeyboardEvent, MouseEvent } from "react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { AgentReviewResultPanel } from "@/components/agent-review-result-panel";
-import { AgentReviewStatusBadge } from "@/components/agent-review-status-badge";
 import {
 	formatClineReasoningEffortLabel,
 	formatClineSelectedModelButtonText,
@@ -412,8 +410,7 @@ export function BoardCard({
 		return null;
 	};
 	const statusMarker = renderStatusMarker();
-	const showWorkspaceStatus =
-		columnId === "in_progress" || columnId === "review" || columnId === "user_review" || isTrashCard;
+	const showWorkspaceStatus = columnId === "in_progress" || columnId === "review" || isTrashCard;
 	const reviewWorkspacePath = reviewWorkspaceSnapshot
 		? formatPathForDisplay(reviewWorkspaceSnapshot.path)
 		: isTrashCard
@@ -655,21 +652,6 @@ export function BoardCard({
 									</Tooltip>
 								) : null}
 							</div>
-							{card.agentReview ? (
-								<div className="mt-1">
-									<AgentReviewStatusBadge state={card.agentReview} />
-								</div>
-							) : null}
-							{isTrashCard && card.agentReview?.summary ? (
-								<details className="mt-2">
-									<summary className="cursor-pointer text-xs text-text-secondary">
-										Agent review summary
-									</summary>
-									<div className="mt-2">
-										<AgentReviewResultPanel state={card.agentReview} />
-									</div>
-								</details>
-							) : null}
 							{displayDescription ? (
 								<div ref={descriptionContainerRef}>
 									<p

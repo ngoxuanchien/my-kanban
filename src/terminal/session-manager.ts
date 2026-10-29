@@ -92,10 +92,6 @@ export interface StartTaskSessionRequest {
 	rows?: number;
 	env?: Record<string, string | undefined>;
 	workspaceId?: string;
-	/** Runtime-owned sessions (agent review) end for good when the process exits, even with a viewer attached. */
-	disableAutoRestart?: boolean;
-	/** Keep the TUI on the main screen so its last frame is still viewable after the process exits. */
-	suppressAlternateScreen?: boolean;
 }
 
 export interface StartShellSessionRequest {
@@ -524,7 +520,6 @@ export class TerminalSessionManager implements TerminalSessionService {
 			terminalProtocolFilter: createTerminalProtocolFilterState({
 				interceptOscColorQueries: true,
 				suppressDeviceAttributeQueries: request.agentId === "droid",
-				suppressAlternateScreen: request.suppressAlternateScreen,
 			}),
 			onSessionCleanup: launch.cleanup ?? null,
 			deferredStartupInput: launch.deferredStartupInput ?? null,
@@ -993,11 +988,7 @@ export class TerminalSessionManager implements TerminalSessionService {
 		if (wasSuppressed) {
 			return false;
 		}
-		if (
-			entry.listeners.size === 0 ||
-			entry.restartRequest?.kind !== "task" ||
-			entry.restartRequest.request.disableAutoRestart
-		) {
+		if (entry.listeners.size === 0 || entry.restartRequest?.kind !== "task") {
 			return false;
 		}
 		const currentTime = now();

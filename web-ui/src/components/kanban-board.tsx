@@ -20,7 +20,7 @@ import { findCardColumnId, type ProgrammaticCardMoveInFlight } from "@/state/dra
 import type { BoardCard, BoardColumnId, BoardData, BoardDependency } from "@/types";
 import { useUnmount } from "@/utils/react-use";
 
-const BOARD_COLUMN_ORDER: BoardColumnId[] = ["backlog", "in_progress", "review", "user_review", "trash"];
+const BOARD_COLUMN_ORDER: BoardColumnId[] = ["backlog", "in_progress", "review", "trash"];
 // hello-pangea's longest drop animation (maxDropTime) plus a frame of slack.
 const PROGRAMMATIC_DROP_SETTLE_DELAY_MS = 550 + 50;
 const PROGRAMMATIC_DROP_SETTLE_RETRY_MS = 50;

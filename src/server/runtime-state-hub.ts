@@ -3,7 +3,6 @@
 // shared API contract, and fans out workspace-scoped snapshots and deltas.
 import type { IncomingMessage } from "node:http";
 import { WebSocket, WebSocketServer } from "ws";
-import { AGENT_REVIEW_SESSION_KEY_PREFIX } from "../agent-review/task-session-signals";
 import type { ClineTaskMessage, ClineTaskSessionService } from "../cline-sdk/cline-task-session-service";
 import type {
 	RuntimeClineMcpServerAuthStatus,
@@ -509,20 +508,11 @@ export function createRuntimeStateHub(deps: CreateRuntimeStateHubDependencies): 
 			}
 			const previousSummariesByTaskId = new Map<string, RuntimeTaskSessionSummary>();
 			clinePreviousSummaryByWorkspaceId.set(workspaceId, previousSummariesByTaskId);
-			// Reviewer runs use Cline sessions too, but they are not task sessions the browser should see.
-			const isAgentReviewSession = (summary: RuntimeTaskSessionSummary) =>
-				summary.taskId.startsWith(AGENT_REVIEW_SESSION_KEY_PREFIX);
 			for (const summary of service.listSummaries()) {
-				if (isAgentReviewSession(summary)) {
-					continue;
-				}
 				previousSummariesByTaskId.set(summary.taskId, summary);
 				queueTaskSessionSummaryBroadcast(workspaceId, summary);
 			}
 			const unsubscribe = service.onSummary((summary) => {
-				if (isAgentReviewSession(summary)) {
-					return;
-				}
 				const previousSummary = previousSummariesByTaskId.get(summary.taskId);
 				previousSummariesByTaskId.set(summary.taskId, summary);
 				queueTaskSessionSummaryBroadcast(workspaceId, summary);

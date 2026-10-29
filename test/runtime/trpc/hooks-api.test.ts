@@ -84,39 +84,6 @@ describe("createHooksApi", () => {
 		});
 	});
 
-	it("moves a reviewer session to review without a checkpoint or a ready-for-review notification", async () => {
-		const manager = {
-			getSummary: vi.fn(() => createSummary({ taskId: "agent-review:task-1", state: "running" })),
-			transitionToReview: vi.fn(() =>
-				createSummary({ taskId: "agent-review:task-1", state: "awaiting_review", reviewReason: "hook" }),
-			),
-			transitionToRunning: vi.fn(),
-			applyHookActivity: vi.fn(),
-			applyTurnCheckpoint: vi.fn(),
-		} as unknown as TerminalSessionManager;
-		const captureTaskTurnCheckpoint = vi.fn();
-		const broadcastTaskReadyForReview = vi.fn();
-
-		const api = createHooksApi({
-			getWorkspacePathById: vi.fn(() => "/tmp/repo"),
-			ensureTerminalManagerForWorkspace: vi.fn(async () => manager),
-			broadcastRuntimeWorkspaceStateUpdated: vi.fn(),
-			broadcastTaskReadyForReview,
-			captureTaskTurnCheckpoint,
-		});
-
-		const response = await api.ingest({
-			taskId: "agent-review:task-1",
-			workspaceId: "workspace-1",
-			event: "to_review",
-		});
-
-		expect(response).toEqual({ ok: true });
-		expect(manager.transitionToReview).toHaveBeenCalledWith("agent-review:task-1", "hook");
-		expect(captureTaskTurnCheckpoint).not.toHaveBeenCalled();
-		expect(broadcastTaskReadyForReview).not.toHaveBeenCalled();
-	});
-
 	it("captures a turn checkpoint when transitioning to review", async () => {
 		const transitionedSummary = createSummary({
 			state: "awaiting_review",

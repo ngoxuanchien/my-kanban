@@ -64,8 +64,6 @@ export interface CreateRuntimeApiDependencies {
 	) => void;
 	broadcastTaskChatCleared?: (workspaceId: string, taskId: string) => void;
 	bumpClineSessionContextVersion?: () => void;
-	/** Called after the user's own input reaches a task session. */
-	onTaskUserInput?: (workspaceId: string, taskId: string) => void;
 	prepareForStateReset?: () => Promise<void>;
 	getUpdateStatus: () => RuntimeUpdateStatusResponse;
 	runUpdateNow: () => Promise<RuntimeRunUpdateResponse>;
@@ -359,7 +357,6 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 				const clineTaskSessionService = await deps.getScopedClineTaskSessionService(workspaceScope);
 				const clineSummary = await clineTaskSessionService.sendTaskSessionInput(body.taskId, payloadText);
 				if (clineSummary) {
-					deps.onTaskUserInput?.(workspaceScope.workspaceId, body.taskId);
 					return {
 						ok: true,
 						summary: clineSummary,
@@ -374,7 +371,6 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 						error: "Task session is not running.",
 					};
 				}
-				deps.onTaskUserInput?.(workspaceScope.workspaceId, body.taskId);
 				return {
 					ok: true,
 					summary,
@@ -648,7 +644,6 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 						});
 					}
 				}
-				deps.onTaskUserInput?.(workspaceScope.workspaceId, body.taskId);
 				const latestMessage = clineTaskSessionService.listMessages(body.taskId).at(-1) ?? null;
 				return {
 					ok: true,

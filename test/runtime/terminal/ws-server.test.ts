@@ -353,14 +353,12 @@ describe("createTerminalWebSocketBridge", () => {
 	let server: Server;
 	let bridge: TerminalWebSocketBridge;
 	let terminalManager: FakeTerminalManager;
-	let onTaskUserInput: ReturnType<typeof vi.fn<(workspaceId: string, taskId: string) => void>>;
 	let runtimeUrl: string;
 	let originalRuntimePort: number;
 
 	beforeEach(async () => {
 		originalRuntimePort = getKanbanRuntimePort();
 		terminalManager = new FakeTerminalManager();
-		onTaskUserInput = vi.fn<(workspaceId: string, taskId: string) => void>();
 		server = createServer((_request, response) => {
 			response.writeHead(404);
 			response.end();
@@ -370,7 +368,6 @@ describe("createTerminalWebSocketBridge", () => {
 			resolveTerminalManager: (workspaceId) => (workspaceId === WORKSPACE_ID ? terminalManager : null),
 			isTerminalIoWebSocketPath: (pathname) => pathname === "/api/terminal/io",
 			isTerminalControlWebSocketPath: (pathname) => pathname === "/api/terminal/control",
-			onTaskUserInput,
 		});
 		server.listen(0, "127.0.0.1");
 		await once(server, "listening");
@@ -428,7 +425,7 @@ describe("createTerminalWebSocketBridge", () => {
 		await closeSocket(controlSocketB.socket);
 	});
 
-	it("does not report focus-event input as user input", async () => {
+	it("forwards terminal input", async () => {
 		const ioUrl = `${runtimeUrl}/api/terminal/io?taskId=${TASK_ID}&workspaceId=${WORKSPACE_ID}&clientId=client-a`;
 		const ioSocket = await openQueuedWebSocket(ioUrl);
 
@@ -437,13 +434,10 @@ describe("createTerminalWebSocketBridge", () => {
 		await waitForAssertion(() => {
 			expect(terminalManager.writeInput).toHaveBeenCalledTimes(2);
 		});
-		expect(onTaskUserInput).not.toHaveBeenCalled();
-
 		ioSocket.socket.send(Buffer.from("a", "utf8"));
 		await waitForAssertion(() => {
-			expect(onTaskUserInput).toHaveBeenCalledWith(WORKSPACE_ID, TASK_ID);
+			expect(terminalManager.writeInput).toHaveBeenCalledWith(TASK_ID, Buffer.from("a", "utf8"));
 		});
-		expect(onTaskUserInput).toHaveBeenCalledTimes(1);
 
 		await closeSocket(ioSocket.socket);
 	});

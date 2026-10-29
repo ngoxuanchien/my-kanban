@@ -27,7 +27,6 @@ function createRuntimeConfigResponse(
 ): RuntimeConfigResponse {
 	return {
 		selectedAgentId,
-		reviewerAgent: "same_as_task",
 		selectedShortcutLabel: shortcuts[0]?.label ?? null,
 		agentAutonomousModeEnabled: true,
 		effectiveCommand: selectedAgentId,

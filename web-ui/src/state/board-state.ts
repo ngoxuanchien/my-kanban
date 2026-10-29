@@ -22,7 +22,6 @@ export interface TaskDraft {
 	title?: string;
 	prompt: string;
 	startInPlanMode?: boolean;
-	agentReviewEnabled?: boolean;
 	autoReviewEnabled?: boolean;
 	autoReviewMode?: TaskAutoReviewMode;
 	images?: TaskImage[];
@@ -61,7 +60,8 @@ function withUpdatedColumns(board: BoardData, columns: BoardColumn[]): BoardData
 }
 
 function normalizeColumnId(id: string): BoardColumnId | null {
-	if (id === "backlog" || id === "in_progress" || id === "review" || id === "user_review" || id === "trash") {
+	if (id === "user_review") return "review";
+	if (id === "backlog" || id === "in_progress" || id === "review" || id === "trash") {
 		return id;
 	}
 	return null;
@@ -155,8 +155,6 @@ function normalizeCard(rawCard: unknown): BoardCard | null {
 		prompt?: unknown;
 		startInPlanMode?: unknown;
 		autoReviewEnabled?: unknown;
-		agentReviewEnabled?: unknown;
-		agentReview?: unknown;
 		autoReviewMode?: unknown;
 		images?: unknown;
 		baseRef?: unknown;
@@ -195,10 +193,6 @@ function normalizeCard(rawCard: unknown): BoardCard | null {
 		prompt,
 		startInPlanMode: typeof card.startInPlanMode === "boolean" ? card.startInPlanMode : false,
 		autoReviewEnabled: typeof card.autoReviewEnabled === "boolean" ? card.autoReviewEnabled : false,
-		...(typeof card.agentReviewEnabled === "boolean" ? { agentReviewEnabled: card.agentReviewEnabled } : {}),
-		...(card.agentReview && typeof card.agentReview === "object"
-			? { agentReview: card.agentReview as BoardCard["agentReview"] }
-			: {}),
 		autoReviewMode: resolveTaskAutoReviewMode(
 			typeof card.autoReviewMode === "string" ? (card.autoReviewMode as TaskAutoReviewMode) : undefined,
 		),
@@ -348,7 +342,6 @@ export function addTaskToColumnWithResult(
 			title: draft.title,
 			prompt,
 			startInPlanMode: draft.startInPlanMode,
-			agentReviewEnabled: draft.agentReviewEnabled,
 			autoReviewEnabled: draft.autoReviewEnabled,
 			autoReviewMode: draft.autoReviewMode,
 			images: draft.images,
@@ -543,7 +536,6 @@ export function updateTask(board: BoardData, taskId: string, draft: TaskDraft): 
 				title: title || card.title,
 				prompt,
 				startInPlanMode: Boolean(draft.startInPlanMode),
-				agentReviewEnabled: Boolean(draft.agentReviewEnabled),
 				autoReviewEnabled: Boolean(draft.autoReviewEnabled),
 				autoReviewMode: resolveTaskAutoReviewMode(draft.autoReviewMode ?? DEFAULT_TASK_AUTO_REVIEW_MODE),
 				images:

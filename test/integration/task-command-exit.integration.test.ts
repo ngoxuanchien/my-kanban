@@ -290,7 +290,6 @@ describe("source task commands", () => {
 						"create",
 						"--prompt",
 						"Add a demo banner component to the homepage that displays a welcome message and current weather summary",
-						"--agent-review-enabled",
 						"--project-path",
 						projectPath,
 					],
@@ -317,17 +316,7 @@ describe("source task commands", () => {
 				expect(didExit, `task create did not exit in time.\nstdout:\n${stdout}\nstderr:\n${stderr}`).toBe(true);
 				expect(commandProcess.exitCode).toBe(0);
 				expect(stdout).toContain('"ok": true');
-				expect((JSON.parse(stdout) as { task: { agentReviewEnabled: boolean } }).task.agentReviewEnabled).toBe(
-					true,
-				);
-
-				const listedNeedsReview = await runCliCommandAndCollectOutput({
-					args: ["task", "list", "--column", "needs_review", "--project-path", projectPath],
-					cwd: projectPath,
-					env,
-				});
-				expect(listedNeedsReview.exitCode).toBe(0);
-				expect(listedNeedsReview.stdout).toContain('"column": "user_review"');
+				expect((JSON.parse(stdout) as { task: { prompt: string } }).task.prompt).toContain("demo banner component");
 			} finally {
 				await requestGracefulShutdown(serverProcess);
 				const stopped = await waitForExit(serverProcess, 5_000);

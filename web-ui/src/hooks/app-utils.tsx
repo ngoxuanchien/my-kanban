@@ -24,14 +24,12 @@ export function countTasksByColumn(board: BoardData): {
 	backlog: number;
 	in_progress: number;
 	review: number;
-	user_review: number;
 	trash: number;
 } {
 	const counts = {
 		backlog: 0,
 		in_progress: 0,
 		review: 0,
-		user_review: 0,
 		trash: 0,
 	};
 	for (const column of board.columns) {
@@ -45,10 +43,6 @@ export function countTasksByColumn(board: BoardData): {
 		}
 		if (column.id === "review") {
 			counts.review += column.cards.length;
-			continue;
-		}
-		if (column.id === "user_review") {
-			counts.user_review += column.cards.length;
 			continue;
 		}
 		if (column.id === "trash") {

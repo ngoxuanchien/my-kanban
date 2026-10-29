@@ -55,9 +55,6 @@ interface HookSnapshot {
 	handleSaveAndStartEditedTask: () => void;
 	setEditTaskPrompt: (value: string) => void;
 	setEditTaskAutoReviewEnabled: (value: boolean) => void;
-	newTaskAgentReviewEnabled: boolean;
-	setNewTaskAgentReviewEnabled: (value: boolean) => void;
-	setEditTaskAgentReviewEnabled: (value: boolean) => void;
 	setEditTaskAutoReviewMode: (value: TaskAutoReviewMode) => void;
 	setNewTaskAgentId: (value: RuntimeAgentId | undefined) => void;
 	setNewTaskClineSettings: (value: RuntimeTaskClineSettings | undefined) => void;
@@ -115,9 +112,6 @@ function HookHarness({
 			handleSaveAndStartEditedTask: editor.handleSaveAndStartEditedTask,
 			setEditTaskPrompt: editor.setEditTaskPrompt,
 			setEditTaskAutoReviewEnabled: editor.setEditTaskAutoReviewEnabled,
-			newTaskAgentReviewEnabled: editor.newTaskAgentReviewEnabled,
-			setNewTaskAgentReviewEnabled: editor.setNewTaskAgentReviewEnabled,
-			setEditTaskAgentReviewEnabled: editor.setEditTaskAgentReviewEnabled,
 			setEditTaskAutoReviewMode: editor.setEditTaskAutoReviewMode,
 			setNewTaskAgentId: editor.setNewTaskAgentId,
 			setNewTaskClineSettings: editor.setNewTaskClineSettings,
@@ -141,9 +135,6 @@ function HookHarness({
 		editor.newTaskAgentId,
 		editor.newTaskClineSettings,
 		editor.setEditTaskAutoReviewEnabled,
-		editor.newTaskAgentReviewEnabled,
-		editor.setNewTaskAgentReviewEnabled,
-		editor.setEditTaskAgentReviewEnabled,
 		editor.setEditTaskAutoReviewMode,
 		editor.setEditTaskPrompt,
 		editor.setNewTaskImages,
@@ -167,29 +158,6 @@ describe("useTaskEditor", () => {
 		container = document.createElement("div");
 		document.body.appendChild(container);
 		root = createRoot(container);
-	});
-
-	it("new task defaults agentReviewEnabled to false and saves true when toggled", async () => {
-		let latestSnapshot: HookSnapshot | null = null;
-		await act(async () =>
-			root.render(
-				<HookHarness
-					initialBoard={createBoard()}
-					onSnapshot={(snapshot) => {
-						latestSnapshot = snapshot;
-					}}
-				/>,
-			),
-		);
-		expect(requireSnapshot(latestSnapshot).newTaskAgentReviewEnabled).toBe(false);
-		await act(async () => {
-			requireSnapshot(latestSnapshot).setNewTaskPrompt("Review me");
-			requireSnapshot(latestSnapshot).setNewTaskAgentReviewEnabled(true);
-		});
-		await act(async () => {
-			requireSnapshot(latestSnapshot).handleCreateTask();
-		});
-		expect(requireSnapshot(latestSnapshot).board.columns[0]?.cards[0]?.agentReviewEnabled).toBe(true);
 	});
 
 	afterEach(() => {

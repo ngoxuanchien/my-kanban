@@ -33,7 +33,7 @@ interface CompleteTaskToDoneMutationValue {
 }
 
 export function columnCanHaveLiveTaskSession(columnId: RuntimeBoardColumnId): boolean {
-	return columnId === "in_progress" || columnId === "review" || columnId === "user_review";
+	return columnId === "in_progress" || columnId === "review";
 }
 
 function findCard(board: RuntimeBoardData, taskId: string): RuntimeBoardCard | null {

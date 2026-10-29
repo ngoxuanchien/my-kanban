@@ -42,7 +42,7 @@ export async function shutdownRuntimeServer(deps: RuntimeShutdownCoordinatorDepe
 		}
 	}
 
-	// Disposes agent review (kills reviewer process groups) and Cline SDK sessions.
+	// Disposes Cline SDK sessions.
 	await deps.closeRuntimeServer();
 
 	const indexedWorkspaces = await listWorkspaceIndexEntries();

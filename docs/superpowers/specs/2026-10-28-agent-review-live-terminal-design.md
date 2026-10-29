@@ -1,3 +1,5 @@
+# Superseded by 2026-10-29-remove-agent-review-design.md
+
 # Agent review: live reviewer terminal — design
 
 Status: accepted. Builds on `2026-10-28-agent-review-design.md` (4.3, 4.7).

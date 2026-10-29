@@ -262,7 +262,7 @@ describe.sequential("workspace-state integration", () => {
 		});
 	});
 
-	it("adds a missing user_review column on load, between review and trash", async () => {
+	it("moves cards from the legacy user_review column into review on load", async () => {
 		await withTemporaryHome(async () => {
 			const { path: sandboxRoot, cleanup } = createTempDir("kanban-legacy-columns-");
 			try {
@@ -278,8 +278,14 @@ describe.sequential("workspace-state integration", () => {
 				if (!reviewColumn || !backlogColumn) {
 					throw new Error("Expected legacy board columns.");
 				}
-				reviewColumn.cards = backlogColumn.cards;
+				const legacyColumn = {
+					id: "user_review",
+					title: "Needs your review",
+					cards: backlogColumn.cards,
+				} as unknown as RuntimeBoardData["columns"][number];
+				reviewColumn.cards = [];
 				backlogColumn.cards = [];
+				legacyBoard.columns.splice(3, 0, legacyColumn);
 				writeFileSync(join(context.statePath, "board.json"), JSON.stringify(legacyBoard, null, 2), "utf8");
 
 				const state = await loadWorkspaceState(workspacePath);
@@ -287,12 +293,10 @@ describe.sequential("workspace-state integration", () => {
 					"backlog",
 					"in_progress",
 					"review",
-					"user_review",
 					"trash",
 				]);
-				expect(state.board.columns[3]?.title).toBe("Needs your review");
-				expect(state.board.columns[3]?.cards).toEqual([]);
 				expect(state.board.columns[2]?.cards).toHaveLength(1);
+				expect(state.board.columns[2]?.cards[0]?.prompt).toBe("Legacy Task");
 			} finally {
 				cleanup();
 			}

@@ -1,11 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import {
-	type RuntimeAgentReviewState,
-	runtimeAgentReviewStateSchema,
-	runtimeBoardCardSchema,
-	runtimeBoardColumnIdSchema,
-} from "../../src/core/api-contract";
+import { runtimeBoardColumnIdSchema, runtimeBoardDataSchema } from "../../src/core/api-contract";
 import {
 	parseHookIngestRequest,
 	parseTaskSessionStartRequest,
@@ -96,53 +91,27 @@ describe("parseTaskSessionStartRequest", () => {
 	});
 });
 
-describe("agent review contract", () => {
+describe("legacy board compatibility", () => {
 	const baseCard = { id: "a", prompt: "p", startInPlanMode: false, baseRef: "main", createdAt: 1, updatedAt: 1 };
-	const validState: RuntimeAgentReviewState = {
-		status: "needs_user",
-		round: 2,
-		reason: "round_limit",
-		reasonDetail: null,
-		fingerprint: "abc",
-		lastResult: {
-			verdict: "fail",
-			appVerified: true,
-			appCheck: "ran the app",
-			tests: [{ command: "npm test", result: "1 failed" }],
-			summary: null,
-			fixPrompt: "fix the failing test",
-			notes: null,
-		},
-		fixPrompts: ["first fix", "second fix"],
-		summary: {
-			whatWasDone: "a",
-			whatItAffects: "b",
-			againstRequest: "c",
-			howVerified: "d",
-			risks: "e",
-		},
-		meta: { commitHash: null, prUrl: null, rounds: 2, reviewerAgentId: "codex", reviewedAt: 5 },
-		updatedAt: 10,
-	};
-
-	it("parses user_review column and keeps legacy done→trash mapping", () => {
-		expect(runtimeBoardColumnIdSchema.parse("user_review")).toBe("user_review");
+	it("keeps legacy done→trash mapping", () => {
 		expect(runtimeBoardColumnIdSchema.parse("done")).toBe("trash");
 	});
 
-	it("loads a card without agent review fields as off", () => {
-		const card = runtimeBoardCardSchema.parse(baseCard);
-		expect(card.agentReviewEnabled).toBeUndefined();
-		expect(card.agentReview).toBeUndefined();
-	});
-
-	it("round-trips a card with agentReview state", () => {
-		const card = runtimeBoardCardSchema.parse({ ...baseCard, agentReviewEnabled: true, agentReview: validState });
-		expect(card.agentReviewEnabled).toBe(true);
-		expect(card.agentReview).toEqual(validState);
-	});
-
-	it("rejects agentReview with negative round", () => {
-		expect(() => runtimeAgentReviewStateSchema.parse({ ...validState, round: -1 })).toThrow();
+	it("drops legacy task reviewer fields and merges legacy cards into review", () => {
+		const board = runtimeBoardDataSchema.parse({
+			columns: [
+				{ id: "review", title: "Review", cards: [baseCard] },
+				{
+					id: "user_review",
+					title: "Needs your review",
+					cards: [{ ...baseCard, id: "legacy", agentReviewEnabled: true, agentReview: { status: "passed" } }],
+				},
+			],
+		});
+		expect(board.columns).toHaveLength(1);
+		expect(board.columns[0]?.id).toBe("review");
+		expect(board.columns[0]?.cards.map(({ id }) => id)).toEqual(["a", "legacy"]);
+		expect(board.columns[0]?.cards[1]).not.toHaveProperty("agentReviewEnabled");
+		expect(board.columns[0]?.cards[1]).not.toHaveProperty("agentReview");
 	});
 });

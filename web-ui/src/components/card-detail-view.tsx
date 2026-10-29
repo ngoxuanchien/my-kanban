@@ -3,19 +3,13 @@ import { Files, GitCompareArrows, Maximize2, MessageSquare, Minimize2, X } from 
 import type { MouseEvent as ReactMouseEvent, ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useHotkeys } from "react-hotkeys-hook";
-import { AgentReviewActivityPanel } from "@/components/agent-review-activity-panel";
-import { AgentReviewResultPanel } from "@/components/agent-review-result-panel";
-import { AgentReviewStatusBadge } from "@/components/agent-review-status-badge";
-import { AgentReviewerTabs } from "@/components/detail-panels/agent-reviewer-tabs";
 import { AgentTerminalPanel } from "@/components/detail-panels/agent-terminal-panel";
 import { ClineAgentChatPanel, type ClineAgentChatPanelHandle } from "@/components/detail-panels/cline-agent-chat-panel";
 import { ColumnContextPanel } from "@/components/detail-panels/column-context-panel";
 import { type DiffLineComment, DiffViewerPanel } from "@/components/detail-panels/diff-viewer-panel";
 import { FileTreePanel } from "@/components/detail-panels/file-tree-panel";
-import { getReviewerSessionKey, ReviewerTerminalPanel } from "@/components/detail-panels/reviewer-terminal-panel";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
-import { useAgentReviewLog } from "@/hooks/use-agent-review-log";
 import type { ClineChatActionResult } from "@/hooks/use-cline-chat-runtime-actions";
 import type { ClineChatMessage } from "@/hooks/use-cline-chat-session";
 import { useIsMobile } from "@/hooks/use-is-mobile";
@@ -486,7 +480,6 @@ export function CardDetailView({
 		true,
 	);
 	const taskWorkspaceStateVersion = useTaskWorkspaceStateVersionValue(selection.card.id);
-	const agentReviewLog = useAgentReviewLog(currentProjectId, selection.card.id, selection.card.agentReview);
 	const lastTurnViewKey =
 		diffMode === "last_turn"
 			? [
@@ -517,14 +510,8 @@ export function CardDetailView({
 	const detailDiffFileTreePanelPercent = `${(detailDiffFileTreeRatio * 100).toFixed(1)}%`;
 	const detailDiffContentPanelPercent = `${((1 - detailDiffFileTreeRatio) * 100).toFixed(1)}%`;
 	const detailDiffFileTreePanelFlex = `0 0 ${detailDiffFileTreePanelPercent}`;
-	const showMoveToTrashActions =
-		selection.column.id === "review" ||
-		selection.column.id === "in_progress" ||
-		selection.column.id === "user_review";
-	const isTaskTerminalEnabled =
-		selection.column.id === "in_progress" ||
-		selection.column.id === "review" ||
-		selection.column.id === "user_review";
+	const showMoveToTrashActions = selection.column.id === "review" || selection.column.id === "in_progress";
+	const isTaskTerminalEnabled = selection.column.id === "in_progress" || selection.column.id === "review";
 	const effectiveTaskAgentId = sessionSummary?.agentId ?? selection.card.agentId ?? selectedAgentId;
 	const showClineAgentChatPanel = isNativeClineAgentSelected(effectiveTaskAgentId);
 	const availablePaths = useMemo(() => {
@@ -713,25 +700,7 @@ export function CardDetailView({
 			taskColumnId={selection.column.id}
 		/>
 	);
-	const agentChatPanel = selection.card.agentReview ? (
-		<AgentReviewerTabs
-			agentPanel={taskAgentPanel}
-			reviewerPanel={
-				<ReviewerTerminalPanel
-					taskId={selection.card.id}
-					workspaceId={currentProjectId}
-					state={selection.card.agentReview}
-					log={agentReviewLog}
-					summary={taskSessions[getReviewerSessionKey(selection.card.id)] ?? null}
-					terminalBackgroundColor={terminalThemeColors.surfacePrimary}
-					cursorColor={terminalThemeColors.textPrimary}
-				/>
-			}
-			state={selection.card.agentReview}
-		/>
-	) : (
-		taskAgentPanel
-	);
+	const agentChatPanel = taskAgentPanel;
 
 	if (isMobile) {
 		return (
@@ -872,13 +841,6 @@ export function CardDetailView({
 					<div className="flex min-h-0 flex-1 overflow-hidden">{gitHistoryPanel}</div>
 				) : (
 					<>
-						{selection.card.agentReview ? (
-							<div className="max-h-[50%] shrink-0 space-y-2 overflow-y-auto border-b border-border p-3">
-								<AgentReviewStatusBadge state={selection.card.agentReview} />
-								<AgentReviewActivityPanel state={selection.card.agentReview} log={agentReviewLog} />
-								<AgentReviewResultPanel state={selection.card.agentReview} />
-							</div>
-						) : null}
 						<div ref={mainRowRef} className="flex min-h-0 flex-1 overflow-hidden">
 							<div
 								className="min-h-0 min-w-0"

@@ -1,7 +1,6 @@
 import { TRPCError } from "@trpc/server";
 import type { ClineTaskSessionService } from "../cline-sdk/cline-task-session-service";
 import type {
-	RuntimeAgentReviewLog,
 	RuntimeGitCheckoutResponse,
 	RuntimeGitDiscardResponse,
 	RuntimeGitSummaryResponse,
@@ -47,7 +46,6 @@ export interface CreateWorkspaceApiDependencies {
 	buildWorkspaceStateSnapshot: (workspaceId: string, workspacePath: string) => Promise<RuntimeWorkspaceStateResponse>;
 	/** Called after a browser or CLI board write lands. */
 	onWorkspaceStateChanged?: (workspaceId: string, workspacePath: string) => void;
-	getAgentReviewLog?: (workspaceId: string, taskId: string) => Promise<RuntimeAgentReviewLog | null>;
 }
 
 function normalizeOptionalTaskWorkspaceScopeInput(
@@ -356,9 +354,6 @@ export function createWorkspaceApi(deps: CreateWorkspaceApiDependencies): Runtim
 		},
 		loadState: async (workspaceScope) => {
 			return await deps.buildWorkspaceStateSnapshot(workspaceScope.workspaceId, workspaceScope.workspacePath);
-		},
-		loadAgentReviewLog: async (workspaceScope, input) => {
-			return { log: (await deps.getAgentReviewLog?.(workspaceScope.workspaceId, input.taskId)) ?? null };
 		},
 		notifyStateUpdated: async (workspaceScope) => {
 			void deps.broadcastRuntimeWorkspaceStateUpdated(workspaceScope.workspaceId, workspaceScope.workspacePath);
