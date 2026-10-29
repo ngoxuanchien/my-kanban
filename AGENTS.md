@@ -26,6 +26,7 @@ Code quality
 - Follow DRY principles and maintain clean architecture with clear separation of concerns.
 - In `web-ui`, prefer `react-use` hooks (via `@/kanban/utils/react-use`) whenever possible
 - Before adding custom utility code, evaluate whether a well-maintained third-party package can reduce complexity and long-term maintenance cost.
+- For unfamiliar functionality, do not write it from scratch: first search GitHub for open-source projects that solve the same problem and compare their approaches before you start.
 
 Architecture opinions
 - Avoid thin shell wrappers that only forward props or relocate JSX for a single call site.
