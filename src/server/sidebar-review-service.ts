@@ -18,8 +18,12 @@ export interface CreateSidebarReviewServiceDependencies {
 	clineService: ClineTaskSessionService;
 	loadRuntimeConfig: () => Promise<RuntimeConfigState>;
 	handOffTask: (taskId: string, reason: string) => Promise<{ ok: boolean; error?: string | null }>;
+	retryQuotaBlockedTask: (taskId: string, reason: string) => Promise<{ ok: boolean; error?: string | null }>;
 	broadcastStateUpdated: () => Promise<void> | void;
 	warn: (message: string) => void;
+	now?: () => number;
+	setInterval?: typeof setInterval;
+	clearInterval?: typeof clearInterval;
 }
 
 export interface SidebarReviewService {
@@ -50,9 +54,77 @@ export function createSidebarReviewService(deps: CreateSidebarReviewServiceDepen
 	const nudgedTaskIds = new Set<string>();
 	const quotaWarnedTaskIds = new Set<string>();
 	const processingTaskIds = new Set<string>();
+	const now = deps.now ?? Date.now;
 	let sidebarIdleAvailable = false;
 	let started = false;
+	let retryInterval: ReturnType<typeof setInterval> | undefined;
 	const unsubscribers: Array<() => void> = [];
+	const retryQuotaBlockedTasks = async (): Promise<void> => {
+		try {
+			const state = await loadWorkspaceState(deps.workspacePath);
+			for (const column of state.board.columns) {
+				if (column.id !== "review") continue;
+				for (const card of column.cards) {
+					if (
+						card.agentReviewEnabled !== true ||
+						card.quotaBlockedAt === undefined ||
+						now() - card.quotaBlockedAt < 3600000 ||
+						processingTaskIds.has(card.id)
+					)
+						continue;
+					try {
+						const result = await deps.retryQuotaBlockedTask(
+							card.id,
+							"Every agent hit their usage limit. Kanban waited 1 hour and is retrying with you.",
+						);
+						if (result.ok) continue;
+						deps.warn(
+							`[sidebar-review] Could not retry quota-blocked task ${card.id}: ${result.error ?? "unknown error"}`,
+						);
+						const mutation = await mutateWorkspaceState(deps.workspacePath, (current) => {
+							const found = findCard(current.board, card.id);
+							if (!found || found.columnId !== "review" || found.card.quotaBlockedAt !== card.quotaBlockedAt)
+								return { board: current.board, value: null, save: false };
+							const board = {
+								...current.board,
+								columns: current.board.columns.map((column) => ({
+									...column,
+									cards: column.cards.map((candidate) =>
+										candidate.id === card.id ? { ...candidate, quotaBlockedAt: now() } : candidate,
+									),
+								})),
+							};
+							return { board, value: true, save: true };
+						});
+						if (mutation.saved) await deps.broadcastStateUpdated();
+					} catch (error) {
+						deps.warn(`[sidebar-review] Could not retry quota-blocked task ${card.id}: ${errorMessage(error)}`);
+					}
+				}
+			}
+		} catch (error) {
+			deps.warn(`[sidebar-review] Could not check quota-blocked tasks: ${errorMessage(error)}`);
+		}
+	};
+	const clearQuotaBlockedAt = async (taskId: string): Promise<void> => {
+		const mutation = await mutateWorkspaceState(deps.workspacePath, (current) => {
+			if (findCard(current.board, taskId)?.card.quotaBlockedAt === undefined)
+				return { board: current.board, value: null, save: false };
+			const board = {
+				...current.board,
+				columns: current.board.columns.map((column) => ({
+					...column,
+					cards: column.cards.map((card) => {
+						if (card.id !== taskId) return card;
+						const { quotaBlockedAt: _quotaBlockedAt, ...updatedCard } = card;
+						return updatedCard;
+					}),
+				})),
+			};
+			return { board, value: true, save: true };
+		});
+		if (mutation.saved) await deps.broadcastStateUpdated();
+	};
 
 	const deliverNext = async (): Promise<void> => {
 		if (!sidebarIdleAvailable) {
@@ -96,6 +168,22 @@ export function createSidebarReviewService(deps: CreateSidebarReviewServiceDepen
 					const phrase = terminal ? detectUsageLimit(terminal.snapshot) : null;
 					if (phrase) {
 						if (getHandOffCount(card) >= MAX_HAND_OFFS) {
+							const mutation = await mutateWorkspaceState(deps.workspacePath, (current) => {
+								const currentCard = findCard(current.board, summary.taskId)?.card;
+								if (!currentCard || currentCard.quotaBlockedAt !== undefined)
+									return { board: current.board, value: null, save: false };
+								const board = {
+									...current.board,
+									columns: current.board.columns.map((column) => ({
+										...column,
+										cards: column.cards.map((candidate) =>
+											candidate.id === summary.taskId ? { ...candidate, quotaBlockedAt: now() } : candidate,
+										),
+									})),
+								};
+								return { board, value: true, save: true };
+							});
+							if (mutation.saved) await deps.broadcastStateUpdated();
 							if (!quotaWarnedTaskIds.has(summary.taskId)) {
 								quotaWarnedTaskIds.add(summary.taskId);
 								deps.warn(
@@ -115,6 +203,7 @@ export function createSidebarReviewService(deps: CreateSidebarReviewServiceDepen
 					deps.warn(`[sidebar-review] Could not check usage limit for ${summary.taskId}: ${errorMessage(error)}`);
 				}
 			}
+			if (card.quotaBlockedAt !== undefined) await clearQuotaBlockedAt(summary.taskId);
 			if ((card.reviewRound ?? 0) < getReviewRoundCap(card)) {
 				try {
 					const { path: worktreePath } = await getTaskWorkspacePathInfo({
@@ -241,6 +330,7 @@ export function createSidebarReviewService(deps: CreateSidebarReviewServiceDepen
 				for (const card of column.cards) {
 					if (
 						column.id === "review" &&
+						card.quotaBlockedAt === undefined &&
 						card.agentReviewEnabled &&
 						(card.reviewRound ?? 0) >= 1 &&
 						(card.reviewRound ?? 0) <= getReviewRoundCap(card)
@@ -251,6 +341,8 @@ export function createSidebarReviewService(deps: CreateSidebarReviewServiceDepen
 					}
 				}
 			}
+			await retryQuotaBlockedTasks();
+			retryInterval = (deps.setInterval ?? setInterval)(() => void retryQuotaBlockedTasks(), 300000);
 			for (const summary of [...deps.terminalManager.listSummaries(), ...deps.clineService.listSummaries()]) {
 				previousSummaries.set(summary.taskId, summary);
 			}
@@ -272,8 +364,14 @@ export function createSidebarReviewService(deps: CreateSidebarReviewServiceDepen
 							if ((card.reviewRound ?? 0) !== 0 || getHandOffCount(card) !== 0 || card.handedOff === true) {
 								changed = true;
 								const { handedOff: _legacyHandedOff, ...resetCard } = card;
-								return { ...resetCard, reviewRound: 0, handOffCount: 0 };
+								const { quotaBlockedAt: _quotaBlockedAt, ...clearedQuotaCard } = resetCard;
+								return { ...clearedQuotaCard, reviewRound: 0, handOffCount: 0 };
 							}
+						}
+						if ((column.id !== "review" || !card.agentReviewEnabled) && card.quotaBlockedAt !== undefined) {
+							changed = true;
+							const { quotaBlockedAt: _quotaBlockedAt, ...updatedCard } = card;
+							return updatedCard;
 						}
 						return card;
 					}),
@@ -299,6 +397,7 @@ export function createSidebarReviewService(deps: CreateSidebarReviewServiceDepen
 			if (mutation.saved) await deps.broadcastStateUpdated();
 		},
 		dispose: () => {
+			if (retryInterval) (deps.clearInterval ?? clearInterval)(retryInterval);
 			for (const unsubscribe of unsubscribers.splice(0)) unsubscribe();
 		},
 	};

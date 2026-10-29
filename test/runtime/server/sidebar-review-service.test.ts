@@ -55,6 +55,9 @@ const runGit = vi.hoisted(() => vi.fn());
 const handOffTask = vi.hoisted(() =>
 	vi.fn(async (): Promise<{ ok: boolean; error?: string | null }> => ({ ok: true })),
 );
+const retryQuotaBlockedTask = vi.hoisted(() =>
+	vi.fn(async (): Promise<{ ok: boolean; error?: string | null }> => ({ ok: true })),
+);
 
 vi.mock("../../../src/state/workspace-state", () => ({
 	loadWorkspaceState: vi.fn(async () => ({ board: workspaceState.board })),
@@ -87,11 +90,24 @@ async function startUsageLimitTurn(options: {
 	handedOff?: boolean;
 	handOffCount?: number;
 	getRestoreSnapshot?: () => Promise<{ snapshot: string; cols: number; rows: number } | null>;
+	now?: () => number;
+	quotaBlockedAt?: number;
+	reviewRound?: number;
+	columnId?: string;
+	reviewEnabled?: boolean;
+	sidebarIdle?: boolean;
+	setInterval?: typeof setInterval;
+	clearInterval?: typeof clearInterval;
 }) {
 	const card = workspaceState.board.columns[0].cards[0];
 	card.agentId = options.agentId;
 	card.handedOff = options.handedOff ?? false;
 	card.handOffCount = options.handOffCount ?? (options.handedOff === true ? 1 : 0);
+	card.reviewRound = options.reviewRound ?? 0;
+	card.agentReviewEnabled = options.reviewEnabled ?? true;
+	if (options.quotaBlockedAt === undefined) delete card.quotaBlockedAt;
+	else card.quotaBlockedAt = options.quotaBlockedAt;
+	workspaceState.board.columns[0].id = options.columnId ?? "review";
 	const listeners = new Set<(value: RuntimeTaskSessionSummary) => void>();
 	const broadcastStateUpdated = vi.fn();
 	const warn = vi.fn();
@@ -99,7 +115,10 @@ async function startUsageLimitTurn(options: {
 		workspaceId: "workspace-1",
 		workspacePath: "/repo",
 		terminalManager: {
-			listSummaries: () => [summary("task-1", "running")],
+			listSummaries: () => [
+				summary("task-1", "running"),
+				...(options.sidebarIdle ? [summary("__home_agent__:workspace-1:claude", "awaiting_review")] : []),
+			],
 			onSummary: (listener: (value: RuntimeTaskSessionSummary) => void) => {
 				listeners.add(listener);
 				return () => listeners.delete(listener);
@@ -111,6 +130,10 @@ async function startUsageLimitTurn(options: {
 		broadcastStateUpdated,
 		warn,
 		handOffTask,
+		retryQuotaBlockedTask,
+		now: options.now,
+		setInterval: options.setInterval,
+		clearInterval: options.clearInterval,
 	});
 	await service.start();
 	return { card, listeners, broadcastStateUpdated, warn, service };
@@ -136,8 +159,11 @@ function summary(taskId: string, state: RuntimeTaskSessionSummary["state"]): Run
 
 describe("createSidebarReviewService", () => {
 	beforeEach(() => {
+		workspaceState.board.columns[0].id = "review";
 		workspaceState.board.columns[0].cards[0].reviewRound = 0;
+		delete workspaceState.board.columns[0].cards[0].quotaBlockedAt;
 		workspaceState.board.columns[0].cards[1].reviewRound = 0;
+		delete workspaceState.board.columns[0].cards[1].quotaBlockedAt;
 		workspaceState.board.columns[0].cards[0].handedOff = false;
 		workspaceState.board.columns[0].cards[1].handedOff = false;
 		workspaceState.board.columns[0].cards[0].handOffCount = 0;
@@ -148,6 +174,8 @@ describe("createSidebarReviewService", () => {
 		workspaceState.board.columns[0].cards[1].agentId = undefined;
 		sendPromptToSession.mockClear();
 		handOffTask.mockReset();
+		retryQuotaBlockedTask.mockReset();
+		retryQuotaBlockedTask.mockResolvedValue({ ok: true });
 		handOffTask.mockResolvedValue({ ok: true });
 		runGit.mockReset();
 		runGit.mockResolvedValueOnce({ ok: true, stdout: " M file" }).mockResolvedValueOnce({ ok: true, stdout: "0" });
@@ -172,6 +200,7 @@ describe("createSidebarReviewService", () => {
 			broadcastStateUpdated: vi.fn(),
 			warn: vi.fn(),
 			handOffTask,
+			retryQuotaBlockedTask,
 		});
 		await service.start();
 		for (const listener of listeners) listener({ ...summary("task-1", "failed"), agentId: "codex", exitCode: 7 });
@@ -201,6 +230,7 @@ describe("createSidebarReviewService", () => {
 			broadcastStateUpdated: vi.fn(),
 			warn: vi.fn(),
 			handOffTask,
+			retryQuotaBlockedTask,
 		});
 		await service.start();
 		for (const listener of listeners) listener({ ...summary("task-1", "failed"), agentId: "codex" });
@@ -232,6 +262,7 @@ describe("createSidebarReviewService", () => {
 			broadcastStateUpdated: vi.fn(),
 			warn: vi.fn(),
 			handOffTask,
+			retryQuotaBlockedTask,
 		});
 		await service.start();
 		for (const listener of listeners) listener({ ...summary("task-1", "failed"), agentId: "opencode", exitCode: 1 });
@@ -260,6 +291,7 @@ describe("createSidebarReviewService", () => {
 			broadcastStateUpdated: vi.fn(),
 			warn: vi.fn(),
 			handOffTask,
+			retryQuotaBlockedTask,
 		});
 		await service.start();
 		for (const listener of listeners)
@@ -285,6 +317,7 @@ describe("createSidebarReviewService", () => {
 			broadcastStateUpdated: vi.fn(),
 			warn: vi.fn(),
 			handOffTask,
+			retryQuotaBlockedTask,
 		});
 		await service.start();
 		for (const listener of listeners)
@@ -313,6 +346,7 @@ describe("createSidebarReviewService", () => {
 			broadcastStateUpdated: vi.fn(),
 			warn: vi.fn(),
 			handOffTask,
+			retryQuotaBlockedTask,
 		});
 		await service.start();
 		for (const listener of listeners) listener({ ...summary("task-1", "failed"), agentId: "codex", exitCode: 1 });
@@ -336,6 +370,7 @@ describe("createSidebarReviewService", () => {
 			broadcastStateUpdated: vi.fn(),
 			warn: vi.fn(),
 			handOffTask,
+			retryQuotaBlockedTask,
 		});
 
 		await service.start();
@@ -361,6 +396,7 @@ describe("createSidebarReviewService", () => {
 			broadcastStateUpdated: vi.fn(),
 			warn: vi.fn(),
 			handOffTask,
+			retryQuotaBlockedTask,
 		});
 
 		await service.notifyBoardChanged();
@@ -388,6 +424,7 @@ describe("createSidebarReviewService", () => {
 			broadcastStateUpdated,
 			warn: vi.fn(),
 			handOffTask,
+			retryQuotaBlockedTask,
 		});
 
 		await service.start();
@@ -425,6 +462,7 @@ describe("createSidebarReviewService", () => {
 			broadcastStateUpdated: vi.fn(),
 			warn: vi.fn(),
 			handOffTask,
+			retryQuotaBlockedTask,
 		});
 
 		await service.start();
@@ -465,6 +503,7 @@ describe("createSidebarReviewService", () => {
 			broadcastStateUpdated: vi.fn(),
 			warn: vi.fn(),
 			handOffTask,
+			retryQuotaBlockedTask,
 		});
 
 		await service.start();
@@ -512,6 +551,7 @@ describe("createSidebarReviewService", () => {
 			broadcastStateUpdated: vi.fn(),
 			warn,
 			handOffTask,
+			retryQuotaBlockedTask,
 		});
 
 		await service.start();
@@ -551,6 +591,7 @@ describe("createSidebarReviewService", () => {
 			broadcastStateUpdated: vi.fn(),
 			warn: vi.fn(),
 			handOffTask,
+			retryQuotaBlockedTask,
 		});
 		await service.start();
 
@@ -593,6 +634,7 @@ describe("createSidebarReviewService", () => {
 			broadcastStateUpdated: vi.fn(),
 			warn: vi.fn(),
 			handOffTask,
+			retryQuotaBlockedTask,
 		});
 		await service.start();
 		for (const listener of listeners) {
@@ -635,6 +677,7 @@ describe("createSidebarReviewService", () => {
 			broadcastStateUpdated: vi.fn(),
 			warn: vi.fn(),
 			handOffTask,
+			retryQuotaBlockedTask,
 		});
 		sendPromptToSession.mockResolvedValueOnce({ ok: false, reason: "session_not_running" });
 		await service.start();
@@ -671,6 +714,7 @@ describe("createSidebarReviewService", () => {
 			broadcastStateUpdated: vi.fn(),
 			warn: vi.fn(),
 			handOffTask,
+			retryQuotaBlockedTask,
 		});
 		await service.start();
 		for (const listener of listeners) listener(summary("task-1", "awaiting_review"));
@@ -731,6 +775,7 @@ describe("createSidebarReviewService", () => {
 			agentId: "opencode",
 			handOffCount: 2,
 			getRestoreSnapshot: async () => ({ snapshot: "Free usage limit reached", cols: 80, rows: 24 }),
+			now: () => 123456,
 		});
 		for (const listener of listeners) listener(summary("task-1", "awaiting_review"));
 		await vi.waitFor(() =>
@@ -740,10 +785,154 @@ describe("createSidebarReviewService", () => {
 		);
 		expect(handOffTask).not.toHaveBeenCalled();
 		expect(sendPromptToSession).not.toHaveBeenCalled();
-		expect(broadcastStateUpdated).not.toHaveBeenCalled();
+		expect(broadcastStateUpdated).toHaveBeenCalledTimes(1);
+		expect(workspaceState.board.columns[0].cards[0].quotaBlockedAt).toBe(123456);
+		expect(retryQuotaBlockedTask).not.toHaveBeenCalled();
 		expect(warn).toHaveBeenCalledTimes(1);
 		expect(card.reviewRound).toBe(0);
 		service.dispose();
+	});
+
+	it("retries quota-blocked tasks after one hour, not before", async () => {
+		let clock = 10_000_000;
+		let tick: (() => void) | undefined;
+		const { service } = await startUsageLimitTurn({
+			agentId: "opencode",
+			handOffCount: 2,
+			quotaBlockedAt: clock - 3_599_999,
+			now: () => clock,
+			setInterval: (callback: () => void) => {
+				tick = callback;
+				return 1 as unknown as ReturnType<typeof setInterval>;
+			},
+		});
+		expect(retryQuotaBlockedTask).not.toHaveBeenCalled();
+		tick?.();
+		await vi.waitFor(() => expect(retryQuotaBlockedTask).not.toHaveBeenCalled());
+		clock += 1;
+		tick?.();
+		await vi.waitFor(() =>
+			expect(retryQuotaBlockedTask).toHaveBeenCalledWith(
+				"task-1",
+				"Every agent hit their usage limit. Kanban waited 1 hour and is retrying with you.",
+			),
+		);
+		service.dispose();
+	});
+
+	it.each([
+		{ columnId: "in_progress", reviewEnabled: true },
+		{ columnId: "review", reviewEnabled: false },
+	])(
+		"does not retry a blocked task outside active Review ($columnId, $reviewEnabled)",
+		async ({ columnId, reviewEnabled }) => {
+			const { service } = await startUsageLimitTurn({
+				agentId: "opencode",
+				handOffCount: 2,
+				quotaBlockedAt: 1,
+				now: () => 3_600_001,
+				columnId,
+				reviewEnabled,
+			});
+			await service.notifyBoardChanged();
+			expect(retryQuotaBlockedTask).not.toHaveBeenCalled();
+			service.dispose();
+		},
+	);
+
+	it("retries due blocked tasks on start without restoring their review round", async () => {
+		const { service } = await startUsageLimitTurn({
+			agentId: "opencode",
+			handOffCount: 2,
+			quotaBlockedAt: 1,
+			reviewRound: 2,
+			sidebarIdle: true,
+			now: () => 3_600_001,
+		});
+		expect(retryQuotaBlockedTask).toHaveBeenCalledTimes(1);
+		expect(sendPromptToSession).not.toHaveBeenCalled();
+		service.dispose();
+	});
+
+	it("resets the retry time and warns when a quota retry is refused", async () => {
+		retryQuotaBlockedTask.mockResolvedValue({ ok: false, error: "x" });
+		const { service, warn } = await startUsageLimitTurn({
+			agentId: "opencode",
+			handOffCount: 2,
+			quotaBlockedAt: 1,
+			now: () => 7_200_001,
+		});
+		await vi.waitFor(() => expect(workspaceState.board.columns[0].cards[0].quotaBlockedAt).toBe(7_200_001));
+		expect(warn).toHaveBeenCalledWith(expect.stringContaining("x"));
+		service.dispose();
+	});
+
+	it.each([
+		{ columnId: "done", reviewEnabled: true },
+		{ columnId: "review", reviewEnabled: false },
+	])("clears quota state after board changes ($columnId, $reviewEnabled)", async ({ columnId, reviewEnabled }) => {
+		const { service } = await startUsageLimitTurn({
+			agentId: "opencode",
+			handOffCount: 2,
+			quotaBlockedAt: 10,
+		});
+		workspaceState.board.columns[0].id = columnId;
+		workspaceState.board.columns[0].cards[0].agentReviewEnabled = reviewEnabled;
+		await service.notifyBoardChanged();
+		expect(workspaceState.board.columns[0].cards[0]).not.toHaveProperty("quotaBlockedAt");
+		service.dispose();
+	});
+
+	it("clears quota state at turn end and continues the normal review path", async () => {
+		const { listeners, service } = await startUsageLimitTurn({
+			agentId: "codex",
+			quotaBlockedAt: 10,
+		});
+		for (const listener of listeners) listener(summary("task-1", "awaiting_review"));
+		await vi.waitFor(() => expect(workspaceState.board.columns[0].cards[0].reviewRound).toBe(1));
+		expect(workspaceState.board.columns[0].cards[0]).not.toHaveProperty("quotaBlockedAt");
+		service.dispose();
+	});
+
+	it("clears quota state before nudging an empty task", async () => {
+		const { card, listeners, service } = await startUsageLimitTurn({
+			agentId: "codex",
+			quotaBlockedAt: 10,
+		});
+		runGit
+			.mockReset()
+			.mockResolvedValueOnce({ ok: true, stdout: "" })
+			.mockResolvedValueOnce({ ok: true, stdout: "0" });
+		for (const listener of listeners) listener(summary("task-1", "awaiting_review"));
+		await vi.waitFor(() => expect(sendPromptToSession).toHaveBeenCalledTimes(1));
+		expect(workspaceState.board.columns[0].cards[0]).not.toHaveProperty("quotaBlockedAt");
+		expect(card.reviewRound).toBe(0);
+		service.dispose();
+	});
+
+	it("clears the quota retry interval on dispose", async () => {
+		let clock = 10;
+		let tick: (() => void) | undefined;
+		let active = true;
+		const clearInterval = vi.fn(() => {
+			active = false;
+		});
+		const { service } = await startUsageLimitTurn({
+			agentId: "opencode",
+			handOffCount: 2,
+			quotaBlockedAt: 1,
+			now: () => clock,
+			setInterval: (callback: () => void) => {
+				tick = callback;
+				return 1 as unknown as ReturnType<typeof setInterval>;
+			},
+			clearInterval,
+		});
+		service.dispose();
+		clock = 3_600_001;
+		if (active) tick?.();
+		expect(retryQuotaBlockedTask).not.toHaveBeenCalled();
+		expect(clearInterval).toHaveBeenCalledTimes(1);
 	});
 
 	it("continues the normal review path when handoff is refused", async () => {
@@ -805,6 +994,7 @@ describe("createSidebarReviewService", () => {
 			broadcastStateUpdated: vi.fn(),
 			warn: vi.fn(),
 			handOffTask,
+			retryQuotaBlockedTask,
 		});
 		runGit.mockReset();
 		runGit.mockResolvedValueOnce({ ok: true, stdout: "" }).mockResolvedValueOnce({ ok: true, stdout: "0" });
@@ -841,6 +1031,7 @@ describe("createSidebarReviewService", () => {
 			broadcastStateUpdated: vi.fn(),
 			warn: vi.fn(),
 			handOffTask,
+			retryQuotaBlockedTask,
 		});
 		runGit.mockReset();
 		runGit
@@ -878,6 +1069,7 @@ describe("createSidebarReviewService", () => {
 			broadcastStateUpdated: vi.fn(),
 			warn: vi.fn(),
 			handOffTask,
+			retryQuotaBlockedTask,
 		});
 		runGit.mockReset();
 		runGit.mockResolvedValueOnce({ ok: true, stdout: " M file" }).mockResolvedValueOnce({ ok: true, stdout: "0" });
@@ -909,6 +1101,7 @@ describe("createSidebarReviewService", () => {
 			broadcastStateUpdated: vi.fn(),
 			warn,
 			handOffTask,
+			retryQuotaBlockedTask,
 		});
 		runGit.mockReset();
 		runGit.mockResolvedValueOnce({ ok: false, stdout: "", error: "missing worktree" });
