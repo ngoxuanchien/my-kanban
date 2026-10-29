@@ -28,6 +28,8 @@ Update this file whenever a file or folder is created or moved.
 | `docs/superpowers/plans/2026-10-29-sidebar-agent-review.md` | Plan for the sidebar agent review spec, split into 3 Kanban tasks. |
 | `docs/superpowers/specs/2026-10-29-empty-task-nudge-design.md` | Spec: runtime nudges a task agent once when its worktree is empty instead of waking the sidebar reviewer. |
 | `docs/superpowers/plans/2026-10-29-empty-task-nudge.md` | Plan for the empty-task nudge spec. |
+| `docs/superpowers/specs/2026-10-29-agent-handoff-design.md` | Spec: hand a stuck review-enabled task once from Codex to OpenCode (or back), up to 6 review rounds. |
+| `docs/superpowers/plans/2026-10-29-agent-handoff.md` | Plan for the agent handoff spec, split into 3 chained Kanban tasks. |
 | `docs/superpowers/plans/2026-10-28-memory-orchestrator.md` | Plan for the spec above, split into Kanban tasks. |
 | `docs/agents/task-prompt-template.md` | Prompt template the planner fills in for every Kanban task. |
 | `.plan/` | Older internal plans, handoffs, investigations (`.plan/docs/`). |
