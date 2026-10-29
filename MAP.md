@@ -31,6 +31,10 @@ Update this file whenever a file or folder is created or moved.
 | `docs/superpowers/specs/2026-10-29-agent-handoff-design.md` | Spec: hand a stuck review-enabled task once from Codex to OpenCode (or back), up to 6 review rounds. |
 | `docs/superpowers/plans/2026-10-29-agent-handoff.md` | Plan for the agent handoff spec, split into 3 chained Kanban tasks. |
 | `docs/superpowers/specs/2026-10-29-quota-handoff-design.md` | Spec: hand off at once when the task terminal shows a usage-limit message. |
+| `docs/superpowers/specs/2026-10-29-quota-retry-and-review-notes-design.md` | Spec: agy quota phrases, "Out of quota" card label + hourly retry, sidebar writes review lessons to `contexte/`. |
+| `docs/superpowers/plans/2026-10-29-quota-retry-and-review-notes.md` | Plan for the quota retry and review notes spec, split into 4 Kanban tasks. |
+| `docs/superpowers/specs/2026-10-29-agent-scoreboard-design.md` | Spec: per-agent score (+1 pass, −1 fail) and assigned-task count on the top bar. |
+| `docs/superpowers/plans/2026-10-29-agent-scoreboard.md` | Plan for the agent scoreboard spec, split into 3 Kanban tasks. |
 | `docs/superpowers/plans/2026-10-29-quota-handoff.md` | Plan for the quota handoff spec (1 Kanban task). |
 | `docs/superpowers/specs/2026-10-29-review-on-by-default-design.md` | Spec: agent review on by default for new tasks; enabling it on a finished task starts a review. |
 | `docs/superpowers/specs/2026-10-29-card-review-label-design.md` | Spec: show review state (Review n/3, Handed off) on the card's agent line. |
