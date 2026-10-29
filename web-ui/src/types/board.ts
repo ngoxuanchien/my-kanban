@@ -45,6 +45,7 @@ export interface BoardCard {
 	autoReviewMode?: TaskAutoReviewMode;
 	agentReviewEnabled?: boolean;
 	reviewRound?: number;
+	handedOff?: boolean;
 	images?: TaskImage[];
 	agentId?: RuntimeAgentId;
 	clineSettings?: RuntimeTaskClineSettings;

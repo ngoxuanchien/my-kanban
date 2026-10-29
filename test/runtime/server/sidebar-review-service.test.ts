@@ -22,6 +22,7 @@ const workspaceState = vi.hoisted(() => ({
 						updatedAt: 0,
 						agentReviewEnabled: true,
 						reviewRound: 0,
+						handedOff: false,
 					},
 					{
 						id: "task-2",
@@ -33,6 +34,7 @@ const workspaceState = vi.hoisted(() => ({
 						updatedAt: 0,
 						agentReviewEnabled: true,
 						reviewRound: 0,
+						handedOff: false,
 					},
 				],
 			},
@@ -97,9 +99,59 @@ describe("createSidebarReviewService", () => {
 	beforeEach(() => {
 		workspaceState.board.columns[0].cards[0].reviewRound = 0;
 		workspaceState.board.columns[0].cards[1].reviewRound = 0;
+		workspaceState.board.columns[0].cards[0].handedOff = false;
+		workspaceState.board.columns[0].cards[1].handedOff = false;
+		workspaceState.board.columns[0].cards[0].agentReviewEnabled = true;
 		sendPromptToSession.mockClear();
 		runGit.mockReset();
 		runGit.mockResolvedValueOnce({ ok: true, stdout: " M file" }).mockResolvedValueOnce({ ok: true, stdout: "0" });
+	});
+
+	it("restores handed-off reviews through round 6", async () => {
+		const card = workspaceState.board.columns[0].cards[0];
+		card.handedOff = true;
+		card.reviewRound = 5;
+		const service = createSidebarReviewService({
+			workspaceId: "workspace-1",
+			workspacePath: "/repo",
+			terminalManager: {
+				listSummaries: () => [summary("__home_agent__:workspace-1:claude", "awaiting_review")],
+				onSummary: () => () => {},
+			} as unknown as TerminalSessionManager,
+			clineService: { listSummaries: () => [], onSummary: () => () => {} } as unknown as ClineTaskSessionService,
+			loadRuntimeConfig: async () => ({ selectedAgentId: "claude" }) as RuntimeConfigState,
+			broadcastStateUpdated: vi.fn(),
+			warn: vi.fn(),
+		});
+
+		await service.start();
+		expect(sendPromptToSession).toHaveBeenCalledWith(
+			expect.objectContaining({
+				prompt: '[Kanban review] Task task-1 "Task one" is in Review, round 5/6. Review it now.',
+			}),
+		);
+		service.dispose();
+	});
+
+	it("clears handedOff when review is turned off", async () => {
+		const card = workspaceState.board.columns[0].cards[0];
+		card.agentReviewEnabled = false;
+		card.handedOff = true;
+		card.reviewRound = 4;
+		const service = createSidebarReviewService({
+			workspaceId: "workspace-1",
+			workspacePath: "/repo",
+			terminalManager: { listSummaries: () => [], onSummary: () => () => {} } as unknown as TerminalSessionManager,
+			clineService: { listSummaries: () => [], onSummary: () => () => {} } as unknown as ClineTaskSessionService,
+			loadRuntimeConfig: async () => ({ selectedAgentId: "claude" }) as RuntimeConfigState,
+			broadcastStateUpdated: vi.fn(),
+			warn: vi.fn(),
+		});
+
+		await service.notifyBoardChanged();
+		expect(workspaceState.board.columns[0].cards[0].handedOff).toBe(false);
+		expect(workspaceState.board.columns[0].cards[0].reviewRound).toBe(0);
+		service.dispose();
 	});
 
 	it("waits for the running sidebar's turn to end before sending one review", async () => {

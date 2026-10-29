@@ -177,7 +177,7 @@ export function createSidebarReviewService(deps: CreateSidebarReviewServiceDepen
 						column.id === "review" &&
 						card.agentReviewEnabled &&
 						(card.reviewRound ?? 0) >= 1 &&
-						(card.reviewRound ?? 0) <= 3
+						(card.reviewRound ?? 0) <= (card.handedOff === true ? 6 : 3)
 					) {
 						queue.restoreTask(card, card.reviewRound ?? 0);
 					} else if (column.id === "trash" || !card.agentReviewEnabled) {
@@ -202,9 +202,9 @@ export function createSidebarReviewService(deps: CreateSidebarReviewServiceDepen
 					cards: column.cards.map((card) => {
 						if (column.id === "trash" || !card.agentReviewEnabled) {
 							nudgedTaskIds.delete(card.id);
-							if ((card.reviewRound ?? 0) !== 0) {
+							if ((card.reviewRound ?? 0) !== 0 || card.handedOff === true) {
 								changed = true;
-								return { ...card, reviewRound: 0 };
+								return { ...card, reviewRound: 0, handedOff: false };
 							}
 						}
 						return card;
