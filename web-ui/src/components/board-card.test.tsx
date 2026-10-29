@@ -3,7 +3,7 @@ import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { BoardCard } from "@/components/board-card";
+import { BoardCard, getCardReviewLabel } from "@/components/board-card";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import type { RuntimeTaskSessionSummary } from "@/runtime/types";
 import type { ReviewTaskWorkspaceSnapshot } from "@/types";
@@ -178,6 +178,49 @@ describe("BoardCard", () => {
 			(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT =
 				previousActEnvironment;
 		}
+	});
+
+	it("returns the agent review label for each review state", () => {
+		expect(getCardReviewLabel(createCard())).toBeNull();
+		expect(getCardReviewLabel(createCard({ agentReviewEnabled: true, reviewRound: 0 }))).toBe("Review");
+		expect(getCardReviewLabel(createCard({ agentReviewEnabled: true, reviewRound: 2 }))).toBe("Review 2/3");
+		expect(getCardReviewLabel(createCard({ agentReviewEnabled: true, reviewRound: 4, handedOff: true }))).toBe(
+			"Review 4/6",
+		);
+	});
+
+	it("shows agent review state on the agent line", async () => {
+		await act(async () => {
+			root.render(
+				<BoardCard
+					card={createCard({ agentId: "codex", agentReviewEnabled: true, reviewRound: 2 })}
+					index={0}
+					columnId="backlog"
+				/>,
+			);
+		});
+
+		expect(
+			Array.from(container.querySelectorAll("span.truncate")).find((span) => span.textContent?.includes("Review"))
+				?.textContent,
+		).toBe("OpenAI Codex · Review 2/3");
+	});
+
+	it("shows handoff and extended review state on the agent line", async () => {
+		await act(async () => {
+			root.render(
+				<BoardCard
+					card={createCard({ agentId: "opencode", agentReviewEnabled: true, reviewRound: 4, handedOff: true })}
+					index={0}
+					columnId="backlog"
+				/>,
+			);
+		});
+
+		expect(
+			Array.from(container.querySelectorAll("span.truncate")).find((span) => span.textContent?.includes("Review"))
+				?.textContent,
+		).toBe("OpenCode · Handed off · Review 4/6");
 	});
 
 	it("shows a mode-specific cancel button and hides it after canceling auto review", async () => {

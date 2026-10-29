@@ -51,6 +51,13 @@ const DESCRIPTION_COLLAPSE_LABEL = "Less";
 const DESCRIPTION_COLLAPSE_SUFFIX = `… ${DESCRIPTION_EXPAND_LABEL}`;
 const DESCRIPTION_EXPANDED_SUFFIX = `… ${DESCRIPTION_COLLAPSE_LABEL}`;
 
+export function getCardReviewLabel(card: BoardCardModel): string | null {
+	if (card.agentReviewEnabled !== true) {
+		return null;
+	}
+	return card.reviewRound ? `Review ${card.reviewRound}/${card.handedOff ? 6 : 3}` : "Review";
+}
+
 function reconstructTaskWorktreeDisplayPath(taskId: string, workspacePath: string | null | undefined): string | null {
 	if (!workspacePath) {
 		return null;
@@ -463,9 +470,13 @@ export function BoardCard({
 		});
 	}, [card.clineSettings, defaultClineModelId]);
 	const taskAgentSettingsLabel = useMemo(() => {
-		const parts = [agentOverrideLabel, modelOverrideLabel].filter((value): value is string => Boolean(value));
+		const handoffLabel = card.handedOff === true ? "Handed off" : null;
+		const reviewLabel = getCardReviewLabel(card);
+		const parts = [agentOverrideLabel, modelOverrideLabel, handoffLabel, reviewLabel].filter(
+			(value): value is string => Boolean(value),
+		);
 		return parts.length > 0 ? parts.join(" · ") : null;
-	}, [agentOverrideLabel, modelOverrideLabel]);
+	}, [agentOverrideLabel, modelOverrideLabel, card.handedOff, card.agentReviewEnabled, card.reviewRound]);
 
 	const activeDescriptionDisplay = isDescriptionExpanded ? descriptionDisplay.expanded : descriptionDisplay.collapsed;
 
