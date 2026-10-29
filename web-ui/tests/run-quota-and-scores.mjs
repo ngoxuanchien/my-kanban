@@ -83,7 +83,11 @@ const runtimePort = await getAvailablePort();
 let runtime;
 
 try {
+	const headCommitResult = spawnSync("git", ["rev-parse", "HEAD"], { cwd: repoPath, encoding: "utf8" });
+	const headCommit = headCommitResult.status === 0 ? headCommitResult.stdout.trim() : "12345678";
+
 	await mkdir(workspaceDir, { recursive: true });
+	await mkdir(join(workspaceDir, "task-history"), { recursive: true });
 	await writeFile(join(workspacesDir, "index.json"), JSON.stringify({
 		version: 1,
 		entries: { [workspaceId]: { workspaceId, repoPath } },
@@ -94,9 +98,17 @@ try {
 			{ id: "backlog", title: "Backlog", cards: [] },
 			{ id: "in_progress", title: "In Progress", cards: [] },
 			{ id: "review", title: "Review", cards: [card("quota-blocked-smoke", Date.now()), card("quota-clear-smoke")] },
-			{ id: "trash", title: "Done", cards: [] },
+			{ id: "trash", title: "Done", cards: [card("done-history-smoke")] },
 		],
 		dependencies: [],
+	}));
+	await writeFile(join(workspaceDir, "task-history", "done-history-smoke.json"), JSON.stringify({
+		version: 1,
+		events: [
+			{ type: "started", agentId: "codex", at: 1000 },
+			{ type: "fail", agentId: "codex", round: 1, detail: "Fix test assertion", at: 2000 },
+			{ type: "pass", agentId: "codex", commit: headCommit, at: 3000 },
+		],
 	}));
 	await writeFile(join(workspaceDir, "sessions.json"), "{}");
 	await writeFile(join(workspaceDir, "meta.json"), JSON.stringify({ revision: 1, updatedAt: 1 }));

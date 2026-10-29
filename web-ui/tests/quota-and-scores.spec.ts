@@ -8,15 +8,26 @@ test("shows quota state and seeded agent scores", async ({ page }) => {
 	const workspaceDir = process.env.KANBAN_SMOKE_WORKSPACE_DIR;
 	if (!workspaceDir) throw new Error("Run this spec with npm run e2e:quota-scores.");
 
+	await page.addInitScript(() => {
+		window.localStorage.setItem("kanban.onboarding.dialog.shown", "true");
+	});
+
 	await page.goto("/");
 
 	const blockedCard = page.locator('[data-task-id="quota-blocked-smoke"]');
 	const unblockedCard = page.locator('[data-task-id="quota-clear-smoke"]');
+	const doneCard = page.locator('[data-task-id="done-history-smoke"]');
 	await expect(blockedCard).toContainText("Out of quota");
 	await expect(unblockedCard).not.toContainText("Out of quota");
 	await expect(page.getByTestId("agent-score-strip")).toHaveText(
 		"codex +4 (6 task) · antigravity 0 (1 task) · opencode −3 (4 task)",
 	);
+
+	await doneCard.click();
+	await expect(page.getByText("Review 1 failed")).toBeVisible();
+	await expect(page.getByText(/Passed/)).toBeVisible();
+	await page.getByRole("button", { name: "Back", exact: true }).click();
+	await expect(doneCard).toBeVisible();
 
 	await writeFile(join(workspaceDir, "agent-scores.json"), JSON.stringify({ version: 1, events: [] }));
 	await page.reload();

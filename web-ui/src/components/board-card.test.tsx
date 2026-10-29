@@ -820,4 +820,19 @@ describe("BoardCard", () => {
 		expect(container.textContent).toContain("checking the next file");
 		expect(container.textContent).not.toContain("Agent:");
 	});
+
+	it("calls onClick when clicking a Done card", async () => {
+		const onClick = vi.fn();
+		await act(async () => {
+			root.render(
+				<TooltipProvider>
+					<BoardCard card={createCard()} index={0} columnId="trash" onClick={onClick} />
+				</TooltipProvider>,
+			);
+		});
+
+		const cardElement = container.querySelector(".kb-board-card-shell");
+		cardElement?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+		expect(onClick).toHaveBeenCalledTimes(1);
+	});
 });

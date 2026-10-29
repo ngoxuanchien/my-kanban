@@ -11,6 +11,7 @@ import { CardDetailView } from "@/components/card-detail-view";
 import { ClearTrashDialog } from "@/components/clear-trash-dialog";
 import { DebugDialog } from "@/components/debug-dialog";
 import { AgentTerminalPanel } from "@/components/detail-panels/agent-terminal-panel";
+import { DoneTaskDetailView } from "@/components/done-task-detail-view";
 import { GitHistoryView } from "@/components/git-history-view";
 import { KanbanBoard } from "@/components/kanban-board";
 import { ProjectNavigationPanel } from "@/components/project-navigation-panel";
@@ -1016,75 +1017,83 @@ export default function App(): ReactElement {
 						</div>
 						{selectedCard && detailSession ? (
 							<div className="absolute inset-0 flex min-h-0 min-w-0">
-								<CardDetailView
-									selection={selectedCard}
-									currentProjectId={currentProjectId}
-									workspacePath={workspacePath}
-									selectedAgentId={runtimeProjectConfig?.selectedAgentId ?? null}
-									runtimeConfig={runtimeProjectConfig ?? null}
-									sessionSummary={detailSession}
-									taskSessions={sessions}
-									onSessionSummary={upsertSession}
-									onCardSelect={handleCardSelect}
-									onTaskDragEnd={handleDetailTaskDragEnd}
-									onCreateTask={handleOpenCreateTask}
-									onStartTask={handleStartTaskFromBoard}
-									onStartAllTasks={handleStartAllBacklogTasksFromBoard}
-									onClearTrash={handleOpenClearTrash}
-									editingTaskId={editingTaskId}
-									inlineTaskEditor={inlineTaskEditor}
-									onEditTask={(task) => {
-										handleOpenEditTask(task, { preserveDetailSelection: true });
-									}}
-									onSaveTaskTitle={handleSaveTaskTitle}
-									onCommitTask={handleCommitTask}
-									onOpenPrTask={handleOpenPrTask}
-									onAgentCommitTask={handleAgentCommitTask}
-									onAgentOpenPrTask={handleAgentOpenPrTask}
-									commitTaskLoadingById={commitTaskLoadingById}
-									openPrTaskLoadingById={openPrTaskLoadingById}
-									agentCommitTaskLoadingById={agentCommitTaskLoadingById}
-									agentOpenPrTaskLoadingById={agentOpenPrTaskLoadingById}
-									moveToTrashLoadingById={moveToTrashLoadingById}
-									onMoveReviewCardToTrash={handleMoveReviewCardToTrash}
-									onRestoreTaskFromTrash={handleRestoreTaskFromTrash}
-									onCancelAutomaticTaskAction={handleCancelAutomaticTaskAction}
-									onAddReviewComments={(taskId: string, text: string) => {
-										void handleAddReviewComments(taskId, text);
-									}}
-									onSendReviewComments={(taskId: string, text: string) => {
-										void handleSendReviewComments(taskId, text);
-									}}
-									onSendClineChatMessage={sendTaskChatMessage}
-									onCancelClineChatTurn={cancelTaskChatTurn}
-									onLoadClineChatMessages={fetchTaskChatMessages}
-									latestClineChatMessage={latestSelectedTaskChatMessage}
-									streamedClineChatMessages={selectedTaskChatMessages}
-									onMoveToTrash={handleMoveToTrash}
-									isMoveToTrashLoading={moveToTrashLoadingById[selectedCard.card.id] ?? false}
-									gitHistoryPanel={
-										isGitHistoryOpen ? (
-											<GitHistoryView workspaceId={currentProjectId} gitHistory={gitHistory} />
-										) : undefined
-									}
-									onCloseGitHistory={handleCloseGitHistory}
-									bottomTerminalOpen={isDetailTerminalOpen}
-									bottomTerminalTaskId={detailTerminalTaskId}
-									bottomTerminalSummary={detailTerminalSummary}
-									bottomTerminalSubtitle={detailTerminalSubtitle}
-									onBottomTerminalClose={closeDetailTerminal}
-									onBottomTerminalCollapse={collapseDetailTerminal}
-									bottomTerminalPaneHeight={detailTerminalPaneHeight}
-									onBottomTerminalPaneHeightChange={setDetailTerminalPaneHeight}
-									onBottomTerminalConnectionReady={markTerminalConnectionReady}
-									bottomTerminalAgentCommand={agentCommand}
-									onBottomTerminalSendAgentCommand={handleSendAgentCommandToDetailTerminal}
-									isBottomTerminalExpanded={isDetailTerminalExpanded}
-									onBottomTerminalToggleExpand={handleToggleExpandDetailTerminal}
-									isDocumentVisible={isDocumentVisible}
-									onClineSettingsSaved={refreshRuntimeProjectConfig}
-									onTaskClineSettingsChanged={handleClineTaskSettingsChangedForTask}
-								/>
+								{selectedCard.column.id === "trash" ? (
+									<DoneTaskDetailView
+										selection={selectedCard}
+										currentProjectId={currentProjectId}
+										onBack={handleBack}
+									/>
+								) : (
+									<CardDetailView
+										selection={selectedCard}
+										currentProjectId={currentProjectId}
+										workspacePath={workspacePath}
+										selectedAgentId={runtimeProjectConfig?.selectedAgentId ?? null}
+										runtimeConfig={runtimeProjectConfig ?? null}
+										sessionSummary={detailSession}
+										taskSessions={sessions}
+										onSessionSummary={upsertSession}
+										onCardSelect={handleCardSelect}
+										onTaskDragEnd={handleDetailTaskDragEnd}
+										onCreateTask={handleOpenCreateTask}
+										onStartTask={handleStartTaskFromBoard}
+										onStartAllTasks={handleStartAllBacklogTasksFromBoard}
+										onClearTrash={handleOpenClearTrash}
+										editingTaskId={editingTaskId}
+										inlineTaskEditor={inlineTaskEditor}
+										onEditTask={(task) => {
+											handleOpenEditTask(task, { preserveDetailSelection: true });
+										}}
+										onSaveTaskTitle={handleSaveTaskTitle}
+										onCommitTask={handleCommitTask}
+										onOpenPrTask={handleOpenPrTask}
+										onAgentCommitTask={handleAgentCommitTask}
+										onAgentOpenPrTask={handleAgentOpenPrTask}
+										commitTaskLoadingById={commitTaskLoadingById}
+										openPrTaskLoadingById={openPrTaskLoadingById}
+										agentCommitTaskLoadingById={agentCommitTaskLoadingById}
+										agentOpenPrTaskLoadingById={agentOpenPrTaskLoadingById}
+										moveToTrashLoadingById={moveToTrashLoadingById}
+										onMoveReviewCardToTrash={handleMoveReviewCardToTrash}
+										onRestoreTaskFromTrash={handleRestoreTaskFromTrash}
+										onCancelAutomaticTaskAction={handleCancelAutomaticTaskAction}
+										onAddReviewComments={(taskId: string, text: string) => {
+											void handleAddReviewComments(taskId, text);
+										}}
+										onSendReviewComments={(taskId: string, text: string) => {
+											void handleSendReviewComments(taskId, text);
+										}}
+										onSendClineChatMessage={sendTaskChatMessage}
+										onCancelClineChatTurn={cancelTaskChatTurn}
+										onLoadClineChatMessages={fetchTaskChatMessages}
+										latestClineChatMessage={latestSelectedTaskChatMessage}
+										streamedClineChatMessages={selectedTaskChatMessages}
+										onMoveToTrash={handleMoveToTrash}
+										isMoveToTrashLoading={moveToTrashLoadingById[selectedCard.card.id] ?? false}
+										gitHistoryPanel={
+											isGitHistoryOpen ? (
+												<GitHistoryView workspaceId={currentProjectId} gitHistory={gitHistory} />
+											) : undefined
+										}
+										onCloseGitHistory={handleCloseGitHistory}
+										bottomTerminalOpen={isDetailTerminalOpen}
+										bottomTerminalTaskId={detailTerminalTaskId}
+										bottomTerminalSummary={detailTerminalSummary}
+										bottomTerminalSubtitle={detailTerminalSubtitle}
+										onBottomTerminalClose={closeDetailTerminal}
+										onBottomTerminalCollapse={collapseDetailTerminal}
+										bottomTerminalPaneHeight={detailTerminalPaneHeight}
+										onBottomTerminalPaneHeightChange={setDetailTerminalPaneHeight}
+										onBottomTerminalConnectionReady={markTerminalConnectionReady}
+										bottomTerminalAgentCommand={agentCommand}
+										onBottomTerminalSendAgentCommand={handleSendAgentCommandToDetailTerminal}
+										isBottomTerminalExpanded={isDetailTerminalExpanded}
+										onBottomTerminalToggleExpand={handleToggleExpandDetailTerminal}
+										isDocumentVisible={isDocumentVisible}
+										onClineSettingsSaved={refreshRuntimeProjectConfig}
+										onTaskClineSettingsChanged={handleClineTaskSettingsChangedForTask}
+									/>
+								)}
 							</div>
 						) : null}
 					</div>
