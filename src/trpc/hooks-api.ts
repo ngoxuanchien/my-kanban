@@ -47,6 +47,7 @@ export function createHooksApi(deps: CreateHooksApiDependencies): RuntimeTrpcCon
 				const taskId = body.taskId;
 				const workspaceId = body.workspaceId;
 				const event = body.event;
+				const source = body.metadata?.source?.toLowerCase();
 				const knownWorkspacePath = deps.getWorkspacePathById(workspaceId);
 				const workspaceContext = knownWorkspacePath ? null : await loadWorkspaceContextById(workspaceId);
 				const workspacePath = knownWorkspacePath ?? workspaceContext?.repoPath ?? null;
@@ -64,6 +65,9 @@ export function createHooksApi(deps: CreateHooksApiDependencies): RuntimeTrpcCon
 						ok: false,
 						error: `Task "${taskId}" not found in workspace "${workspaceId}"`,
 					} satisfies RuntimeHookIngestResponse;
+				}
+				if (event === "to_review" && source && summary.agentId && source !== summary.agentId) {
+					return { ok: true } satisfies RuntimeHookIngestResponse;
 				}
 
 				if (!canTransitionTaskForHookEvent(summary, event)) {

@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { RuntimeTaskSessionSummary } from "../../../src/core/api-contract";
 import { buildShellCommandLine } from "../../../src/core/shell";
+import { PtySession, type SpawnPtySessionRequest } from "../../../src/terminal/pty-session";
 import { TerminalSessionManager } from "../../../src/terminal/session-manager";
 
 function createSummary(overrides: Partial<RuntimeTaskSessionSummary> = {}): RuntimeTaskSessionSummary {
@@ -23,6 +24,46 @@ function createSummary(overrides: Partial<RuntimeTaskSessionSummary> = {}): Runt
 }
 
 describe("TerminalSessionManager", () => {
+	it("replaces a stopped awaiting-review session and ignores its late exit", async () => {
+		const spawnRequests: SpawnPtySessionRequest[] = [];
+		const stop = vi.fn();
+		const spawn = vi.spyOn(PtySession, "spawn").mockImplementation((request) => {
+			spawnRequests.push(request);
+			return {
+				pid: spawnRequests.length,
+				stop,
+				write: vi.fn(),
+				wasInterrupted: () => false,
+			} as unknown as PtySession;
+		});
+		try {
+			const manager = new TerminalSessionManager();
+			const start = (agentId: "antigravity" | "codex") =>
+				manager.startTaskSession({
+					taskId: "task-1",
+					agentId,
+					binary: agentId,
+					args: [],
+					cwd: "/tmp/worktree",
+					prompt: "Continue the task",
+				});
+
+			await start("antigravity");
+			manager.transitionToReview("task-1", "hook");
+			manager.stopTaskSession("task-1");
+			await start("codex");
+
+			expect(spawn).toHaveBeenCalledTimes(2);
+			expect(spawnRequests[1]).toMatchObject({ binary: "codex", cwd: "/tmp/worktree" });
+			expect(manager.getSummary("task-1")).toMatchObject({ agentId: "codex", state: "running" });
+
+			spawnRequests[0]?.onExit?.({ exitCode: 0 });
+			expect(manager.getSummary("task-1")).toMatchObject({ agentId: "codex", state: "running" });
+		} finally {
+			spawn.mockRestore();
+		}
+	});
+
 	it("clears trust prompt state when transitioning to review", () => {
 		const manager = new TerminalSessionManager();
 		const entry = {

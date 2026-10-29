@@ -50,6 +50,7 @@ type RestartableSessionRequest =
 
 interface ActiveProcessState {
 	session: PtySession;
+	stopping: boolean;
 	workspaceTrustBuffer: string | null;
 	cols: number;
 	rows: number;
@@ -300,7 +301,7 @@ export class TerminalSessionManager implements TerminalSessionService {
 			kind: "task",
 			request: cloneStartTaskSessionRequest(request),
 		};
-		if (entry.active && isActiveState(entry.summary.state)) {
+		if (entry.active && isActiveState(entry.summary.state) && !entry.active.stopping) {
 			return cloneSummary(entry.summary);
 		}
 
@@ -309,6 +310,7 @@ export class TerminalSessionManager implements TerminalSessionService {
 			entry.active.session.stop();
 			entry.active = null;
 		}
+		entry.suppressAutoRestartOnExit = false;
 		entry.terminalStateMirror?.dispose();
 		entry.terminalStateMirror = null;
 
@@ -447,7 +449,7 @@ export class TerminalSessionManager implements TerminalSessionService {
 				},
 				onExit: (event) => {
 					const currentEntry = this.entries.get(request.taskId);
-					if (!currentEntry) {
+					if (!currentEntry || currentEntry.active?.session !== session) {
 						return;
 					}
 					const currentActive = currentEntry.active;
@@ -509,6 +511,7 @@ export class TerminalSessionManager implements TerminalSessionService {
 
 		const active: ActiveProcessState = {
 			session,
+			stopping: false,
 			workspaceTrustBuffer:
 				shouldAutoConfirmClaudeWorkspaceTrust(request.agentId, request.cwd) ||
 				shouldAutoConfirmCodexWorkspaceTrust(request.agentId, request.cwd) ||
@@ -668,6 +671,7 @@ export class TerminalSessionManager implements TerminalSessionService {
 
 		const active: ActiveProcessState = {
 			session,
+			stopping: false,
 			workspaceTrustBuffer: null,
 			cols,
 			rows,
@@ -922,6 +926,7 @@ export class TerminalSessionManager implements TerminalSessionService {
 			return entry ? cloneSummary(entry.summary) : null;
 		}
 		entry.suppressAutoRestartOnExit = true;
+		entry.active.stopping = true;
 		const cleanupFn = entry.active.onSessionCleanup;
 		entry.active.onSessionCleanup = null;
 		stopWorkspaceTrustTimers(entry.active);

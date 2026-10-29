@@ -149,7 +149,7 @@ describe("createHooksApi", () => {
 	// The board moves the card to Review when it sees awaiting_review; Antigravity needs no server-side move.
 	it("handles Antigravity to_review through the same path as other agents", async () => {
 		const manager = {
-			getSummary: vi.fn(() => createSummary({ state: "running" })),
+			getSummary: vi.fn(() => createSummary({ state: "running", agentId: "antigravity" })),
 			transitionToReview: vi.fn(() => createSummary({ state: "awaiting_review", reviewReason: "hook" })),
 			transitionToRunning: vi.fn(),
 			applyHookActivity: vi.fn(),
@@ -180,5 +180,33 @@ describe("createHooksApi", () => {
 			hookEventName: "Stop",
 		});
 		expect(broadcastTaskReadyForReview).toHaveBeenCalledWith("workspace-1", "task-1");
+	});
+
+	it("ignores a delayed to_review hook from the agent stopped during handoff", async () => {
+		const manager = {
+			getSummary: vi.fn(() => createSummary({ state: "running", agentId: "codex" })),
+			transitionToReview: vi.fn(),
+			transitionToRunning: vi.fn(),
+			applyHookActivity: vi.fn(),
+		} as unknown as TerminalSessionManager;
+		const broadcastTaskReadyForReview = vi.fn();
+		const api = createHooksApi({
+			getWorkspacePathById: vi.fn(() => "/tmp/repo"),
+			ensureTerminalManagerForWorkspace: vi.fn(async () => manager),
+			broadcastRuntimeWorkspaceStateUpdated: vi.fn(),
+			broadcastTaskReadyForReview,
+		});
+
+		const response = await api.ingest({
+			taskId: "task-1",
+			workspaceId: "workspace-1",
+			event: "to_review",
+			metadata: { source: "antigravity", hookEventName: "Stop" },
+		});
+
+		expect(response).toEqual({ ok: true });
+		expect(manager.transitionToReview).not.toHaveBeenCalled();
+		expect(manager.applyHookActivity).not.toHaveBeenCalled();
+		expect(broadcastTaskReadyForReview).not.toHaveBeenCalled();
 	});
 });
