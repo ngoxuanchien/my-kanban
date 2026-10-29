@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { RuntimeConfigState } from "../../../src/config/runtime-config";
-import type { RuntimeTaskSessionSummary } from "../../../src/core/api-contract";
+import type { RuntimeBoardData, RuntimeTaskSessionSummary } from "../../../src/core/api-contract";
 
 const agentRegistryMocks = vi.hoisted(() => ({
 	resolveAgentCommand: vi.fn(),
@@ -16,6 +16,10 @@ const taskWorktreeMocks = vi.hoisted(() => ({
 
 const turnCheckpointMocks = vi.hoisted(() => ({
 	captureTaskTurnCheckpoint: vi.fn(),
+}));
+
+const workspaceStateMocks = vi.hoisted(() => ({
+	loadWorkspaceBoardById: vi.fn(),
 }));
 
 const oauthMocks = vi.hoisted(() => ({
@@ -69,6 +73,10 @@ vi.mock("../../../src/workspace/task-worktree.js", () => ({
 
 vi.mock("../../../src/workspace/turn-checkpoints.js", () => ({
 	captureTaskTurnCheckpoint: turnCheckpointMocks.captureTaskTurnCheckpoint,
+}));
+
+vi.mock("../../../src/state/workspace-state.js", () => ({
+	loadWorkspaceBoardById: workspaceStateMocks.loadWorkspaceBoardById,
 }));
 
 vi.mock("@clinebot/core", () => ({
@@ -2900,6 +2908,96 @@ describe("createRuntimeApi getFeaturebaseToken", () => {
 		expect(response).toEqual({ featurebaseJwt: "refreshed-jwt-456" });
 		expect(clineAccountMocks.fetchFeaturebaseToken).toHaveBeenCalledTimes(2);
 		expect(oauthMocks.getValidClineCredentials).toHaveBeenCalledTimes(1);
+	});
+});
+
+describe("createRuntimeApi sendTaskMessage", () => {
+	function createBoard(cardOverrides: Record<string, unknown> = {}): RuntimeBoardData {
+		return {
+			columns: [
+				{ id: "backlog", title: "Backlog", cards: [] },
+				{ id: "in_progress", title: "In Progress", cards: [] },
+				{
+					id: "review",
+					title: "Review",
+					cards: [
+						{
+							id: "task-1",
+							title: "Task 1",
+							prompt: "Do the task",
+							startInPlanMode: false,
+							baseRef: "main",
+							createdAt: 1,
+							updatedAt: 1,
+							...cardOverrides,
+						},
+					],
+				},
+				{ id: "trash", title: "Done", cards: [] },
+			],
+			dependencies: [],
+		};
+	}
+
+	it("returns a clear error for an unknown task", async () => {
+		workspaceStateMocks.loadWorkspaceBoardById.mockResolvedValue({
+			columns: [],
+			dependencies: [],
+		});
+		const terminalManager = { writeInput: vi.fn(() => null) };
+		const clineTaskSessionService = createClineTaskSessionServiceMock();
+
+		const api = createTestRuntimeApi({
+			getActiveWorkspaceId: vi.fn(() => "workspace-1"),
+			loadScopedRuntimeConfig: vi.fn(async () => createRuntimeConfigState()),
+			setActiveRuntimeConfig: vi.fn(),
+			getScopedTerminalManager: vi.fn(async () => terminalManager as never),
+			getScopedClineTaskSessionService: vi.fn(async () => clineTaskSessionService as never),
+			resolveInteractiveShellCommand: vi.fn(),
+			runCommand: vi.fn(),
+		});
+
+		const response = await api.sendTaskMessage(
+			{ workspaceId: "workspace-1", workspacePath: "/tmp/repo" },
+			{ taskId: "missing", message: "hi" },
+		);
+
+		expect(response.ok).toBe(false);
+		expect(response.error).toContain("not running");
+	});
+
+	it("sends to the card's agent without mutating board state", async () => {
+		const board = createBoard({ agentId: "codex" });
+		workspaceStateMocks.loadWorkspaceBoardById.mockResolvedValue(board);
+		const terminalManager = {
+			writeInput: vi.fn(() => createSummary({ agentId: "codex" })),
+		};
+		const clineTaskSessionService = createClineTaskSessionServiceMock();
+
+		const api = createTestRuntimeApi({
+			getActiveWorkspaceId: vi.fn(() => "workspace-1"),
+			loadScopedRuntimeConfig: vi.fn(async () => ({
+				...createRuntimeConfigState(),
+				selectedAgentId: "claude" as const,
+			})),
+			setActiveRuntimeConfig: vi.fn(),
+			getScopedTerminalManager: vi.fn(async () => terminalManager as never),
+			getScopedClineTaskSessionService: vi.fn(async () => clineTaskSessionService as never),
+			resolveInteractiveShellCommand: vi.fn(),
+			runCommand: vi.fn(),
+		});
+
+		const response = await api.sendTaskMessage(
+			{ workspaceId: "workspace-1", workspacePath: "/tmp/repo" },
+			{ taskId: "task-1", message: "fix it" },
+		);
+
+		expect(response).toEqual({ ok: true });
+		expect(terminalManager.writeInput).toHaveBeenNthCalledWith(
+			1,
+			"task-1",
+			Buffer.from("\x1b[200~fix it\x1b[201~", "utf8"),
+		);
 	});
 });
 

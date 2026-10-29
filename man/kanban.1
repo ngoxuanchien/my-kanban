@@ -8,7 +8,7 @@ kanban \- local orchestration board for coding agents
 .RI [ command ]
 .br
 .B kanban task
-.RI " " list|create|update|link|unlink|start
+.RI " " list|create|update|link|unlink|start|send
 .RI " " [ options ]
 .br
 .B kanban hooks
@@ -52,6 +52,7 @@ Subcommands:
 .RI [ --project-path " " path ]
 .RI [ --base-ref " " branch ]
 .RI [ --start-in-plan-mode " " true|false ]
+.RI [ --agent-review-enabled " " true|false ]
 .RI [ --auto-review-enabled " " true|false ]
 .RI [ --auto-review-mode " " commit|pr|move_to_trash ]
 .br
@@ -62,6 +63,7 @@ Subcommands:
 .RI [ --project-path " " path ]
 .RI [ --base-ref " " branch ]
 .RI [ --start-in-plan-mode " " true|false ]
+.RI [ --agent-review-enabled " " true|false ]
 .RI [ --auto-review-enabled " " true|false ]
 .RI [ --auto-review-mode " " commit|pr|move_to_trash ]
 .br
@@ -80,6 +82,13 @@ Subcommands:
 .B start
 .B --task-id
 .RI " " id
+.RI [ --project-path " " path ]
+.br
+.B send
+.B --task-id
+.RI " " id
+.B --message
+.RI " " text
 .RI [ --project-path " " path ]
 
 All task commands return JSON.
@@ -135,6 +144,9 @@ List tasks for the current workspace:
 .TP
 Create and start a task manually:
 .B kanban task create --prompt "Implement API pagination"
+.TP
+Send a fix prompt to a running task:
+.B kanban task send --task-id abc123 --message "Fix the failing test"
 .TP
 Ingest a hook event:
 .B kanban hooks ingest --event to_review

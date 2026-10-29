@@ -1,3 +1,4 @@
+import { join } from "node:path";
 import { createTRPCProxyClient, httpBatchLink } from "@trpc/client";
 import type { Command } from "commander";
 import { isRuntimeAgentLaunchSupported, RUNTIME_LAUNCH_SUPPORTED_AGENT_IDS } from "../core/agent-catalog";
@@ -23,9 +24,10 @@ import {
 	updateTask,
 } from "../core/task-board-mutations";
 import { resolveProjectInputPath } from "../projects/project-path";
-import { loadWorkspaceContext, mutateWorkspaceState } from "../state/workspace-state";
+import { getTaskWorktreesHomePath, loadWorkspaceContext, mutateWorkspaceState } from "../state/workspace-state";
 import type { RuntimeAppRouter } from "../trpc/app-router";
 import { columnCanHaveLiveTaskSession, completeTaskToDone } from "../workspace/complete-task-to-done";
+import { getWorkspaceFolderLabelForWorktreePath } from "../workspace/task-worktree-path";
 
 const LIST_TASK_COLUMNS = ["backlog", "in_progress", "review", "trash"] as const;
 type ListTaskColumn = (typeof LIST_TASK_COLUMNS)[number];
@@ -351,9 +353,12 @@ function formatTaskRecord(
 		prompt: task.prompt,
 		column: columnId,
 		baseRef: task.baseRef,
+		worktreePath: join(getTaskWorktreesHomePath(), task.id, getWorkspaceFolderLabelForWorktreePath(state.repoPath)),
 		startInPlanMode: task.startInPlanMode,
 		autoReviewEnabled: task.autoReviewEnabled === true,
 		autoReviewMode: task.autoReviewMode ?? "commit",
+		agentReviewEnabled: task.agentReviewEnabled === true,
+		reviewRound: task.reviewRound ?? 0,
 		...(task.agentId ? { agentId: task.agentId } : {}),
 		...formatTaskClineSettings(task.clineSettings),
 		createdAt: task.createdAt,
@@ -371,6 +376,30 @@ function formatTaskRecord(
 				}
 			: null,
 	};
+}
+
+function setTaskAgentReviewEnabled(
+	board: RuntimeWorkspaceStateResponse["board"],
+	taskId: string,
+	agentReviewEnabled: boolean,
+): { board: RuntimeWorkspaceStateResponse["board"]; task: RuntimeBoardCard | null } {
+	let updatedTask: RuntimeBoardCard | null = null;
+	const columns = board.columns.map((column) => {
+		let changed = false;
+		const cards = column.cards.map((card) => {
+			if (card.id !== taskId) {
+				return card;
+			}
+			changed = true;
+			updatedTask = { ...card, agentReviewEnabled };
+			return updatedTask;
+		});
+		return changed ? { ...column, cards } : column;
+	});
+	if (!updatedTask) {
+		return { board, task: null };
+	}
+	return { board: { ...board, columns }, task: updatedTask };
 }
 
 function formatDependencyRecord(
@@ -482,6 +511,7 @@ async function createTask(input: {
 	projectPath?: string;
 	baseRef?: string;
 	startInPlanMode?: boolean;
+	agentReviewEnabled?: boolean;
 	autoReviewEnabled?: boolean;
 	autoReviewMode?: "commit" | "pr";
 	agentId?: RuntimeAgentId;
@@ -510,9 +540,16 @@ async function createTask(input: {
 			},
 			() => globalThis.crypto.randomUUID(),
 		);
+		if (input.agentReviewEnabled === undefined) {
+			return {
+				board: result.board,
+				value: result.task,
+			};
+		}
+		const reviewed = setTaskAgentReviewEnabled(result.board, result.task.id, input.agentReviewEnabled);
 		return {
-			board: result.board,
-			value: result.task,
+			board: reviewed.board,
+			value: reviewed.task ?? result.task,
 		};
 	});
 
@@ -528,6 +565,7 @@ async function createTask(input: {
 			startInPlanMode: created.startInPlanMode,
 			autoReviewEnabled: created.autoReviewEnabled === true,
 			autoReviewMode: created.autoReviewMode ?? "commit",
+			agentReviewEnabled: created.agentReviewEnabled === true,
 			...(created.agentId ? { agentId: created.agentId } : {}),
 			...formatTaskClineSettings(created.clineSettings),
 		},
@@ -542,6 +580,7 @@ async function updateTaskCommand(input: {
 	prompt?: string;
 	baseRef?: string;
 	startInPlanMode?: boolean;
+	agentReviewEnabled?: boolean;
 	autoReviewEnabled?: boolean;
 	autoReviewMode?: "commit" | "pr";
 	agentId?: RuntimeAgentId | null;
@@ -554,6 +593,7 @@ async function updateTaskCommand(input: {
 		input.prompt === undefined &&
 		input.baseRef === undefined &&
 		input.startInPlanMode === undefined &&
+		input.agentReviewEnabled === undefined &&
 		input.autoReviewEnabled === undefined &&
 		input.autoReviewMode === undefined &&
 		input.agentId === undefined &&
@@ -592,14 +632,19 @@ async function updateTaskCommand(input: {
 			throw new Error(`Task "${input.taskId}" could not be updated.`);
 		}
 
+		const reviewed =
+			input.agentReviewEnabled === undefined
+				? { board: updatedTask.board, task: updatedTask.task }
+				: setTaskAgentReviewEnabled(updatedTask.board, input.taskId, input.agentReviewEnabled);
+
 		const nextState: RuntimeWorkspaceStateResponse = {
 			...runtimeState,
-			board: updatedTask.board,
+			board: reviewed.board,
 		};
 
 		return {
-			board: updatedTask.board,
-			value: formatTaskRecord(nextState, updatedTask.task, taskRecord.columnId),
+			board: reviewed.board,
+			value: formatTaskRecord(nextState, reviewed.task ?? updatedTask.task, taskRecord.columnId),
 		};
 	});
 
@@ -759,6 +804,28 @@ async function startTask(input: { cwd: string; taskId: string; projectPath?: str
 			column: "in_progress",
 			workspacePath: workspaceRepoPath,
 		},
+	};
+}
+
+async function sendTaskMessage(input: {
+	cwd: string;
+	taskId: string;
+	message: string;
+	projectPath?: string;
+}): Promise<JsonRecord> {
+	const workspaceRepoPath = await resolveWorkspaceRepoPath(input.projectPath, input.cwd);
+	const workspaceId = await ensureRuntimeWorkspace(workspaceRepoPath);
+	const runtimeClient = createRuntimeTrpcClient(workspaceId);
+	const response = await runtimeClient.runtime.sendTaskMessage.mutate({
+		taskId: input.taskId,
+		message: input.message,
+	});
+	if (!response.ok) {
+		throw new Error(response.error ?? `Task "${input.taskId}" session is not running.`);
+	}
+	return {
+		ok: true,
+		taskId: input.taskId,
 	};
 }
 
@@ -1073,6 +1140,7 @@ export function registerTaskCommand(program: Command): void {
 		.option("--project-path <path>", "Workspace path. Defaults to current directory workspace.")
 		.option("--base-ref <branch>", "Task base branch/ref.")
 		.option("--start-in-plan-mode [value]", "Set plan mode (true|false). Flag-only implies true.")
+		.option("--agent-review-enabled [value]", "Enable agent review (true|false). Flag-only implies true.")
 		.option("--auto-review-enabled [value]", "Enable auto-review behavior (true|false). Flag-only implies true.")
 		.option("--auto-review-mode <mode>", "Auto-review mode: commit | pr.", parseAutoReviewMode)
 		.option("--agent-id <id>", `Agent override: ${VALID_AGENT_IDS_TEXT} | default.`)
@@ -1095,6 +1163,7 @@ export function registerTaskCommand(program: Command): void {
 				projectPath?: string;
 				baseRef?: string;
 				startInPlanMode?: unknown;
+				agentReviewEnabled?: unknown;
 				autoReviewEnabled?: unknown;
 				autoReviewMode?: "commit" | "pr";
 				agentId?: string;
@@ -1111,6 +1180,10 @@ export function registerTaskCommand(program: Command): void {
 							projectPath: options.projectPath,
 							baseRef: options.baseRef,
 							startInPlanMode: parseOptionalBooleanOption(options.startInPlanMode, "--start-in-plan-mode"),
+							agentReviewEnabled: parseOptionalBooleanOption(
+								options.agentReviewEnabled,
+								"--agent-review-enabled",
+							),
 							autoReviewEnabled: parseOptionalBooleanOption(options.autoReviewEnabled, "--auto-review-enabled"),
 							autoReviewMode: options.autoReviewMode,
 							agentId: parseAgentId(options.agentId) ?? undefined,
@@ -1133,6 +1206,7 @@ export function registerTaskCommand(program: Command): void {
 		.option("--project-path <path>", "Workspace path. Defaults to current directory workspace.")
 		.option("--base-ref <branch>", "Replacement base branch/ref.")
 		.option("--start-in-plan-mode [value]", "Set plan mode (true|false). Flag-only implies true.")
+		.option("--agent-review-enabled [value]", "Enable agent review (true|false). Flag-only implies true.")
 		.option("--auto-review-enabled [value]", "Enable auto-review behavior (true|false). Flag-only implies true.")
 		.option("--auto-review-mode <mode>", "Auto-review mode: commit | pr.", parseAutoReviewMode)
 		.option("--agent-id <id>", `Agent override: ${VALID_AGENT_IDS_TEXT}. Use "default" to clear.`)
@@ -1153,6 +1227,7 @@ export function registerTaskCommand(program: Command): void {
 				projectPath?: string;
 				baseRef?: string;
 				startInPlanMode?: unknown;
+				agentReviewEnabled?: unknown;
 				autoReviewEnabled?: unknown;
 				autoReviewMode?: "commit" | "pr";
 				agentId?: string;
@@ -1170,6 +1245,10 @@ export function registerTaskCommand(program: Command): void {
 							prompt: options.prompt,
 							baseRef: options.baseRef,
 							startInPlanMode: parseOptionalBooleanOption(options.startInPlanMode, "--start-in-plan-mode"),
+							agentReviewEnabled: parseOptionalBooleanOption(
+								options.agentReviewEnabled,
+								"--agent-review-enabled",
+							),
 							autoReviewEnabled: parseOptionalBooleanOption(options.autoReviewEnabled, "--auto-review-enabled"),
 							autoReviewMode: options.autoReviewMode,
 							agentId: parseAgentId(options.agentId),
@@ -1287,6 +1366,24 @@ export function registerTaskCommand(program: Command): void {
 					await startTask({
 						cwd: process.cwd(),
 						taskId: options.taskId,
+						projectPath: options.projectPath,
+					}),
+			);
+		});
+
+	task
+		.command("send")
+		.description("Send a prompt to a running task session.")
+		.requiredOption("--task-id <id>", "Task ID.")
+		.requiredOption("--message <text>", "Prompt text to send.")
+		.option("--project-path <path>", "Workspace path. Defaults to current directory workspace.")
+		.action(async (options: { taskId: string; message: string; projectPath?: string }) => {
+			await runTaskCommand(
+				async () =>
+					await sendTaskMessage({
+						cwd: process.cwd(),
+						taskId: options.taskId,
+						message: options.message,
 						projectPath: options.projectPath,
 					}),
 			);

@@ -15,6 +15,8 @@ import type { ClineTaskSessionService } from "../cline-sdk/cline-task-session-se
 import type { RuntimeConfigState } from "../config/runtime-config";
 import { updateGlobalRuntimeConfig, updateRuntimeConfig } from "../config/runtime-config";
 import type {
+	RuntimeBoardCard,
+	RuntimeBoardData,
 	RuntimeCommandRunResponse,
 	RuntimeRunUpdateResponse,
 	RuntimeUpdateStatusResponse,
@@ -44,7 +46,9 @@ import {
 import { isHomeAgentSessionId } from "../core/home-agent-session";
 import { resolveTaskTitle } from "../core/task-title.js";
 import { openInBrowser } from "../server/browser";
+import { loadWorkspaceBoardById } from "../state/workspace-state";
 import { buildRuntimeConfigResponse, resolveAgentCommand } from "../terminal/agent-registry";
+import { sendPromptToSession } from "../terminal/send-prompt-to-session";
 import type { TerminalSessionManager } from "../terminal/session-manager";
 import { resolveTaskCwd } from "../workspace/task-worktree";
 import { captureTaskTurnCheckpoint } from "../workspace/turn-checkpoints";
@@ -89,6 +93,16 @@ async function resolveExistingTaskCwdOrEnsure(options: {
 			ensure: true,
 		});
 	}
+}
+
+function findBoardCard(board: RuntimeBoardData, taskId: string): RuntimeBoardCard | null {
+	for (const column of board.columns) {
+		const card = column.cards.find((candidate) => candidate.id === taskId);
+		if (card) {
+			return card;
+		}
+	}
+	return null;
 }
 
 export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrpcContext["runtimeApi"] {
@@ -382,6 +396,40 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 					summary: null,
 					error: message,
 				};
+			}
+		},
+		sendTaskMessage: async (workspaceScope, input) => {
+			const taskId = input.taskId.trim();
+			const messageText = input.message.trim();
+			if (!taskId) {
+				return { ok: false, error: "Task ID cannot be empty." };
+			}
+			if (!messageText) {
+				return { ok: false, error: "Message cannot be empty." };
+			}
+			try {
+				const board = await loadWorkspaceBoardById(workspaceScope.workspaceId);
+				const located = findBoardCard(board, taskId);
+				if (!located) {
+					return { ok: false, error: `Task "${taskId}" session is not running.` };
+				}
+				const runtimeConfig = await deps.loadScopedRuntimeConfig(workspaceScope);
+				const terminalManager = await deps.getScopedTerminalManager(workspaceScope);
+				const clineTaskSessionService = await deps.getScopedClineTaskSessionService(workspaceScope);
+				const sent = await sendPromptToSession({
+					sessionId: taskId,
+					prompt: messageText,
+					agentId: located.agentId ?? runtimeConfig.selectedAgentId ?? null,
+					terminalManager,
+					clineService: clineTaskSessionService,
+				});
+				if (!sent.ok) {
+					return { ok: false, error: `Task "${taskId}" session is not running.` };
+				}
+				return { ok: true };
+			} catch (error) {
+				const errorMessage = error instanceof Error ? error.message : String(error);
+				return { ok: false, error: errorMessage };
 			}
 		},
 		getTaskChatMessages: async (workspaceScope, input) => {

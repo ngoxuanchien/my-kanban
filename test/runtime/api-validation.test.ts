@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { runtimeBoardColumnIdSchema, runtimeBoardDataSchema } from "../../src/core/api-contract";
+import {
+	runtimeBoardCardSchema,
+	runtimeBoardColumnIdSchema,
+	runtimeBoardDataSchema,
+} from "../../src/core/api-contract";
 import {
 	parseHookIngestRequest,
 	parseTaskSessionStartRequest,
@@ -91,13 +95,29 @@ describe("parseTaskSessionStartRequest", () => {
 	});
 });
 
+describe("agent review card fields", () => {
+	const baseCard = { id: "a", prompt: "p", startInPlanMode: false, baseRef: "main", createdAt: 1, updatedAt: 1 };
+
+	it("parses a card without the fields and leaves them absent", () => {
+		const card = runtimeBoardCardSchema.parse(baseCard);
+		expect(card.agentReviewEnabled).toBeUndefined();
+		expect(card.reviewRound).toBeUndefined();
+	});
+
+	it("keeps agentReviewEnabled and reviewRound", () => {
+		const card = runtimeBoardCardSchema.parse({ ...baseCard, agentReviewEnabled: true, reviewRound: 2 });
+		expect(card.agentReviewEnabled).toBe(true);
+		expect(card.reviewRound).toBe(2);
+	});
+});
+
 describe("legacy board compatibility", () => {
 	const baseCard = { id: "a", prompt: "p", startInPlanMode: false, baseRef: "main", createdAt: 1, updatedAt: 1 };
 	it("keeps legacy done→trash mapping", () => {
 		expect(runtimeBoardColumnIdSchema.parse("done")).toBe("trash");
 	});
 
-	it("drops legacy task reviewer fields and merges legacy cards into review", () => {
+	it("drops the legacy agentReview object and merges legacy cards into review", () => {
 		const board = runtimeBoardDataSchema.parse({
 			columns: [
 				{ id: "review", title: "Review", cards: [baseCard] },
@@ -111,7 +131,7 @@ describe("legacy board compatibility", () => {
 		expect(board.columns).toHaveLength(1);
 		expect(board.columns[0]?.id).toBe("review");
 		expect(board.columns[0]?.cards.map(({ id }) => id)).toEqual(["a", "legacy"]);
-		expect(board.columns[0]?.cards[1]).not.toHaveProperty("agentReviewEnabled");
+		expect(board.columns[0]?.cards[1]?.agentReviewEnabled).toBe(true);
 		expect(board.columns[0]?.cards[1]).not.toHaveProperty("agentReview");
 	});
 });

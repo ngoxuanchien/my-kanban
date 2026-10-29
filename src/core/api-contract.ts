@@ -137,6 +137,8 @@ export const runtimeBoardCardSchema = z
 		startInPlanMode: z.boolean(),
 		autoReviewEnabled: z.boolean().optional(),
 		autoReviewMode: runtimeTaskAutoReviewModeSchema.optional(),
+		agentReviewEnabled: z.boolean().optional(),
+		reviewRound: z.number().int().min(0).optional(),
 		images: z.array(runtimeTaskImageSchema).optional(),
 		agentId: runtimeAgentIdSchema.optional(),
 		clineSettings: runtimeTaskClineSettingsSchema.optional(),
@@ -1030,6 +1032,18 @@ export const runtimeTaskSessionInputResponseSchema = z.object({
 	error: z.string().optional(),
 });
 export type RuntimeTaskSessionInputResponse = z.infer<typeof runtimeTaskSessionInputResponseSchema>;
+
+export const runtimeTaskSendMessageRequestSchema = z.object({
+	taskId: z.string(),
+	message: z.string(),
+});
+export type RuntimeTaskSendMessageRequest = z.infer<typeof runtimeTaskSendMessageRequestSchema>;
+
+export const runtimeTaskSendMessageResponseSchema = z.object({
+	ok: z.boolean(),
+	error: z.string().optional(),
+});
+export type RuntimeTaskSendMessageResponse = z.infer<typeof runtimeTaskSendMessageResponseSchema>;
 
 export const runtimeTaskChatMessageSchema = z.object({
 	id: z.string(),
