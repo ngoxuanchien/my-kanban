@@ -95,8 +95,13 @@ describe("renderAppendSystemPrompt", () => {
 			"If handoff returns an error, run `task review-failed --task-id <task_id>`, leave the task in Review",
 		);
 		expect(rendered).toContain(
-			"If it fails on a round equal to the cap, run `task review-failed --task-id <task_id>`",
+			'If it fails on a round equal to the cap and `handOffCount` from `task list` is less than 2, run `task handoff --task-id <task_id> --message "<the same concrete fix list>"`',
 		);
+		expect(rendered).toContain(
+			"If it fails on a round equal to the cap and `handOffCount` from `task list` is 2, run `task review-failed --task-id <task_id>`, do not send or hand off, leave it in Review",
+		);
+		expect(rendered).toContain("The cap is 3 × (handOffCount + 1), using `handOffCount` from `task list`");
+		expect(rendered).not.toContain("below the cap that is a multiple of 3");
 		expect(rendered).toContain(
 			"After a pass, only if the round was above 1 or `handOffCount` from `task list` is above 0",
 		);
