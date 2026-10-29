@@ -841,6 +841,7 @@ export default function App(): ReactElement {
 						onToggleSidebar={!selectedCard ? handleToggleSidebar : undefined}
 						onBack={selectedCard ? handleBack : undefined}
 						workspacePath={navbarWorkspacePath}
+						agentScores={streamedWorkspaceState?.agentScores}
 						isWorkspacePathLoading={shouldShowProjectLoadingState}
 						workspaceHint={navbarWorkspaceHint}
 						runtimeHint={navbarRuntimeHint}

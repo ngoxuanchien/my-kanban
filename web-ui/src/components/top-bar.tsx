@@ -29,7 +29,7 @@ import { Dialog, DialogBody, DialogFooter, DialogHeader } from "@/components/ui/
 import { Spinner } from "@/components/ui/spinner";
 import { Tooltip } from "@/components/ui/tooltip";
 import { useIsMobile } from "@/hooks/use-is-mobile";
-import type { RuntimeGitSyncAction, RuntimeProjectShortcut } from "@/runtime/types";
+import type { RuntimeAgentScore, RuntimeGitSyncAction, RuntimeProjectShortcut } from "@/runtime/types";
 import {
 	useHomeGitSummaryValue,
 	useTaskWorkspaceInfoValue,
@@ -282,6 +282,7 @@ export function TopBar({
 	onToggleSidebar,
 	onBack,
 	workspacePath,
+	agentScores,
 	isWorkspacePathLoading = false,
 	workspaceHint,
 	runtimeHint,
@@ -317,6 +318,7 @@ export function TopBar({
 	onToggleSidebar?: () => void;
 	onBack?: () => void;
 	workspacePath?: string;
+	agentScores?: RuntimeAgentScore[];
 	isWorkspacePathLoading?: boolean;
 	workspaceHint?: string;
 	runtimeHint?: string;
@@ -519,6 +521,39 @@ export function TopBar({
 
 				{/* ---- Right side: actions ---- */}
 				<div className="flex flex-nowrap items-center h-10 pr-0.5 shrink-0">
+					{agentScores && agentScores.length > 0 ? (
+						<div
+							className="hidden md:flex items-center whitespace-nowrap px-2 text-xs"
+							data-testid="agent-score-strip"
+						>
+							{agentScores.map((agent, index) => (
+								<span key={agent.agentId}>
+									{index > 0 ? <span className="text-text-secondary"> · </span> : null}
+									<Tooltip content={`${agent.passes} pass · ${agent.fails} fail · ${agent.tasks} task`}>
+										<span>
+											<span className="text-text-secondary">{agent.agentId}</span>{" "}
+											<span
+												className={
+													agent.score > 0
+														? "text-status-green"
+														: agent.score < 0
+															? "text-status-red"
+															: "text-text-secondary"
+												}
+											>
+												{agent.score > 0
+													? `+${agent.score}`
+													: agent.score < 0
+														? `−${Math.abs(agent.score)}`
+														: "0"}
+											</span>{" "}
+											<span className="text-text-secondary">({agent.tasks} task)</span>
+										</span>
+									</Tooltip>
+								</span>
+							))}
+						</div>
+					) : null}
 					{/* Desktop: inline shortcut, terminal, debug buttons */}
 					{!isMobile ? (
 						<>
