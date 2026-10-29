@@ -15,6 +15,7 @@ export interface CreateSidebarReviewServiceDependencies {
 	terminalManager: TerminalSessionManager;
 	clineService: ClineTaskSessionService;
 	loadRuntimeConfig: () => Promise<RuntimeConfigState>;
+	handOffTask: (taskId: string, reason: string) => Promise<{ ok: boolean; error?: string | null }>;
 	broadcastStateUpdated: () => Promise<void> | void;
 	warn: (message: string) => void;
 }
@@ -95,13 +96,23 @@ export function createSidebarReviewService(deps: CreateSidebarReviewServiceDepen
 				}
 				return;
 			}
-			if (isHomeAgentSessionId(summary.taskId) || !previous || previous.state === "awaiting_review") {
+			if (
+				isHomeAgentSessionId(summary.taskId) ||
+				!previous ||
+				previous.state === "failed" ||
+				previous.reviewReason === "error" ||
+				(previous.reviewReason === "exit" && previous.exitCode !== 0)
+			) {
 				return;
 			}
-			if (
-				summary.state !== "awaiting_review" ||
-				(summary.reviewReason !== "hook" && !(summary.reviewReason === "exit" && summary.exitCode === 0))
-			) {
+			const crashed =
+				summary.state === "failed" ||
+				summary.reviewReason === "error" ||
+				(summary.reviewReason === "exit" && summary.exitCode !== 0);
+			const reviewable =
+				summary.state === "awaiting_review" &&
+				(summary.reviewReason === "hook" || (summary.reviewReason === "exit" && summary.exitCode === 0));
+			if (!crashed && (previous.state === "awaiting_review" || !reviewable)) {
 				return;
 			}
 			const state = await loadWorkspaceState(deps.workspacePath);
@@ -109,6 +120,23 @@ export function createSidebarReviewService(deps: CreateSidebarReviewServiceDepen
 			if (!found || found.card.agentReviewEnabled !== true || found.columnId === "trash") {
 				return;
 			}
+			if (crashed) {
+				if (
+					found.card.handedOff !== true &&
+					(found.card.agentId === "codex" || found.card.agentId === "opencode")
+				) {
+					const reason = `The previous agent stopped with an error (exit code ${summary.exitCode ?? "unknown"}).`;
+					const result = await deps.handOffTask(summary.taskId, reason);
+					if (!result.ok) {
+						deps.warn(
+							`[sidebar-review] Could not hand off task ${summary.taskId}: ${result.error ?? "unknown error"}`,
+						);
+					} else {
+						return;
+					}
+				}
+			}
+			if (!reviewable) return;
 			if ((found.card.reviewRound ?? 0) < 3) {
 				try {
 					const { path: worktreePath } = await getTaskWorkspacePathInfo({

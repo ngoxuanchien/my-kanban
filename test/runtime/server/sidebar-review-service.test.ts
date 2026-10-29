@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ClineTaskSessionService } from "../../../src/cline-sdk/cline-task-session-service";
 import type { RuntimeConfigState } from "../../../src/config/runtime-config";
-import type { RuntimeTaskSessionSummary } from "../../../src/core/api-contract";
+import type { RuntimeBoardCard, RuntimeTaskSessionSummary } from "../../../src/core/api-contract";
 import type { SendPromptToSessionResult } from "../../../src/terminal/send-prompt-to-session";
 import type { TerminalSessionManager } from "../../../src/terminal/session-manager";
 
@@ -21,6 +21,7 @@ const workspaceState = vi.hoisted(() => ({
 						createdAt: 0,
 						updatedAt: 0,
 						agentReviewEnabled: true,
+						agentId: undefined,
 						reviewRound: 0,
 						handedOff: false,
 					},
@@ -33,10 +34,11 @@ const workspaceState = vi.hoisted(() => ({
 						createdAt: 0,
 						updatedAt: 0,
 						agentReviewEnabled: true,
+						agentId: undefined,
 						reviewRound: 0,
 						handedOff: false,
 					},
-				],
+				] as RuntimeBoardCard[],
 			},
 		],
 	},
@@ -50,6 +52,7 @@ const sendPromptToSession = vi.hoisted(() =>
 	),
 );
 const runGit = vi.hoisted(() => vi.fn());
+const handOffTask = vi.hoisted(() => vi.fn(async () => ({ ok: true })));
 
 vi.mock("../../../src/state/workspace-state", () => ({
 	loadWorkspaceState: vi.fn(async () => ({ board: workspaceState.board })),
@@ -102,9 +105,152 @@ describe("createSidebarReviewService", () => {
 		workspaceState.board.columns[0].cards[0].handedOff = false;
 		workspaceState.board.columns[0].cards[1].handedOff = false;
 		workspaceState.board.columns[0].cards[0].agentReviewEnabled = true;
+		workspaceState.board.columns[0].cards[0].agentId = undefined;
+		workspaceState.board.columns[0].cards[1].agentReviewEnabled = true;
+		workspaceState.board.columns[0].cards[1].agentId = undefined;
 		sendPromptToSession.mockClear();
+		handOffTask.mockReset();
+		handOffTask.mockResolvedValue({ ok: true });
 		runGit.mockReset();
 		runGit.mockResolvedValueOnce({ ok: true, stdout: " M file" }).mockResolvedValueOnce({ ok: true, stdout: "0" });
+	});
+
+	it("hands off a failed Codex task without queueing a review", async () => {
+		const card = workspaceState.board.columns[0].cards[0];
+		card.agentId = "codex";
+		const listeners = new Set<(value: RuntimeTaskSessionSummary) => void>();
+		const service = createSidebarReviewService({
+			workspaceId: "workspace-1",
+			workspacePath: "/repo",
+			terminalManager: {
+				listSummaries: () => [summary("task-1", "running")],
+				onSummary: (listener: (value: RuntimeTaskSessionSummary) => void) => {
+					listeners.add(listener);
+					return () => listeners.delete(listener);
+				},
+			} as unknown as TerminalSessionManager,
+			clineService: { listSummaries: () => [], onSummary: () => () => {} } as unknown as ClineTaskSessionService,
+			loadRuntimeConfig: async () => ({ selectedAgentId: "claude" }) as RuntimeConfigState,
+			broadcastStateUpdated: vi.fn(),
+			warn: vi.fn(),
+			handOffTask,
+		});
+		await service.start();
+		for (const listener of listeners) listener({ ...summary("task-1", "failed"), agentId: "codex", exitCode: 7 });
+		await vi.waitFor(() =>
+			expect(handOffTask).toHaveBeenCalledWith("task-1", "The previous agent stopped with an error (exit code 7)."),
+		);
+		expect(sendPromptToSession).not.toHaveBeenCalled();
+		expect(card.reviewRound).toBe(0);
+		service.dispose();
+	});
+
+	it("uses unknown for a failed task with no exit code", async () => {
+		workspaceState.board.columns[0].cards[0].agentId = "codex";
+		const listeners = new Set<(value: RuntimeTaskSessionSummary) => void>();
+		const service = createSidebarReviewService({
+			workspaceId: "workspace-1",
+			workspacePath: "/repo",
+			terminalManager: {
+				listSummaries: () => [summary("task-1", "running")],
+				onSummary: (listener: (value: RuntimeTaskSessionSummary) => void) => {
+					listeners.add(listener);
+					return () => listeners.delete(listener);
+				},
+			} as unknown as TerminalSessionManager,
+			clineService: { listSummaries: () => [], onSummary: () => () => {} } as unknown as ClineTaskSessionService,
+			loadRuntimeConfig: async () => ({ selectedAgentId: "claude" }) as RuntimeConfigState,
+			broadcastStateUpdated: vi.fn(),
+			warn: vi.fn(),
+			handOffTask,
+		});
+		await service.start();
+		for (const listener of listeners) listener({ ...summary("task-1", "failed"), agentId: "codex" });
+		await vi.waitFor(() =>
+			expect(handOffTask).toHaveBeenCalledWith(
+				"task-1",
+				"The previous agent stopped with an error (exit code unknown).",
+			),
+		);
+		service.dispose();
+	});
+
+	it("does not hand off an already handed-off crash", async () => {
+		workspaceState.board.columns[0].cards[0].agentId = "opencode";
+		workspaceState.board.columns[0].cards[0].handedOff = true;
+		const listeners = new Set<(value: RuntimeTaskSessionSummary) => void>();
+		const service = createSidebarReviewService({
+			workspaceId: "workspace-1",
+			workspacePath: "/repo",
+			terminalManager: {
+				listSummaries: () => [summary("task-1", "running")],
+				onSummary: (listener: (value: RuntimeTaskSessionSummary) => void) => {
+					listeners.add(listener);
+					return () => listeners.delete(listener);
+				},
+			} as unknown as TerminalSessionManager,
+			clineService: { listSummaries: () => [], onSummary: () => () => {} } as unknown as ClineTaskSessionService,
+			loadRuntimeConfig: async () => ({ selectedAgentId: "claude" }) as RuntimeConfigState,
+			broadcastStateUpdated: vi.fn(),
+			warn: vi.fn(),
+			handOffTask,
+		});
+		await service.start();
+		for (const listener of listeners) listener({ ...summary("task-1", "failed"), agentId: "opencode", exitCode: 1 });
+		await vi.waitFor(() => expect(handOffTask).not.toHaveBeenCalled());
+		service.dispose();
+	});
+
+	it("keeps a successful exit on the normal review path", async () => {
+		const listeners = new Set<(value: RuntimeTaskSessionSummary) => void>();
+		const service = createSidebarReviewService({
+			workspaceId: "workspace-1",
+			workspacePath: "/repo",
+			terminalManager: {
+				listSummaries: () => [summary("task-1", "running")],
+				onSummary: (listener: (value: RuntimeTaskSessionSummary) => void) => {
+					listeners.add(listener);
+					return () => listeners.delete(listener);
+				},
+			} as unknown as TerminalSessionManager,
+			clineService: { listSummaries: () => [], onSummary: () => () => {} } as unknown as ClineTaskSessionService,
+			loadRuntimeConfig: async () => ({ selectedAgentId: "claude" }) as RuntimeConfigState,
+			broadcastStateUpdated: vi.fn(),
+			warn: vi.fn(),
+			handOffTask,
+		});
+		await service.start();
+		for (const listener of listeners)
+			listener({ ...summary("task-1", "awaiting_review"), reviewReason: "exit", exitCode: 0 });
+		await vi.waitFor(() => expect(workspaceState.board.columns[0].cards[0].reviewRound).toBe(1));
+		expect(handOffTask).not.toHaveBeenCalled();
+		service.dispose();
+	});
+
+	it("does not hand off when review is disabled", async () => {
+		workspaceState.board.columns[0].cards[0].agentReviewEnabled = false;
+		workspaceState.board.columns[0].cards[0].agentId = "codex";
+		const listeners = new Set<(value: RuntimeTaskSessionSummary) => void>();
+		const service = createSidebarReviewService({
+			workspaceId: "workspace-1",
+			workspacePath: "/repo",
+			terminalManager: {
+				listSummaries: () => [summary("task-1", "running")],
+				onSummary: (listener: (value: RuntimeTaskSessionSummary) => void) => {
+					listeners.add(listener);
+					return () => listeners.delete(listener);
+				},
+			} as unknown as TerminalSessionManager,
+			clineService: { listSummaries: () => [], onSummary: () => () => {} } as unknown as ClineTaskSessionService,
+			loadRuntimeConfig: async () => ({ selectedAgentId: "claude" }) as RuntimeConfigState,
+			broadcastStateUpdated: vi.fn(),
+			warn: vi.fn(),
+			handOffTask,
+		});
+		await service.start();
+		for (const listener of listeners) listener({ ...summary("task-1", "failed"), agentId: "codex", exitCode: 1 });
+		await vi.waitFor(() => expect(handOffTask).not.toHaveBeenCalled());
+		service.dispose();
 	});
 
 	it("restores handed-off reviews through round 6", async () => {
@@ -122,6 +268,7 @@ describe("createSidebarReviewService", () => {
 			loadRuntimeConfig: async () => ({ selectedAgentId: "claude" }) as RuntimeConfigState,
 			broadcastStateUpdated: vi.fn(),
 			warn: vi.fn(),
+			handOffTask,
 		});
 
 		await service.start();
@@ -146,6 +293,7 @@ describe("createSidebarReviewService", () => {
 			loadRuntimeConfig: async () => ({ selectedAgentId: "claude" }) as RuntimeConfigState,
 			broadcastStateUpdated: vi.fn(),
 			warn: vi.fn(),
+			handOffTask,
 		});
 
 		await service.notifyBoardChanged();
@@ -179,6 +327,7 @@ describe("createSidebarReviewService", () => {
 			loadRuntimeConfig: async () => ({ selectedAgentId: "claude" }) as RuntimeConfigState,
 			broadcastStateUpdated: vi.fn(),
 			warn: vi.fn(),
+			handOffTask,
 		});
 		await service.start();
 
@@ -220,6 +369,7 @@ describe("createSidebarReviewService", () => {
 			loadRuntimeConfig: async () => ({ selectedAgentId: "claude" }) as RuntimeConfigState,
 			broadcastStateUpdated: vi.fn(),
 			warn: vi.fn(),
+			handOffTask,
 		});
 		await service.start();
 		for (const listener of listeners) {
@@ -261,6 +411,7 @@ describe("createSidebarReviewService", () => {
 			loadRuntimeConfig: async () => ({ selectedAgentId: "claude" }) as RuntimeConfigState,
 			broadcastStateUpdated: vi.fn(),
 			warn: vi.fn(),
+			handOffTask,
 		});
 		sendPromptToSession.mockResolvedValueOnce({ ok: false, reason: "session_not_running" });
 		await service.start();
@@ -296,6 +447,7 @@ describe("createSidebarReviewService", () => {
 			loadRuntimeConfig: async () => ({ selectedAgentId }) as RuntimeConfigState,
 			broadcastStateUpdated: vi.fn(),
 			warn: vi.fn(),
+			handOffTask,
 		});
 		await service.start();
 		for (const listener of listeners) listener(summary("task-1", "awaiting_review"));
@@ -329,6 +481,7 @@ describe("createSidebarReviewService", () => {
 			loadRuntimeConfig: async () => ({ selectedAgentId: "claude" }) as RuntimeConfigState,
 			broadcastStateUpdated: vi.fn(),
 			warn: vi.fn(),
+			handOffTask,
 		});
 		runGit.mockReset();
 		runGit.mockResolvedValueOnce({ ok: true, stdout: "" }).mockResolvedValueOnce({ ok: true, stdout: "0" });
@@ -364,6 +517,7 @@ describe("createSidebarReviewService", () => {
 			loadRuntimeConfig: async () => ({ selectedAgentId: "claude" }) as RuntimeConfigState,
 			broadcastStateUpdated: vi.fn(),
 			warn: vi.fn(),
+			handOffTask,
 		});
 		runGit.mockReset();
 		runGit
@@ -400,6 +554,7 @@ describe("createSidebarReviewService", () => {
 			loadRuntimeConfig: async () => ({ selectedAgentId: "claude" }) as RuntimeConfigState,
 			broadcastStateUpdated: vi.fn(),
 			warn: vi.fn(),
+			handOffTask,
 		});
 		runGit.mockReset();
 		runGit.mockResolvedValueOnce({ ok: true, stdout: " M file" }).mockResolvedValueOnce({ ok: true, stdout: "0" });
@@ -430,6 +585,7 @@ describe("createSidebarReviewService", () => {
 			loadRuntimeConfig: async () => ({ selectedAgentId: "claude" }) as RuntimeConfigState,
 			broadcastStateUpdated: vi.fn(),
 			warn,
+			handOffTask,
 		});
 		runGit.mockReset();
 		runGit.mockResolvedValueOnce({ ok: false, stdout: "", error: "missing worktree" });

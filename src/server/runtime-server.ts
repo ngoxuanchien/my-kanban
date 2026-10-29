@@ -196,6 +196,8 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 					terminalManager: await deps.ensureTerminalManagerForWorkspace(workspaceId, workspacePath),
 					clineService: await getScopedClineTaskSessionService(scope),
 					loadRuntimeConfig: async () => await deps.workspaceRegistry.loadScopedRuntimeConfig(scope),
+					handOffTask: async (taskId, reason) =>
+						await getInternalRuntimeApi().handOffTask(scope, { taskId, reason }),
 					broadcastStateUpdated: async () => {
 						await deps.runtimeStateHub.broadcastRuntimeWorkspaceStateUpdated(workspaceId, workspacePath);
 						await deps.runtimeStateHub.broadcastRuntimeProjectsUpdated(workspaceId);
