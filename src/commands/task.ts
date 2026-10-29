@@ -12,6 +12,7 @@ import type {
 	RuntimeWorkspaceStateResponse,
 } from "../core/api-contract";
 import { runtimeAgentIdSchema, runtimeClineReasoningEffortSchema } from "../core/api-contract";
+import { getHandOffCount } from "../core/hand-off-cap";
 import { buildKanbanRuntimeUrl, getKanbanRuntimeOrigin, getRuntimeFetch } from "../core/runtime-endpoint";
 import {
 	addTaskDependency,
@@ -359,6 +360,7 @@ function formatTaskRecord(
 		autoReviewMode: task.autoReviewMode ?? "commit",
 		agentReviewEnabled: task.agentReviewEnabled === true,
 		reviewRound: task.reviewRound ?? 0,
+		handOffCount: getHandOffCount(task),
 		...(task.agentId ? { agentId: task.agentId } : {}),
 		...formatTaskClineSettings(task.clineSettings),
 		createdAt: task.createdAt,

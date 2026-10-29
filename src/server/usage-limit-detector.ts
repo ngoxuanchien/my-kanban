@@ -1,4 +1,9 @@
-export const USAGE_LIMIT_PHRASES: readonly string[] = ["Free usage limit reached", "hit your usage limit"];
+export const USAGE_LIMIT_PHRASES: readonly string[] = [
+	"Free usage limit reached",
+	"hit your usage limit",
+	"exhausted your quota",
+	"out of quota until",
+];
 
 export function detectUsageLimit(screenText: string): string | null {
 	const escapeChar = String.fromCharCode(27);

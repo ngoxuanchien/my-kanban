@@ -86,12 +86,18 @@ describe("renderAppendSystemPrompt", () => {
 		expect(rendered).toContain("task send");
 		expect(rendered).toContain("task handoff");
 		expect(rendered).toContain(
-			'3. If it fails and the round is below its cap (the number after the slash), use `task send --task-id <task_id> --message "<concrete fix list with file:line and failing command output>"`. Report what you sent, identifying the task by title and id, in one chat line.',
+			'3. If it fails on a round below the cap and the round is not a multiple of 3, use `task send --task-id <task_id> --message "<concrete fix list with file:line and failing command output>"`. Report what you sent, identifying the task by title and id, in one chat line.',
 		);
 		expect(rendered).toContain("identify it by its title followed by its id in parentheses");
 		expect(rendered).toContain(
-			'4. If it fails on round 3/3 or 6/6 and fewer than two handoffs have been made, run `task handoff --task-id <task_id> --message "<the same concrete fix list>"` and report it in one chat line, identifying the task by title and id. If handoff returns an error, or it fails on round 9/9, do not send another fix request: leave it in Review and report the reasons to the user in the chat, identifying the task by title and id.',
+			'4. If it fails on a round below the cap that is a multiple of 3, run `task handoff --task-id <task_id> --message "<the same concrete fix list>"`. Report it in one chat line, identifying the task by title and id. If handoff returns an error, leave the task in Review and report the error. If it fails on a round equal to the cap, do not send or hand off; leave it in Review and report the reasons to the user in the chat, identifying the task by title and id. The cap is 3 × (handOffCount + 1), using `handOffCount` from `task list`.',
 		);
+		expect(rendered).toContain(
+			"After a pass, only if the round was above 1 or `handOffCount` from `task list` is above 0",
+		);
+		expect(rendered).toContain("matching existing topic file in the Basic Memory project `my-kanban`");
+		expect(rendered).not.toContain("3/3 or 6/6");
+		expect(rendered).not.toContain("9/9");
 		expect(rendered).toContain("--column backlog|in_progress|review|done");
 		expect(rendered).toContain("Provide exactly one of");
 		expect(rendered).toContain("task delete --column done");

@@ -8,6 +8,21 @@ describe("detectUsageLimit", () => {
 
 	it("matches case-insensitively", () => {
 		expect(detectUsageLimit("FREE USAGE LIMIT REACHED")).toBe("Free usage limit reached");
+		expect(detectUsageLimit("model gemini-pro is OUT OF QUOTA UNTIL 14:00")).toBe("out of quota until");
+	});
+
+	it("matches Antigravity quota text in ANSI-colored output", () => {
+		expect(
+			detectUsageLimit(
+				`${String.fromCharCode(27)}[31mYou have exhausted your quota on this model.${String.fromCharCode(27)}[0m`,
+			),
+		).toBe("exhausted your quota");
+	});
+
+	it("matches Codex usage-limit text with a curly apostrophe", () => {
+		expect(detectUsageLimit("You’ve hit your usage limit. Upgrade to Plus to continue using Codex")).toBe(
+			"hit your usage limit",
+		);
 	});
 
 	it("matches an OpenCode error wrapped across terminal rows", () => {

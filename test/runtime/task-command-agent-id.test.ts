@@ -4,7 +4,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const cliMocks = vi.hoisted(() => ({
 	client: {
 		projects: { add: { mutate: vi.fn(async () => ({ ok: true, project: { id: "workspace-1" } })) } },
-		workspace: { notifyStateUpdated: { mutate: vi.fn(async () => ({ ok: true })) } },
+		workspace: {
+			notifyStateUpdated: { mutate: vi.fn(async () => ({ ok: true })) },
+			getState: { query: vi.fn(async () => ({}) as never) },
+		},
 		runtime: { handOffTask: { mutate: vi.fn() } },
 	},
 	loadWorkspaceContext: vi.fn(async () => ({ repoPath: "/tmp/repo" })),
@@ -19,6 +22,7 @@ vi.mock("@trpc/client", () => ({
 	httpBatchLink: vi.fn(),
 }));
 vi.mock("../../src/state/workspace-state", () => ({
+	getTaskWorktreesHomePath: vi.fn(() => "/tmp/worktrees"),
 	loadWorkspaceContext: cliMocks.loadWorkspaceContext,
 	mutateWorkspaceState: vi.fn(async (_path: string, mutate: (state: typeof cliMocks.workspaceState) => unknown) => {
 		const result = mutate(cliMocks.workspaceState) as { board: typeof cliMocks.workspaceState.board; value: unknown };
@@ -125,5 +129,52 @@ describe("task create agent review default", () => {
 	it("enables agent review by default and allows opting out", async () => {
 		expect((await create([])).task.agentReviewEnabled).toBe(true);
 		expect((await create(["--agent-review-enabled", "false"])).task.agentReviewEnabled).toBe(false);
+	});
+});
+
+describe("task list handoff count", () => {
+	it("reports current, legacy, and default handoff counts", async () => {
+		cliMocks.client.workspace.getState.query.mockResolvedValue({
+			repoPath: "/tmp/repo",
+			board: {
+				columns: [
+					{
+						id: "backlog",
+						title: "Backlog",
+						cards: [
+							{ id: "counted", prompt: "Counted", handOffCount: 2 },
+							{ id: "legacy", prompt: "Legacy", handedOff: true },
+							{ id: "plain", prompt: "Plain" },
+						],
+					},
+					...[
+						{ id: "in_progress", title: "In Progress", cards: [] },
+						{ id: "review", title: "Review", cards: [] },
+						{ id: "trash", title: "Trash", cards: [] },
+					],
+				],
+				dependencies: [],
+			},
+			git: { currentBranch: "main", defaultBranch: "main", branches: ["main"] },
+			sessions: {},
+		} as never);
+		let output = "";
+		const write = vi.spyOn(process.stdout, "write").mockImplementation(((chunk: string | Uint8Array) => {
+			output += chunk.toString();
+			return true;
+		}) as typeof process.stdout.write);
+		const program = new Command();
+		registerTaskCommand(program);
+		await program.parseAsync(["node", "kanban", "task", "list"]);
+		write.mockRestore();
+
+		expect(JSON.parse(output)).toHaveProperty("tasks");
+		expect(
+			JSON.parse(output).tasks.map((task: { id: string; handOffCount: number }) => [task.id, task.handOffCount]),
+		).toEqual([
+			["counted", 2],
+			["legacy", 1],
+			["plain", 0],
+		]);
 	});
 });
