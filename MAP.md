@@ -35,6 +35,8 @@ Update this file whenever a file or folder is created or moved.
 | `docs/superpowers/plans/2026-10-29-quota-retry-and-review-notes.md` | Plan for the quota retry and review notes spec, split into 4 Kanban tasks. |
 | `docs/superpowers/specs/2026-10-29-agent-scoreboard-design.md` | Spec: per-agent score (+1 pass, −1 fail) and assigned-task count on the top bar. |
 | `docs/superpowers/plans/2026-10-29-agent-scoreboard.md` | Plan for the agent scoreboard spec, split into 3 Kanban tasks. |
+| `docs/superpowers/specs/2026-10-29-done-task-history-design.md` | Spec: clickable Done cards with a read-only history timeline, commit diff, and agent transcript viewer. |
+| `docs/superpowers/plans/2026-10-29-done-task-history.md` | Plan for the Done task history spec, split into 3 chained Kanban tasks. |
 | `docs/superpowers/plans/2026-10-29-quota-handoff.md` | Plan for the quota handoff spec (1 Kanban task). |
 | `docs/superpowers/specs/2026-10-29-review-on-by-default-design.md` | Spec: agent review on by default for new tasks; enabling it on a finished task starts a review. |
 | `docs/superpowers/specs/2026-10-29-card-review-label-design.md` | Spec: show review state (Review n/3, Handed off) on the card's agent line. |
