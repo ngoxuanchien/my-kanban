@@ -474,7 +474,8 @@ export function BoardCard({
 		const handOffCount = getHandOffCount(card);
 		const handoffLabel = handOffCount === 1 ? "Handed off" : handOffCount > 1 ? `Handed off ×${handOffCount}` : null;
 		const reviewLabel = getCardReviewLabel(card);
-		const parts = [agentOverrideLabel, modelOverrideLabel, handoffLabel, reviewLabel].filter(
+		const quotaBlockedLabel = columnId === "review" && card.quotaBlockedAt ? "Out of quota" : null;
+		const parts = [agentOverrideLabel, modelOverrideLabel, handoffLabel, reviewLabel, quotaBlockedLabel].filter(
 			(value): value is string => Boolean(value),
 		);
 		return parts.length > 0 ? parts.join(" · ") : null;
@@ -485,6 +486,8 @@ export function BoardCard({
 		card.handedOff,
 		card.agentReviewEnabled,
 		card.reviewRound,
+		card.quotaBlockedAt,
+		columnId,
 	]);
 
 	const activeDescriptionDisplay = isDescriptionExpanded ? descriptionDisplay.expanded : descriptionDisplay.collapsed;
@@ -737,7 +740,9 @@ export function BoardCard({
 											"inline-flex max-w-full items-center gap-1 rounded-md border px-1.5 py-0.5 text-xs",
 											isTrashCard
 												? "border-border text-text-tertiary bg-surface-1"
-												: "border-status-blue/30 bg-status-blue/10 text-status-blue",
+												: columnId === "review" && card.quotaBlockedAt
+													? "border-status-red/30 bg-status-red/10 text-status-red"
+													: "border-status-blue/30 bg-status-blue/10 text-status-blue",
 										)}
 									>
 										<Bot size={12} className="shrink-0" />

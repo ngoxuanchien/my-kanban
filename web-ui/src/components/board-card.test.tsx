@@ -206,6 +206,25 @@ describe("BoardCard", () => {
 		).toBe("OpenAI Codex · Review 2/3");
 	});
 
+	it("shows the quota label only on blocked review cards", async () => {
+		const renderCard = async (columnId: "review" | "in_progress", quotaBlockedAt?: number) => {
+			await act(async () => {
+				root.render(
+					<BoardCard
+						card={createCard({ agentId: "codex", agentReviewEnabled: true, quotaBlockedAt })}
+						index={0}
+						columnId={columnId}
+					/>,
+				);
+			});
+			return container.querySelector("span.truncate")?.textContent ?? "";
+		};
+
+		expect(await renderCard("review", 1)).toBe("OpenAI Codex · Review · Out of quota");
+		expect(await renderCard("review")).not.toContain("Out of quota");
+		expect(await renderCard("in_progress", 1)).not.toContain("Out of quota");
+	});
+
 	it("shows handoff and extended review state on the agent line", async () => {
 		await act(async () => {
 			root.render(
