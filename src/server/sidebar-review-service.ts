@@ -8,6 +8,7 @@ import type { TerminalSessionManager } from "../terminal/session-manager";
 import { runGit } from "../workspace/git-utils";
 import { getTaskWorkspacePathInfo } from "../workspace/task-worktree";
 import { createSidebarReviewQueue } from "./sidebar-review-queue";
+import { detectUsageLimit } from "./usage-limit-detector";
 
 export interface CreateSidebarReviewServiceDependencies {
 	workspaceId: string;
@@ -137,6 +138,28 @@ export function createSidebarReviewService(deps: CreateSidebarReviewServiceDepen
 				}
 			}
 			if (!reviewable) return;
+			if (found.card.agentId === "codex" || found.card.agentId === "opencode") {
+				try {
+					const terminal = await deps.terminalManager.getRestoreSnapshot(summary.taskId);
+					const phrase = terminal ? detectUsageLimit(terminal.snapshot) : null;
+					if (phrase) {
+						if (found.card.handedOff === true) {
+							deps.warn(
+								`[sidebar-review] Task ${summary.taskId}: both agents hit their usage limit; leaving it in Review`,
+							);
+							return;
+						}
+						const reason = `The previous agent hit its usage limit ("${phrase}").`;
+						const result = await deps.handOffTask(summary.taskId, reason);
+						if (result.ok) return;
+						deps.warn(
+							`[sidebar-review] Could not hand off task ${summary.taskId}: ${result.error ?? "unknown error"}`,
+						);
+					}
+				} catch (error) {
+					deps.warn(`[sidebar-review] Could not check usage limit for ${summary.taskId}: ${errorMessage(error)}`);
+				}
+			}
 			if ((found.card.reviewRound ?? 0) < 3) {
 				try {
 					const { path: worktreePath } = await getTaskWorkspacePathInfo({

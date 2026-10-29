@@ -52,7 +52,9 @@ const sendPromptToSession = vi.hoisted(() =>
 	),
 );
 const runGit = vi.hoisted(() => vi.fn());
-const handOffTask = vi.hoisted(() => vi.fn(async () => ({ ok: true })));
+const handOffTask = vi.hoisted(() =>
+	vi.fn(async (): Promise<{ ok: boolean; error?: string | null }> => ({ ok: true })),
+);
 
 vi.mock("../../../src/state/workspace-state", () => ({
 	loadWorkspaceState: vi.fn(async () => ({ board: workspaceState.board })),
@@ -79,6 +81,38 @@ vi.mock("../../../src/workspace/task-worktree", () => ({
 vi.mock("../../../src/workspace/git-utils", () => ({ runGit }));
 
 import { createSidebarReviewService } from "../../../src/server/sidebar-review-service";
+
+async function startUsageLimitTurn(options: {
+	agentId: "codex" | "opencode";
+	handedOff?: boolean;
+	getRestoreSnapshot?: () => Promise<{ snapshot: string; cols: number; rows: number } | null>;
+}) {
+	const card = workspaceState.board.columns[0].cards[0];
+	card.agentId = options.agentId;
+	card.handedOff = options.handedOff ?? false;
+	const listeners = new Set<(value: RuntimeTaskSessionSummary) => void>();
+	const broadcastStateUpdated = vi.fn();
+	const warn = vi.fn();
+	const service = createSidebarReviewService({
+		workspaceId: "workspace-1",
+		workspacePath: "/repo",
+		terminalManager: {
+			listSummaries: () => [summary("task-1", "running")],
+			onSummary: (listener: (value: RuntimeTaskSessionSummary) => void) => {
+				listeners.add(listener);
+				return () => listeners.delete(listener);
+			},
+			getRestoreSnapshot: options.getRestoreSnapshot ?? (async () => null),
+		} as unknown as TerminalSessionManager,
+		clineService: { listSummaries: () => [], onSummary: () => () => {} } as unknown as ClineTaskSessionService,
+		loadRuntimeConfig: async () => ({ selectedAgentId: "claude" }) as RuntimeConfigState,
+		broadcastStateUpdated,
+		warn,
+		handOffTask,
+	});
+	await service.start();
+	return { card, listeners, broadcastStateUpdated, warn, service };
+}
 
 function summary(taskId: string, state: RuntimeTaskSessionSummary["state"]): RuntimeTaskSessionSummary {
 	return {
@@ -460,6 +494,85 @@ describe("createSidebarReviewService", () => {
 				sessionId: "__home_agent__:workspace-1:codex",
 				agentId: "codex",
 			}),
+		);
+		service.dispose();
+	});
+
+	it("hands off a Codex task immediately when the terminal shows its usage limit", async () => {
+		const { card, listeners, broadcastStateUpdated, service } = await startUsageLimitTurn({
+			agentId: "codex",
+			getRestoreSnapshot: async () => ({ snapshot: "You’ve hit your usage limit", cols: 80, rows: 24 }),
+		});
+		for (const listener of listeners) listener(summary("task-1", "awaiting_review"));
+		await vi.waitFor(() =>
+			expect(handOffTask).toHaveBeenCalledWith(
+				"task-1",
+				'The previous agent hit its usage limit ("hit your usage limit").',
+			),
+		);
+		expect(card.reviewRound).toBe(0);
+		expect(sendPromptToSession).not.toHaveBeenCalled();
+		expect(broadcastStateUpdated).not.toHaveBeenCalled();
+		service.dispose();
+	});
+
+	it("leaves a handed-off task in Review when the other agent also hits its usage limit", async () => {
+		const { card, listeners, broadcastStateUpdated, warn, service } = await startUsageLimitTurn({
+			agentId: "opencode",
+			handedOff: true,
+			getRestoreSnapshot: async () => ({ snapshot: "Free usage limit reached", cols: 80, rows: 24 }),
+		});
+		for (const listener of listeners) listener(summary("task-1", "awaiting_review"));
+		await vi.waitFor(() =>
+			expect(warn).toHaveBeenCalledWith(
+				"[sidebar-review] Task task-1: both agents hit their usage limit; leaving it in Review",
+			),
+		);
+		expect(handOffTask).not.toHaveBeenCalled();
+		expect(sendPromptToSession).not.toHaveBeenCalled();
+		expect(broadcastStateUpdated).not.toHaveBeenCalled();
+		expect(warn).toHaveBeenCalledTimes(1);
+		expect(card.reviewRound).toBe(0);
+		service.dispose();
+	});
+
+	it("continues the normal review path when handoff is refused", async () => {
+		handOffTask.mockResolvedValue({ ok: false, error: "unavailable" });
+		const { listeners, warn, service } = await startUsageLimitTurn({
+			agentId: "codex",
+			getRestoreSnapshot: async () => ({ snapshot: "Free usage limit reached", cols: 80, rows: 24 }),
+		});
+		for (const listener of listeners) listener(summary("task-1", "awaiting_review"));
+		await vi.waitFor(() => expect(workspaceState.board.columns[0].cards[0].reviewRound).toBe(1));
+		expect(warn).toHaveBeenCalledWith("[sidebar-review] Could not hand off task task-1: unavailable");
+		service.dispose();
+	});
+
+	it.each([null, "Task completed with changes"])(
+		"keeps the normal review path without a quota phrase (%s)",
+		async (snapshot) => {
+			const { listeners, service } = await startUsageLimitTurn({
+				agentId: "codex",
+				getRestoreSnapshot: async () => (snapshot === null ? null : { snapshot, cols: 80, rows: 24 }),
+			});
+			for (const listener of listeners) listener(summary("task-1", "awaiting_review"));
+			await vi.waitFor(() => expect(workspaceState.board.columns[0].cards[0].reviewRound).toBe(1));
+			expect(handOffTask).not.toHaveBeenCalled();
+			service.dispose();
+		},
+	);
+
+	it("warns and continues the normal path when the terminal snapshot throws", async () => {
+		const { listeners, warn, service } = await startUsageLimitTurn({
+			agentId: "codex",
+			getRestoreSnapshot: async () => {
+				throw new Error("terminal unavailable");
+			},
+		});
+		for (const listener of listeners) listener(summary("task-1", "awaiting_review"));
+		await vi.waitFor(() => expect(workspaceState.board.columns[0].cards[0].reviewRound).toBe(1));
+		expect(warn).toHaveBeenCalledWith(
+			"[sidebar-review] Could not check usage limit for task-1: terminal unavailable",
 		);
 		service.dispose();
 	});
