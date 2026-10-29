@@ -16,6 +16,8 @@ const cliMocks = vi.hoisted(() => ({
 		git: { currentBranch: "main", defaultBranch: "main", branches: ["main"] },
 	},
 }));
+const scoreMocks = vi.hoisted(() => ({ recordAgentScoreEvent: vi.fn(async () => true) }));
+const completionMocks = vi.hoisted(() => ({ completeTaskToDone: vi.fn() }));
 
 vi.mock("@trpc/client", () => ({
 	createTRPCProxyClient: vi.fn(() => cliMocks.client),
@@ -29,6 +31,11 @@ vi.mock("../../src/state/workspace-state", () => ({
 		cliMocks.workspaceState.board = result.board;
 		return { saved: true, value: result.value };
 	}),
+}));
+vi.mock("../../src/state/agent-scores", () => ({ recordAgentScoreEvent: scoreMocks.recordAgentScoreEvent }));
+vi.mock("../../src/workspace/complete-task-to-done", () => ({
+	columnCanHaveLiveTaskSession: (columnId: string) => columnId === "in_progress" || columnId === "review",
+	completeTaskToDone: completionMocks.completeTaskToDone,
 }));
 
 import { parseAgentId, registerTaskCommand } from "../../src/commands/task";
@@ -129,6 +136,103 @@ describe("task create agent review default", () => {
 	it("enables agent review by default and allows opting out", async () => {
 		expect((await create([])).task.agentReviewEnabled).toBe(true);
 		expect((await create(["--agent-review-enabled", "false"])).task.agentReviewEnabled).toBe(false);
+	});
+});
+
+describe("task review scoring commands", () => {
+	const reviewCard = {
+		id: "task-1",
+		prompt: "Review",
+		title: "Review",
+		agentId: "codex",
+		agentReviewEnabled: true,
+		reviewRound: 2,
+		baseRef: "main",
+		startInPlanMode: false,
+		createdAt: 1,
+		updatedAt: 1,
+	};
+
+	beforeEach(() => {
+		scoreMocks.recordAgentScoreEvent.mockReset();
+		scoreMocks.recordAgentScoreEvent.mockResolvedValue(true);
+		completionMocks.completeTaskToDone.mockReset();
+		cliMocks.client.workspace.getState.query.mockResolvedValue({
+			repoPath: "/tmp/repo",
+			board: {
+				columns: ["backlog", "in_progress", "review", "trash"].map((id) => ({
+					id,
+					title: id,
+					cards: id === "review" ? [reviewCard] : [],
+				})),
+			},
+			sessions: {},
+		} as never);
+		completionMocks.completeTaskToDone.mockResolvedValue({
+			previousColumnId: "review",
+			alreadyInTrash: false,
+			readyTaskIds: [],
+			autoStartedTasks: [],
+			worktreeDeleted: true,
+			task: reviewCard,
+			state: {
+				repoPath: "/tmp/repo",
+				board: { columns: [] },
+				git: { currentBranch: "main", defaultBranch: "main", branches: ["main"] },
+				sessions: {},
+			},
+		});
+	});
+
+	async function execute(args: string[]): Promise<string> {
+		let output = "";
+		const write = vi.spyOn(process.stdout, "write").mockImplementation(((chunk: string | Uint8Array) => {
+			output += chunk.toString();
+			return true;
+		}) as typeof process.stdout.write);
+		const program = new Command();
+		registerTaskCommand(program);
+		await program.parseAsync(["node", "kanban", "task", ...args]);
+		write.mockRestore();
+		return output;
+	}
+
+	it("records review-failed with the card agent and round, then reports de-duplication", async () => {
+		expect(JSON.parse(await execute(["review-failed", "--task-id", "task-1"]))).toEqual({
+			ok: true,
+			taskId: "task-1",
+			recorded: true,
+		});
+		expect(scoreMocks.recordAgentScoreEvent).toHaveBeenCalledWith("workspace-1", {
+			type: "fail",
+			agentId: "codex",
+			taskId: "task-1",
+			round: 2,
+		});
+
+		scoreMocks.recordAgentScoreEvent.mockResolvedValue(false);
+		expect(JSON.parse(await execute(["review-failed", "--task-id", "task-1"]))).toMatchObject({ recorded: false });
+	});
+
+	it("requires --task-id when --review-passed is used", async () => {
+		const result = JSON.parse(await execute(["done", "--column", "review", "--review-passed"]));
+		expect(result.error).toContain("--review-passed requires --task-id");
+		expect(scoreMocks.recordAgentScoreEvent).not.toHaveBeenCalled();
+	});
+
+	it("records a pass only when task done explicitly marks a passed review", async () => {
+		await execute(["done", "--task-id", "task-1", "--review-passed"]);
+		expect(scoreMocks.recordAgentScoreEvent).toHaveBeenCalledWith("workspace-1", {
+			type: "pass",
+			agentId: "codex",
+			taskId: "task-1",
+			round: 2,
+		});
+		expect(completionMocks.completeTaskToDone).toHaveBeenCalledTimes(1);
+
+		scoreMocks.recordAgentScoreEvent.mockClear();
+		await execute(["done", "--task-id", "task-1"]);
+		expect(scoreMocks.recordAgentScoreEvent).not.toHaveBeenCalled();
 	});
 });
 

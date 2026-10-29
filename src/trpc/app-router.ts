@@ -195,6 +195,10 @@ import {
 	runtimeWorktreeEnsureRequestSchema,
 	runtimeWorktreeEnsureResponseSchema,
 } from "../core/api-contract";
+import { recordAgentScoreEvent } from "../state/agent-scores";
+import { loadWorkspaceBoardById } from "../state/workspace-state";
+
+const warnAgentScoreRecording = console.warn.bind(console);
 
 export interface RuntimeTrpcWorkspaceScope {
 	workspaceId: string;
@@ -503,7 +507,36 @@ export const runtimeAppRouter = t.router({
 			.input(runtimeTaskHandOffRequestSchema)
 			.output(runtimeTaskHandOffResponseSchema)
 			.mutation(async ({ ctx, input }) => {
-				return await ctx.runtimeApi.handOffTask(ctx.workspaceScope, input);
+				let reviewRound: number | null = null;
+				try {
+					const board = await loadWorkspaceBoardById(ctx.workspaceScope.workspaceId);
+					const card = board.columns
+						.find((column) => column.id === "review")
+						?.cards.find((candidate) => candidate.id === input.taskId);
+					if (card?.agentReviewEnabled === true && (card.reviewRound ?? 0) >= 1) {
+						reviewRound = card.reviewRound ?? null;
+					}
+				} catch (error) {
+					warnAgentScoreRecording("Could not read agent review round for handoff score.", error);
+				}
+				const result = await ctx.runtimeApi.handOffTask(ctx.workspaceScope, input);
+				if (result.ok && result.fromAgentId && reviewRound !== null) {
+					try {
+						if (
+							await recordAgentScoreEvent(ctx.workspaceScope.workspaceId, {
+								type: "fail",
+								agentId: result.fromAgentId,
+								taskId: input.taskId,
+								round: reviewRound,
+							})
+						) {
+							await ctx.workspaceApi.notifyStateUpdated(ctx.workspaceScope);
+						}
+					} catch (error) {
+						warnAgentScoreRecording("Could not record agent score event.", error);
+					}
+				}
+				return result;
 			}),
 		getTaskChatMessages: workspaceProcedure
 			.input(runtimeTaskChatMessagesRequestSchema)

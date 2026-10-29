@@ -25,10 +25,13 @@ import {
 	updateTask,
 } from "../core/task-board-mutations";
 import { resolveProjectInputPath } from "../projects/project-path";
+import { recordAgentScoreEvent } from "../state/agent-scores";
 import { getTaskWorktreesHomePath, loadWorkspaceContext, mutateWorkspaceState } from "../state/workspace-state";
 import type { RuntimeAppRouter } from "../trpc/app-router";
 import { columnCanHaveLiveTaskSession, completeTaskToDone } from "../workspace/complete-task-to-done";
 import { getWorkspaceFolderLabelForWorktreePath } from "../workspace/task-worktree-path";
+
+const warnAgentScoreRecording = console.warn.bind(console);
 
 const LIST_TASK_COLUMNS = ["backlog", "in_progress", "review", "trash"] as const;
 type ListTaskColumn = (typeof LIST_TASK_COLUMNS)[number];
@@ -301,6 +304,39 @@ async function notifyRuntimeWorkspaceStateUpdated(
 	runtimeClient: ReturnType<typeof createRuntimeTrpcClient>,
 ): Promise<void> {
 	await runtimeClient.workspace.notifyStateUpdated.mutate().catch(() => null);
+}
+
+async function recordReviewScore(input: {
+	runtimeClient: ReturnType<typeof createRuntimeTrpcClient>;
+	workspaceId: string;
+	taskId: string;
+	type: "pass" | "fail";
+}): Promise<boolean> {
+	try {
+		const state = await input.runtimeClient.workspace.getState.query();
+		const card = findTaskRecord(state, input.taskId)?.task;
+		if (
+			!card?.agentId ||
+			getTaskColumnId(state.board, input.taskId) !== "review" ||
+			card.agentReviewEnabled !== true ||
+			(card.reviewRound ?? 0) < 1
+		) {
+			return false;
+		}
+		const recorded = await recordAgentScoreEvent(input.workspaceId, {
+			type: input.type,
+			agentId: card.agentId,
+			taskId: input.taskId,
+			round: card.reviewRound,
+		});
+		if (recorded) {
+			await notifyRuntimeWorkspaceStateUpdated(input.runtimeClient);
+		}
+		return recorded;
+	} catch (error) {
+		warnAgentScoreRecording("Could not record agent score event.", error);
+		return false;
+	}
 }
 
 async function updateRuntimeWorkspaceState<T>(
@@ -912,13 +948,20 @@ async function trashTask(input: {
 	taskId?: string;
 	column?: ListTaskColumn;
 	projectPath?: string;
+	reviewPassed?: boolean;
 }): Promise<JsonRecord> {
+	if (input.reviewPassed && !input.taskId?.trim()) {
+		throw new Error("--review-passed requires --task-id");
+	}
 	const target = resolveTaskCommandTarget(input, "task done");
 	const workspaceRepoPath = await resolveWorkspaceRepoPath(input.projectPath, input.cwd);
 	const workspaceId = await ensureRuntimeWorkspace(workspaceRepoPath);
 	const runtimeClient = createRuntimeTrpcClient(workspaceId);
 
 	if (target.kind === "task") {
+		if (input.reviewPassed) {
+			await recordReviewScore({ runtimeClient, workspaceId, taskId: target.taskId, type: "pass" });
+		}
 		const trashed = await trashTaskById({
 			cwd: input.cwd,
 			taskId: target.taskId,
@@ -994,6 +1037,19 @@ async function trashTask(input: {
 		})),
 		count: trashedTasks.length,
 	};
+}
+
+async function reviewFailed(input: { cwd: string; taskId: string; projectPath?: string }): Promise<JsonRecord> {
+	const workspaceRepoPath = await resolveWorkspaceRepoPath(input.projectPath, input.cwd);
+	const workspaceId = await ensureRuntimeWorkspace(workspaceRepoPath);
+	const runtimeClient = createRuntimeTrpcClient(workspaceId);
+	const recorded = await recordReviewScore({
+		runtimeClient,
+		workspaceId,
+		taskId: input.taskId,
+		type: "fail",
+	});
+	return { ok: true, taskId: input.taskId, recorded };
 }
 
 async function deleteTaskCommand(input: {
@@ -1291,15 +1347,36 @@ export function registerTaskCommand(program: Command): void {
 			parseListColumn,
 		)
 		.option("--project-path <path>", "Workspace path. Defaults to current directory workspace.")
-		.action(async (options: { taskId?: string; column?: ListTaskColumn; projectPath?: string }) => {
+		.option("--review-passed", "Record a passed agent review before moving the task to done.")
+		.action(
+			async (options: {
+				taskId?: string;
+				column?: ListTaskColumn;
+				projectPath?: string;
+				reviewPassed?: boolean;
+			}) => {
+				await runTaskCommand(
+					async () =>
+						await trashTask({
+							cwd: process.cwd(),
+							taskId: options.taskId,
+							column: options.column,
+							projectPath: options.projectPath,
+							reviewPassed: options.reviewPassed,
+						}),
+				);
+			},
+		);
+
+	task
+		.command("review-failed")
+		.description("Record a failed agent review for a task.")
+		.requiredOption("--task-id <id>", "Task ID.")
+		.option("--project-path <path>", "Workspace path. Defaults to current directory workspace.")
+		.action(async (options: { taskId: string; projectPath?: string }) => {
 			await runTaskCommand(
 				async () =>
-					await trashTask({
-						cwd: process.cwd(),
-						taskId: options.taskId,
-						column: options.column,
-						projectPath: options.projectPath,
-					}),
+					await reviewFailed({ cwd: process.cwd(), taskId: options.taskId, projectPath: options.projectPath }),
 			);
 		});
 

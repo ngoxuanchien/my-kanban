@@ -243,11 +243,12 @@ Notes:
 Purpose: move a task or an entire column to \`done\`, stop active sessions if needed, clean up task worktrees, and auto-start any linked backlog tasks that become ready. \`task trash\` is also accepted as an alias.
 
 Command:
-\`${kanbanCommand} task done (--task-id <task_id> | --column backlog|in_progress|review|done) [--project-path <path>]\`
+\`${kanbanCommand} task done (--task-id <task_id> | --column backlog|in_progress|review|done) [--review-passed] [--project-path <path>]\`
 
 Parameters:
 - \`--task-id <task_id>\` optional single-task target.
 - \`--column <value>\` optional bulk target. Allowed values: \`backlog\`, \`in_progress\`, \`review\`, \`done\` (\`trash\` is also accepted).
+- \`--review-passed\` records a passing agent review and requires \`--task-id\`.
 - \`--project-path <path>\` optional workspace path. If not already registered in Kanban, it is auto-added for git repos.
 
 Notes:
@@ -269,6 +270,11 @@ Parameters:
 Notes:
 - Provide exactly one of \`--task-id\` or \`--column\`.
 - \`task delete --column done\` is the way to clear the done column.
+
+## task review-failed
+
+Command:
+\`${kanbanCommand} task review-failed --task-id <task_id> [--project-path <path>]\`
 
 ## task link
 
@@ -331,9 +337,9 @@ Command:
 When you receive a message beginning with \`[Kanban review]\`, review the named task. Whenever you report on a task, identify it by its title followed by its id in parentheses, for example \`"Fix login bug" (bd268)\`; never use a bare task id:
 
 1. Use \`task list\` to read its prompt, then inspect the worktree diff against its base ref, including untracked files. Run the acceptance commands in the prompt; when none are specified, run \`npm run typecheck\`, \`npm run lint\`, and \`npm run test:fast\`.
-2. If it passes, commit the task changes in its worktree. Find the base ref's worktree with \`git worktree list --porcelain\`; if it is not checked out, check out the base ref in the task worktree. Verify the base ref, stash any existing changes there with \`git stash push -u -m "kanban-pre-cherry-pick"\`, cherry-pick the task commit into it, and restore the stash if you made one. Resolve conflicts while preserving both sets of changes. Never push. Then run \`task done --task-id <task_id>\` and report the task title and id, final commit hash, and checks run in one chat line.
+2. If it passes, commit the task changes in its worktree. Find the base ref's worktree with \`git worktree list --porcelain\`; if it is not checked out, check out the base ref in the task worktree. Verify the base ref, stash any existing changes there with \`git stash push -u -m "kanban-pre-cherry-pick"\`, cherry-pick the task commit into it, and restore the stash if you made one. Resolve conflicts while preserving both sets of changes. Never push. Then run \`task done --task-id <task_id> --review-passed\` and report the task title and id, final commit hash, and checks run in one chat line.
 3. If it fails on a round below the cap and the round is not a multiple of 3, use \`task send --task-id <task_id> --message "<concrete fix list with file:line and failing command output>"\`. Report what you sent, identifying the task by title and id, in one chat line.
-4. If it fails on a round below the cap that is a multiple of 3, run \`task handoff --task-id <task_id> --message "<the same concrete fix list>"\`. Report it in one chat line, identifying the task by title and id. If handoff returns an error, leave the task in Review and report the error. If it fails on a round equal to the cap, do not send or hand off; leave it in Review and report the reasons to the user in the chat, identifying the task by title and id. The cap is 3 × (handOffCount + 1), using \`handOffCount\` from \`task list\`.
+4. If it fails on a round below the cap that is a multiple of 3, run \`task handoff --task-id <task_id> --message "<the same concrete fix list>"\`. Report it in one chat line, identifying the task by title and id. If handoff returns an error, run \`task review-failed --task-id <task_id>\`, leave the task in Review, and report the error. If it fails on a round equal to the cap, run \`task review-failed --task-id <task_id>\`, do not send or hand off, leave it in Review, and report the reasons to the user in the chat, identifying the task by title and id. The cap is 3 × (handOffCount + 1), using \`handOffCount\` from \`task list\`.
 5. After a pass, only if the round was above 1 or \`handOffCount\` from \`task list\` is above 0, record the lesson in 1–3 lines in the matching existing topic file in the Basic Memory project \`my-kanban\` (or directly in \`contexte/\` if the server is down). Include the date, task title, and task id, plus the cause of a failed round and the correct fix, or surprising behavior of code or a tool. Never record a task summary, diff, work log, or secret. Create a new topic file only if no topic fits, then add it to \`MAP.md\`. Do not commit these files.
 `;
 }

@@ -48,6 +48,7 @@ import { isHomeAgentSessionId } from "../core/home-agent-session";
 import { resolveTaskTitle } from "../core/task-title.js";
 import { openInBrowser } from "../server/browser";
 import { handOffTask as handOffTaskInWorkspace } from "../server/hand-off-task";
+import { recordAgentScoreEvent } from "../state/agent-scores";
 import { loadWorkspaceBoardById } from "../state/workspace-state";
 import { buildRuntimeConfigResponse, resolveAgentCommand } from "../terminal/agent-registry";
 import { sendPromptToSession } from "../terminal/send-prompt-to-session";
@@ -55,6 +56,8 @@ import type { TerminalSessionManager } from "../terminal/session-manager";
 import { resolveTaskCwd } from "../workspace/task-worktree";
 import { captureTaskTurnCheckpoint } from "../workspace/turn-checkpoints";
 import type { RuntimeTrpcContext, RuntimeTrpcWorkspaceScope } from "./app-router";
+
+const warnAgentScoreRecording = console.warn.bind(console);
 
 export interface CreateRuntimeApiDependencies {
 	getActiveWorkspaceId: () => string | null;
@@ -108,6 +111,13 @@ function findBoardCard(board: RuntimeBoardData, taskId: string): RuntimeBoardCar
 	return null;
 }
 
+function findReviewRoundCard(board: RuntimeBoardData, taskId: string): RuntimeBoardCard | null {
+	const card = board.columns
+		.find((column) => column.id === "review")
+		?.cards.find((candidate) => candidate.id === taskId);
+	return card?.agentReviewEnabled === true && (card.reviewRound ?? 0) >= 1 ? card : null;
+}
+
 export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrpcContext["runtimeApi"] {
 	const clineProviderService = createClineProviderService();
 	const clineMcpSettingsService = createClineMcpSettingsService();
@@ -116,6 +126,31 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 			deps.broadcastClineMcpAuthStatusesUpdated?.(statuses);
 		},
 	});
+	const recordScore = async (
+		workspaceScope: RuntimeTrpcWorkspaceScope,
+		event: Parameters<typeof recordAgentScoreEvent>[1],
+	): Promise<void> => {
+		try {
+			if (await recordAgentScoreEvent(workspaceScope.workspaceId, event)) {
+				await deps.broadcastRuntimeWorkspaceStateUpdated?.(
+					workspaceScope.workspaceId,
+					workspaceScope.workspacePath,
+				);
+			}
+		} catch (error) {
+			warnAgentScoreRecording("Could not record agent score event.", error);
+		}
+	};
+	const recordTaskAssignment = async (workspaceScope: RuntimeTrpcWorkspaceScope, taskId: string): Promise<void> => {
+		try {
+			const card = findBoardCard(await loadWorkspaceBoardById(workspaceScope.workspaceId), taskId);
+			if (card?.agentId) {
+				await recordScore(workspaceScope, { type: "assigned", agentId: card.agentId, taskId });
+			}
+		} catch (error) {
+			warnAgentScoreRecording("Could not record agent score event.", error);
+		}
+	};
 	const debugResetTargetPaths = [
 		join(homedir(), ".cline", "data"),
 		join(homedir(), ".cline", "kanban"),
@@ -316,6 +351,7 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 						}
 					}
 
+					await recordTaskAssignment(workspaceScope, body.taskId);
 					return {
 						ok: true,
 						summary: nextSummary,
@@ -365,6 +401,7 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 						// Best effort checkpointing only.
 					}
 				}
+				await recordTaskAssignment(workspaceScope, body.taskId);
 				return {
 					ok: true,
 					summary: nextSummary,
@@ -465,6 +502,15 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 				});
 				if (!sent.ok) {
 					return { ok: false, error: `Task "${taskId}" session is not running.` };
+				}
+				const reviewCard = findReviewRoundCard(board, taskId);
+				if (reviewCard?.agentId) {
+					await recordScore(workspaceScope, {
+						type: "fail",
+						agentId: reviewCard.agentId,
+						taskId,
+						round: reviewCard.reviewRound,
+					});
 				}
 				return { ok: true };
 			} catch (error) {
