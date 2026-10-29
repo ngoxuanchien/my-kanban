@@ -180,6 +180,43 @@ describe("BoardCard", () => {
 		}
 	});
 
+	const renderAgentLabel = async (
+		card: Parameters<typeof BoardCard>[0]["card"],
+		options: {
+			sessionSummary?: RuntimeTaskSessionSummary;
+			defaultAgentId?: Parameters<typeof BoardCard>[0]["defaultAgentId"];
+		} = {},
+	): Promise<string | null> => {
+		await act(async () => {
+			root.render(<BoardCard card={card} index={0} columnId="backlog" {...options} />);
+		});
+		return container.querySelector("span.truncate")?.textContent ?? null;
+	};
+
+	it("shows the agent override before the session agent", async () => {
+		expect(
+			await renderAgentLabel(createCard({ agentId: "claude" }), {
+				sessionSummary: createSummary("running", { agentId: "codex" }),
+			}),
+		).toBe("Claude Code");
+	});
+
+	it("shows the session agent when there is no override", async () => {
+		expect(
+			await renderAgentLabel(createCard(), {
+				sessionSummary: createSummary("running", { agentId: "codex" }),
+			}),
+		).toBe("OpenAI Codex");
+	});
+
+	it("shows the project default agent when there is no override or session", async () => {
+		expect(await renderAgentLabel(createCard(), { defaultAgentId: "claude" })).toBe("Claude Code");
+	});
+
+	it("does not show an agent when no override, session, or project default is set", async () => {
+		expect(await renderAgentLabel(createCard())).toBeNull();
+	});
+
 	it("returns the agent review label for each review state", () => {
 		expect(getCardReviewLabel(createCard())).toBeNull();
 		expect(getCardReviewLabel(createCard({ agentReviewEnabled: true, reviewRound: 0 }))).toBe("Review");

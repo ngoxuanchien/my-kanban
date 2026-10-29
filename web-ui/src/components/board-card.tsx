@@ -16,7 +16,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
 import { Spinner } from "@/components/ui/spinner";
 import { Tooltip } from "@/components/ui/tooltip";
-import type { RuntimeTaskSessionSummary } from "@/runtime/types";
+import type { RuntimeAgentId, RuntimeTaskSessionSummary } from "@/runtime/types";
 import { useTaskWorkspaceSnapshotValue } from "@/stores/workspace-metadata-store";
 import type { BoardCard as BoardCardModel, BoardColumnId } from "@/types";
 import { getTaskAutoReviewCancelButtonLabel } from "@/types";
@@ -223,6 +223,7 @@ export function BoardCard({
 	index,
 	columnId,
 	sessionSummary,
+	defaultAgentId = null,
 	selected = false,
 	onClick,
 	onStart,
@@ -247,6 +248,7 @@ export function BoardCard({
 	index: number;
 	columnId: BoardColumnId;
 	sessionSummary?: RuntimeTaskSessionSummary;
+	defaultAgentId?: RuntimeAgentId | null;
 	selected?: boolean;
 	onClick?: () => void;
 	onStart?: (taskId: string) => void;
@@ -438,10 +440,10 @@ export function BoardCard({
 	const isAnyGitActionLoading = isCommitLoading || isOpenPrLoading;
 	const cancelAutomaticActionLabel =
 		!isTrashCard && card.autoReviewEnabled ? getTaskAutoReviewCancelButtonLabel(card.autoReviewMode) : null;
-	const agentOverrideLabel = useMemo(
-		() => (card.agentId ? (getRuntimeAgentCatalogEntry(card.agentId)?.label ?? card.agentId) : null),
-		[card.agentId],
-	);
+	const agentLabel = useMemo(() => {
+		const agentId = card.agentId ?? sessionSummary?.agentId ?? defaultAgentId;
+		return agentId ? (getRuntimeAgentCatalogEntry(agentId)?.label ?? agentId) : null;
+	}, [card.agentId, sessionSummary?.agentId, defaultAgentId]);
 	const modelOverrideLabel = useMemo(() => {
 		if (card.clineSettings === undefined) {
 			return null;
@@ -475,12 +477,12 @@ export function BoardCard({
 		const handoffLabel = handOffCount === 1 ? "Handed off" : handOffCount > 1 ? `Handed off ×${handOffCount}` : null;
 		const reviewLabel = getCardReviewLabel(card);
 		const quotaBlockedLabel = columnId === "review" && card.quotaBlockedAt ? "Out of quota" : null;
-		const parts = [agentOverrideLabel, modelOverrideLabel, handoffLabel, reviewLabel, quotaBlockedLabel].filter(
+		const parts = [agentLabel, modelOverrideLabel, handoffLabel, reviewLabel, quotaBlockedLabel].filter(
 			(value): value is string => Boolean(value),
 		);
 		return parts.length > 0 ? parts.join(" · ") : null;
 	}, [
-		agentOverrideLabel,
+		agentLabel,
 		modelOverrideLabel,
 		card.handOffCount,
 		card.handedOff,
