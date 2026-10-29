@@ -829,6 +829,30 @@ async function sendTaskMessage(input: {
 	};
 }
 
+async function handOffTask(input: {
+	cwd: string;
+	taskId: string;
+	message: string;
+	projectPath?: string;
+}): Promise<JsonRecord> {
+	const workspaceRepoPath = await resolveWorkspaceRepoPath(input.projectPath, input.cwd);
+	const workspaceId = await ensureRuntimeWorkspace(workspaceRepoPath);
+	const runtimeClient = createRuntimeTrpcClient(workspaceId);
+	const response = await runtimeClient.runtime.handOffTask.mutate({
+		taskId: input.taskId,
+		reason: input.message,
+	});
+	if (!response.ok) {
+		throw new Error(response.error ?? `Task "${input.taskId}" could not be handed off.`);
+	}
+	return {
+		ok: true,
+		taskId: input.taskId,
+		fromAgentId: response.fromAgentId,
+		toAgentId: response.toAgentId,
+	};
+}
+
 interface TrashTaskExecutionResult {
 	task: JsonRecord;
 	taskId: string;
@@ -1381,6 +1405,24 @@ export function registerTaskCommand(program: Command): void {
 			await runTaskCommand(
 				async () =>
 					await sendTaskMessage({
+						cwd: process.cwd(),
+						taskId: options.taskId,
+						message: options.message,
+						projectPath: options.projectPath,
+					}),
+			);
+		});
+
+	task
+		.command("handoff")
+		.description("Hand off a task to the other supported agent.")
+		.requiredOption("--task-id <id>", "Task ID.")
+		.requiredOption("--message <text>", "Reason for handing off the task.")
+		.option("--project-path <path>", "Workspace path. Defaults to current directory workspace.")
+		.action(async (options: { taskId: string; message: string; projectPath?: string }) => {
+			await runTaskCommand(
+				async () =>
+					await handOffTask({
 						cwd: process.cwd(),
 						taskId: options.taskId,
 						message: options.message,

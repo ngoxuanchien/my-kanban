@@ -4,6 +4,7 @@ import {
 	runtimeBoardCardSchema,
 	runtimeBoardColumnIdSchema,
 	runtimeBoardDataSchema,
+	runtimeTaskHandOffRequestSchema,
 } from "../../src/core/api-contract";
 import {
 	parseHookIngestRequest,
@@ -108,6 +109,12 @@ describe("agent review card fields", () => {
 		const card = runtimeBoardCardSchema.parse({ ...baseCard, agentReviewEnabled: true, reviewRound: 2 });
 		expect(card.agentReviewEnabled).toBe(true);
 		expect(card.reviewRound).toBe(2);
+	});
+});
+
+describe("runtimeTaskHandOffRequestSchema", () => {
+	it("rejects an empty reason", () => {
+		expect(runtimeTaskHandOffRequestSchema.safeParse({ taskId: "task-1", reason: "" }).success).toBe(false);
 	});
 });
 

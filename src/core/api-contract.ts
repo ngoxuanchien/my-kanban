@@ -1046,6 +1046,20 @@ export const runtimeTaskSendMessageResponseSchema = z.object({
 });
 export type RuntimeTaskSendMessageResponse = z.infer<typeof runtimeTaskSendMessageResponseSchema>;
 
+export const runtimeTaskHandOffRequestSchema = z.object({
+	taskId: z.string(),
+	reason: z.string().min(1),
+});
+export type RuntimeTaskHandOffRequest = z.infer<typeof runtimeTaskHandOffRequestSchema>;
+
+export const runtimeTaskHandOffResponseSchema = z.object({
+	ok: z.boolean(),
+	error: z.string().nullable().optional(),
+	fromAgentId: z.enum(["codex", "opencode"]).optional(),
+	toAgentId: z.enum(["codex", "opencode"]).optional(),
+});
+export type RuntimeTaskHandOffResponse = z.infer<typeof runtimeTaskHandOffResponseSchema>;
+
 export const runtimeTaskChatMessageSchema = z.object({
 	id: z.string(),
 	role: z.enum(["user", "assistant", "system", "tool", "reasoning", "status"]),

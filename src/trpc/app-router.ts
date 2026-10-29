@@ -75,6 +75,8 @@ import type {
 	RuntimeTaskChatReloadResponse,
 	RuntimeTaskChatSendRequest,
 	RuntimeTaskChatSendResponse,
+	RuntimeTaskHandOffRequest,
+	RuntimeTaskHandOffResponse,
 	RuntimeTaskSendMessageRequest,
 	RuntimeTaskSendMessageResponse,
 	RuntimeTaskSessionInputRequest,
@@ -168,6 +170,8 @@ import {
 	runtimeTaskChatReloadResponseSchema,
 	runtimeTaskChatSendRequestSchema,
 	runtimeTaskChatSendResponseSchema,
+	runtimeTaskHandOffRequestSchema,
+	runtimeTaskHandOffResponseSchema,
 	runtimeTaskSendMessageRequestSchema,
 	runtimeTaskSendMessageResponseSchema,
 	runtimeTaskSessionInputRequestSchema,
@@ -234,6 +238,10 @@ export interface RuntimeTrpcContext {
 			scope: RuntimeTrpcWorkspaceScope,
 			input: RuntimeTaskSendMessageRequest,
 		) => Promise<RuntimeTaskSendMessageResponse>;
+		handOffTask: (
+			scope: RuntimeTrpcWorkspaceScope,
+			input: RuntimeTaskHandOffRequest,
+		) => Promise<RuntimeTaskHandOffResponse>;
 		getTaskChatMessages: (
 			scope: RuntimeTrpcWorkspaceScope,
 			input: RuntimeTaskChatMessagesRequest,
@@ -486,6 +494,12 @@ export const runtimeAppRouter = t.router({
 			.output(runtimeTaskSendMessageResponseSchema)
 			.mutation(async ({ ctx, input }) => {
 				return await ctx.runtimeApi.sendTaskMessage(ctx.workspaceScope, input);
+			}),
+		handOffTask: workspaceProcedure
+			.input(runtimeTaskHandOffRequestSchema)
+			.output(runtimeTaskHandOffResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.runtimeApi.handOffTask(ctx.workspaceScope, input);
 			}),
 		getTaskChatMessages: workspaceProcedure
 			.input(runtimeTaskChatMessagesRequestSchema)

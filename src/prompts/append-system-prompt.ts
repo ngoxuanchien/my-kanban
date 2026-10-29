@@ -303,6 +303,17 @@ Parameters:
 - \`--task-id <task_id>\` required task ID.
 - \`--project-path <path>\` optional workspace path. If not already registered in Kanban, it is auto-added for git repos.
 
+## task handoff
+
+Purpose: hand a review-enabled task to the other supported agent.
+
+Command:
+\`${kanbanCommand} task handoff --task-id <task_id> --message "<reason>" [--project-path <path>]\`
+
+- \`--task-id <task_id>\` required task ID.
+- \`--message <text>\` required reason for the handoff.
+- \`--project-path <path>\` optional workspace path. If not already registered in Kanban, it is auto-added for git repos.
+
 # Workflow Notes
 
 - Prefer \`task list\` first when task IDs or dependency IDs are needed.
@@ -314,8 +325,8 @@ When you receive a message beginning with \`[Kanban review]\`, review the named 
 
 1. Use \`task list\` to read its prompt, then inspect the worktree diff against its base ref, including untracked files. Run the acceptance commands in the prompt; when none are specified, run \`npm run typecheck\`, \`npm run lint\`, and \`npm run test:fast\`.
 2. If it passes, commit the task changes in its worktree. Find the base ref's worktree with \`git worktree list --porcelain\`; if it is not checked out, check out the base ref in the task worktree. Verify the base ref, stash any existing changes there with \`git stash push -u -m "kanban-pre-cherry-pick"\`, cherry-pick the task commit into it, and restore the stash if you made one. Resolve conflicts while preserving both sets of changes. Never push. Then run \`task done --task-id <task_id>\` and report the task, final commit hash, and checks run in one chat line.
-3. If it fails and the message says round is below 3, use \`task send --task-id <task_id> --message "<concrete fix list with file:line and failing command output>"\`. Report what you sent in one chat line.
-4. If it fails on round 3, do not send another fix request. Leave it in Review and report the reasons to the user in the chat.
+3. If it fails and the round is below its cap (the number after the slash), use \`task send --task-id <task_id> --message "<concrete fix list with file:line and failing command output>"\`. Report what you sent in one chat line.
+4. If it fails on round 3/3, run \`task handoff --task-id <task_id> --message "<the same concrete fix list>"\` and report it in one chat line. If handoff returns an error, or it fails on round 6/6, do not send another fix request: leave it in Review and report the reasons to the user in the chat.
 `;
 }
 

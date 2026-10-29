@@ -63,6 +63,13 @@ describe("renderAppendSystemPrompt", () => {
 		expect(rendered).toContain("kanban task delete");
 		expect(rendered).toContain("[Kanban review]");
 		expect(rendered).toContain("task send");
+		expect(rendered).toContain("task handoff");
+		expect(rendered).toContain(
+			'3. If it fails and the round is below its cap (the number after the slash), use `task send --task-id <task_id> --message "<concrete fix list with file:line and failing command output>"`. Report what you sent in one chat line.',
+		);
+		expect(rendered).toContain(
+			'4. If it fails on round 3/3, run `task handoff --task-id <task_id> --message "<the same concrete fix list>"` and report it in one chat line. If handoff returns an error, or it fails on round 6/6, do not send another fix request: leave it in Review and report the reasons to the user in the chat.',
+		);
 		expect(rendered).toContain("--column backlog|in_progress|review|done");
 		expect(rendered).toContain("Provide exactly one of");
 		expect(rendered).toContain("task delete --column done");

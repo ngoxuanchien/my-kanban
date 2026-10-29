@@ -19,6 +19,7 @@ import type {
 	RuntimeBoardData,
 	RuntimeCommandRunResponse,
 	RuntimeRunUpdateResponse,
+	RuntimeTaskHandOffResponse,
 	RuntimeUpdateStatusResponse,
 } from "../core/api-contract";
 import {
@@ -46,6 +47,7 @@ import {
 import { isHomeAgentSessionId } from "../core/home-agent-session";
 import { resolveTaskTitle } from "../core/task-title.js";
 import { openInBrowser } from "../server/browser";
+import { handOffTask as handOffTaskInWorkspace } from "../server/hand-off-task";
 import { loadWorkspaceBoardById } from "../state/workspace-state";
 import { buildRuntimeConfigResponse, resolveAgentCommand } from "../terminal/agent-registry";
 import { sendPromptToSession } from "../terminal/send-prompt-to-session";
@@ -66,6 +68,7 @@ export interface CreateRuntimeApiDependencies {
 	broadcastClineMcpAuthStatusesUpdated?: (
 		statuses: Awaited<ReturnType<ReturnType<typeof createClineMcpRuntimeService>["getAuthStatuses"]>>,
 	) => void;
+	broadcastRuntimeWorkspaceStateUpdated?: (workspaceId: string, workspacePath: string) => Promise<void> | void;
 	broadcastTaskChatCleared?: (workspaceId: string, taskId: string) => void;
 	bumpClineSessionContextVersion?: () => void;
 	prepareForStateReset?: () => Promise<void>;
@@ -122,7 +125,7 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 	const buildConfigResponse = (runtimeConfig: RuntimeConfigState) =>
 		buildRuntimeConfigResponse(runtimeConfig, clineProviderService.getProviderSettingsSummary());
 
-	return {
+	const api: RuntimeTrpcContext["runtimeApi"] = {
 		loadConfig: async (workspaceScope) => {
 			const activeRuntimeConfig = deps.getActiveRuntimeConfig?.();
 			if (!workspaceScope && !activeRuntimeConfig) {
@@ -430,6 +433,39 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 			} catch (error) {
 				const errorMessage = error instanceof Error ? error.message : String(error);
 				return { ok: false, error: errorMessage };
+			}
+		},
+		handOffTask: async (workspaceScope, input): Promise<RuntimeTaskHandOffResponse> => {
+			try {
+				const result = await handOffTaskInWorkspace(
+					{
+						workspacePath: workspaceScope.workspacePath,
+						stopTaskSession: async (taskId) => {
+							const stopped = await api.stopTaskSession(workspaceScope, { taskId });
+							if (!stopped.ok && stopped.error) throw new Error(stopped.error);
+						},
+						startTaskSession: async (session) => {
+							const started = await api.startTaskSession(workspaceScope, {
+								taskId: session.taskId,
+								prompt: session.prompt,
+								taskTitle: session.taskTitle,
+								baseRef: session.baseRef,
+								agentId: session.agentId,
+							});
+							return { ok: started.ok, error: started.error };
+						},
+						broadcastStateUpdated: async () => {
+							await deps.broadcastRuntimeWorkspaceStateUpdated?.(
+								workspaceScope.workspaceId,
+								workspaceScope.workspacePath,
+							);
+						},
+					},
+					input,
+				);
+				return result;
+			} catch (error) {
+				return { ok: false, error: error instanceof Error ? error.message : String(error) };
 			}
 		},
 		getTaskChatMessages: async (workspaceScope, input) => {
@@ -785,4 +821,5 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 			return await deps.runUpdateNow();
 		},
 	};
+	return api;
 }

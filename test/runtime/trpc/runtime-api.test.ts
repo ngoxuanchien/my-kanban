@@ -62,6 +62,20 @@ const browserMocks = vi.hoisted(() => ({
 	openInBrowser: vi.fn(),
 }));
 
+const handOffTaskMocks = vi.hoisted(() => ({
+	handOffTask: vi.fn(
+		async (deps: { broadcastStateUpdated: () => Promise<void> | void }, input: { taskId: string }) => {
+			await deps.broadcastStateUpdated();
+			return {
+				ok: true as const,
+				taskId: input.taskId,
+				fromAgentId: "codex" as const,
+				toAgentId: "opencode" as const,
+			};
+		},
+	),
+}));
+
 vi.mock("../../../src/terminal/agent-registry.js", () => ({
 	resolveAgentCommand: agentRegistryMocks.resolveAgentCommand,
 	buildRuntimeConfigResponse: agentRegistryMocks.buildRuntimeConfigResponse,
@@ -134,6 +148,8 @@ vi.mock("@clinebot/core", () => ({
 vi.mock("../../../src/server/browser.js", () => ({
 	openInBrowser: browserMocks.openInBrowser,
 }));
+
+vi.mock("../../../src/server/hand-off-task.js", () => ({ handOffTask: handOffTaskMocks.handOffTask }));
 
 import type { RuntimeTrpcContext } from "../../../src/trpc/app-router";
 import { type CreateRuntimeApiDependencies, createRuntimeApi } from "../../../src/trpc/runtime-api";
@@ -2998,6 +3014,28 @@ describe("createRuntimeApi sendTaskMessage", () => {
 			"task-1",
 			Buffer.from("\x1b[200~fix it\x1b[201~", "utf8"),
 		);
+	});
+});
+
+describe("createRuntimeApi handOffTask", () => {
+	it("broadcasts the workspace state update for the task's workspace", async () => {
+		const broadcastRuntimeWorkspaceStateUpdated = vi.fn(async () => {});
+		const api = createTestRuntimeApi({
+			getActiveWorkspaceId: vi.fn(() => "workspace-1"),
+			loadScopedRuntimeConfig: vi.fn(async () => createRuntimeConfigState()),
+			setActiveRuntimeConfig: vi.fn(),
+			getScopedTerminalManager: vi.fn(async () => ({}) as never),
+			getScopedClineTaskSessionService: vi.fn(async () => createClineTaskSessionServiceMock() as never),
+			resolveInteractiveShellCommand: vi.fn(),
+			runCommand: vi.fn(),
+			broadcastRuntimeWorkspaceStateUpdated,
+		});
+		const scope = { workspaceId: "workspace-1", workspacePath: "/tmp/repo" };
+
+		const result = await api.handOffTask(scope, { taskId: "task-1", reason: "needs fixes" });
+
+		expect(result.ok).toBe(true);
+		expect(broadcastRuntimeWorkspaceStateUpdated).toHaveBeenCalledWith("workspace-1", "/tmp/repo");
 	});
 });
 
