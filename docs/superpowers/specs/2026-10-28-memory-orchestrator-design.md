@@ -1,5 +1,7 @@
 # Shared memory + agent orchestration — design spec
 
+> **Status 2026-10-29:** the memory part is done. Cross review (Task 5) was dropped and replaced by the sidebar agent review in `2026-10-29-sidebar-agent-review-design.md`.
+
 Date: 2026-10-28
 Status: draft for the user to approve
 Scope: design only. No code is part of this document.

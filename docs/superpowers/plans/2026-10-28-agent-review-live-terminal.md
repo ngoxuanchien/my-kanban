@@ -1,3 +1,5 @@
+# Superseded by 2026-10-29-remove-agent-review-design.md
+
 # Agent review live terminal — plan
 
 Spec: `docs/superpowers/specs/2026-10-28-agent-review-live-terminal-design.md`.

@@ -18,6 +18,10 @@ Update this file whenever a file or folder is created or moved.
 | `docs/` | Public docs: `architecture.md`, `smoke-tests/`. |
 | `docs/superpowers/specs/` | Design specs (`YYYY-MM-DD-<topic>-design.md`). |
 | `docs/superpowers/plans/` | Implementation plans (`YYYY-MM-DD-<topic>.md`). |
+| `docs/superpowers/specs/2026-10-28-agent-review-design.md` | Superseded (removed 2026-10-29). |
+| `docs/superpowers/specs/2026-10-28-agent-review-live-terminal-design.md` | Superseded (removed 2026-10-29). |
+| `docs/superpowers/plans/2026-10-28-agent-review.md` | Superseded (removed 2026-10-29). |
+| `docs/superpowers/plans/2026-10-28-agent-review-live-terminal.md` | Superseded (removed 2026-10-29). |
 | `docs/superpowers/specs/2026-10-28-memory-orchestrator-design.md` | Spec: shared Basic Memory server, OpenCode/Codex split, cross review. |
 | `docs/superpowers/specs/2026-10-29-remove-agent-review-design.md` | Spec: remove the automatic reviewer and restore the four-column Review board. |
 | `docs/superpowers/specs/2026-10-29-sidebar-agent-review-design.md` | Spec: sidebar agent reviews tasks, `task send`, up to 3 fix rounds. |
@@ -42,7 +46,7 @@ Update this file whenever a file or folder is created or moved.
 | `contexte/local-only-folders.md` | Which files are local-only, how (`.gitignore`), and the no-push git policy. |
 | `contexte/parallel-sessions.md` | Rule for running agent sessions in parallel without file conflicts. |
 | `contexte/memory-orchestrator.md` | Decisions + measured token findings for shared memory (Basic Memory) and agent orchestration. |
-| `contexte/agent-review-live-terminal.md` | Reviewer runs as a live PTY session; verdict-file design and its gotchas. |
+| `contexte/agent-review-live-terminal.md` | Superseded: reviewer ran as a live PTY session; verdict-file design and its gotchas. |
 
 ## livrables/
 _(empty)_

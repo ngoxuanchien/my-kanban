@@ -1,5 +1,7 @@
 # Memory + Orchestrator Implementation Plan
 
+> **Status 2026-10-29:** Tasks 1-4 (memory) are done. Task 5 (switch on cross review) is void; cross review was replaced by the sidebar agent review in `2026-10-29-sidebar-agent-review-design.md`.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add a `"cross"` reviewer setting (Codex ↔ OpenCode). Add the docs and ignore rules that let Claude and OpenCode share one Basic Memory server over `contexte/`. Then roll that server out.
