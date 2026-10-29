@@ -150,6 +150,7 @@ export const runtimeBoardCardSchema = z
 		reviewRound: z.number().int().min(0).optional(),
 		handOffCount: z.number().int().min(0).optional(),
 		handedOff: z.boolean().optional(),
+		quotaBlockedAt: z.number().optional(),
 		images: z.array(runtimeTaskImageSchema).optional(),
 		agentId: runtimeAgentIdSchema.optional(),
 		clineSettings: runtimeTaskClineSettingsSchema.optional(),

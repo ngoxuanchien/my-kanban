@@ -242,6 +242,10 @@ export interface RuntimeTrpcContext {
 			scope: RuntimeTrpcWorkspaceScope,
 			input: RuntimeTaskHandOffRequest,
 		) => Promise<RuntimeTaskHandOffResponse>;
+		retryQuotaBlockedTask: (
+			scope: RuntimeTrpcWorkspaceScope,
+			input: { taskId: string; reason: string },
+		) => Promise<RuntimeTaskHandOffResponse>;
 		getTaskChatMessages: (
 			scope: RuntimeTrpcWorkspaceScope,
 			input: RuntimeTaskChatMessagesRequest,

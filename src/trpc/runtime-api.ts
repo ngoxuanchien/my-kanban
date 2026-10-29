@@ -125,6 +125,43 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 	const buildConfigResponse = (runtimeConfig: RuntimeConfigState) =>
 		buildRuntimeConfigResponse(runtimeConfig, clineProviderService.getProviderSettingsSummary());
 
+	const runHandOffTask = async (
+		workspaceScope: RuntimeTrpcWorkspaceScope,
+		input: { taskId: string; reason: string; quotaRetry?: boolean },
+	): Promise<RuntimeTaskHandOffResponse> => {
+		try {
+			const result = await handOffTaskInWorkspace(
+				{
+					workspacePath: workspaceScope.workspacePath,
+					stopTaskSession: async (taskId) => {
+						const stopped = await api.stopTaskSession(workspaceScope, { taskId });
+						if (!stopped.ok && stopped.error) throw new Error(stopped.error);
+					},
+					startTaskSession: async (session) => {
+						const started = await api.startTaskSession(workspaceScope, {
+							taskId: session.taskId,
+							prompt: session.prompt,
+							taskTitle: session.taskTitle,
+							baseRef: session.baseRef,
+							agentId: session.agentId,
+						});
+						return { ok: started.ok, error: started.error };
+					},
+					broadcastStateUpdated: async () => {
+						await deps.broadcastRuntimeWorkspaceStateUpdated?.(
+							workspaceScope.workspaceId,
+							workspaceScope.workspacePath,
+						);
+					},
+				},
+				input,
+			);
+			return result;
+		} catch (error) {
+			return { ok: false, error: error instanceof Error ? error.message : String(error) };
+		}
+	};
+
 	const api: RuntimeTrpcContext["runtimeApi"] = {
 		loadConfig: async (workspaceScope) => {
 			const activeRuntimeConfig = deps.getActiveRuntimeConfig?.();
@@ -436,37 +473,10 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 			}
 		},
 		handOffTask: async (workspaceScope, input): Promise<RuntimeTaskHandOffResponse> => {
-			try {
-				const result = await handOffTaskInWorkspace(
-					{
-						workspacePath: workspaceScope.workspacePath,
-						stopTaskSession: async (taskId) => {
-							const stopped = await api.stopTaskSession(workspaceScope, { taskId });
-							if (!stopped.ok && stopped.error) throw new Error(stopped.error);
-						},
-						startTaskSession: async (session) => {
-							const started = await api.startTaskSession(workspaceScope, {
-								taskId: session.taskId,
-								prompt: session.prompt,
-								taskTitle: session.taskTitle,
-								baseRef: session.baseRef,
-								agentId: session.agentId,
-							});
-							return { ok: started.ok, error: started.error };
-						},
-						broadcastStateUpdated: async () => {
-							await deps.broadcastRuntimeWorkspaceStateUpdated?.(
-								workspaceScope.workspaceId,
-								workspaceScope.workspacePath,
-							);
-						},
-					},
-					input,
-				);
-				return result;
-			} catch (error) {
-				return { ok: false, error: error instanceof Error ? error.message : String(error) };
-			}
+			return await runHandOffTask(workspaceScope, input);
+		},
+		retryQuotaBlockedTask: async (workspaceScope, input): Promise<RuntimeTaskHandOffResponse> => {
+			return await runHandOffTask(workspaceScope, { taskId: input.taskId, reason: input.reason, quotaRetry: true });
 		},
 		getTaskChatMessages: async (workspaceScope, input) => {
 			try {

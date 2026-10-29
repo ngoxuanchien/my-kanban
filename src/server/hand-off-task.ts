@@ -47,21 +47,21 @@ function findCard(board: { columns: Array<{ cards: RuntimeBoardCard[] }> }, task
 	return null;
 }
 
-function refusal(card: RuntimeBoardCard | null): string | null {
+function refusal(card: RuntimeBoardCard | null, quotaRetry = false): string | null {
 	if (!card) return "Task not found";
 	if (card.agentReviewEnabled !== true) return "Agent review is not enabled for this task";
-	if (getHandOffCount(card) >= MAX_HAND_OFFS) return "Task has already been handed off twice";
+	if (!quotaRetry && getHandOffCount(card) >= MAX_HAND_OFFS) return "Task has already been handed off twice";
 	if (!isHandOffAgentId(card.agentId)) return "Task agent must be codex, opencode, or antigravity to hand off";
 	return null;
 }
 
 export async function handOffTask(
 	deps: HandOffTaskDependencies,
-	input: { taskId: string; reason: string },
+	input: { taskId: string; reason: string; quotaRetry?: boolean },
 ): Promise<HandOffTaskResult> {
 	const state = await loadWorkspaceState(deps.workspacePath);
 	const card = findCard(state.board, input.taskId);
-	const initialRefusal = refusal(card);
+	const initialRefusal = refusal(card, input.quotaRetry);
 	if (initialRefusal) return { ok: false, error: initialRefusal };
 	if (!card || !isHandOffAgentId(card.agentId))
 		return { ok: false, error: "Task agent must be codex, opencode, or antigravity to hand off" };
@@ -72,7 +72,7 @@ export async function handOffTask(
 	await deps.stopTaskSession(input.taskId);
 	const mutation = await mutateWorkspaceState<HandOffTaskResult>(deps.workspacePath, (current) => {
 		const currentCard = findCard(current.board, input.taskId);
-		const currentRefusal = refusal(currentCard);
+		const currentRefusal = refusal(currentCard, input.quotaRetry);
 		if (currentRefusal || currentCard?.agentId !== fromAgentId || getHandOffCount(currentCard) !== handOffCount) {
 			return {
 				board: current.board,
@@ -86,7 +86,7 @@ export async function handOffTask(
 				...column,
 				cards: column.cards.map((candidate) => {
 					if (candidate.id !== input.taskId) return candidate;
-					const { handedOff: _legacyHandedOff, ...updatedCandidate } = candidate;
+					const { handedOff: _legacyHandedOff, quotaBlockedAt: _quotaBlockedAt, ...updatedCandidate } = candidate;
 					return { ...updatedCandidate, agentId: toAgentId, handOffCount: getHandOffCount(candidate) + 1 };
 				}),
 			})),

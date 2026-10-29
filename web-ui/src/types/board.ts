@@ -47,6 +47,7 @@ export interface BoardCard {
 	reviewRound?: number;
 	handOffCount?: number;
 	handedOff?: boolean;
+	quotaBlockedAt?: number;
 	images?: TaskImage[];
 	agentId?: RuntimeAgentId;
 	clineSettings?: RuntimeTaskClineSettings;

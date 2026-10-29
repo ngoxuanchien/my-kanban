@@ -620,6 +620,50 @@ describe("board dependency state", () => {
 		]);
 	});
 
+	it("keeps valid quotaBlockedAt timestamps when normalizing cards", () => {
+		const board = normalizeBoardData({
+			columns: [
+				{
+					id: "backlog",
+					cards: [
+						{
+							id: "task-1",
+							prompt: "Task A",
+							startInPlanMode: false,
+							baseRef: "main",
+							quotaBlockedAt: 1700000000000,
+						},
+					],
+				},
+				{ id: "in_progress", cards: [] },
+				{ id: "review", cards: [] },
+				{ id: "trash", cards: [] },
+			],
+			dependencies: [],
+		});
+
+		expect(board?.columns[0]?.cards[0]?.quotaBlockedAt).toBe(1700000000000);
+	});
+
+	it("omits invalid quotaBlockedAt values when normalizing cards", () => {
+		for (const quotaBlockedAt of ["x", -1]) {
+			const board = normalizeBoardData({
+				columns: [
+					{
+						id: "backlog",
+						cards: [{ id: "task-1", prompt: "Task A", startInPlanMode: false, baseRef: "main", quotaBlockedAt }],
+					},
+					{ id: "in_progress", cards: [] },
+					{ id: "review", cards: [] },
+					{ id: "trash", cards: [] },
+				],
+				dependencies: [],
+			});
+
+			expect(board?.columns[0]?.cards[0]?.quotaBlockedAt).toBeUndefined();
+		}
+	});
+
 	it("disables auto-review settings for a task", () => {
 		let board = createInitialBoardData();
 		board = addTaskToColumn(board, "review", {

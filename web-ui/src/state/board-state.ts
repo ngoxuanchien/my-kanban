@@ -161,6 +161,7 @@ function normalizeCard(rawCard: unknown): BoardCard | null {
 		reviewRound?: unknown;
 		handOffCount?: unknown;
 		handedOff?: unknown;
+		quotaBlockedAt?: unknown;
 		images?: unknown;
 		baseRef?: unknown;
 		agentId?: unknown;
@@ -212,6 +213,9 @@ function normalizeCard(rawCard: unknown): BoardCard | null {
 			typeof card.reviewRound === "number" && Number.isInteger(card.reviewRound) && card.reviewRound >= 0
 				? card.reviewRound
 				: 0,
+		...(typeof card.quotaBlockedAt === "number" && Number.isFinite(card.quotaBlockedAt) && card.quotaBlockedAt >= 0
+			? { quotaBlockedAt: card.quotaBlockedAt }
+			: {}),
 		images: normalizeTaskImages(card.images),
 		baseRef,
 		...(typeof card.agentId === "string" && card.agentId ? { agentId: card.agentId as RuntimeAgentId } : {}),

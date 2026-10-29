@@ -132,6 +132,41 @@ describe("handOffTask", () => {
 		expect(deps.startTaskSession).not.toHaveBeenCalled();
 	});
 
+	it("refuses a quota-blocked task without quotaRetry and retries past the handoff cap with quotaRetry", async () => {
+		const deps = dependencies();
+		const refusedCard = { ...card("antigravity"), handOffCount: 2, quotaBlockedAt: 123 };
+		workspaceState.board.columns[2]?.cards.splice(0, 1, refusedCard);
+
+		expect(await handOffTask(deps, { taskId: "task-1", reason: "Reason" })).toEqual({
+			ok: false,
+			error: "Task has already been handed off twice",
+		});
+		expect(workspaceState.board.columns[1]?.cards[0]).toBeUndefined();
+		expect(deps.stopTaskSession).not.toHaveBeenCalled();
+
+		expect(await handOffTask(deps, { taskId: "task-1", reason: "Reason", quotaRetry: true })).toEqual({
+			ok: true,
+			taskId: "task-1",
+			fromAgentId: "antigravity",
+			toAgentId: "codex",
+		});
+		const moved = workspaceState.board.columns[1]?.cards[0];
+		expect(moved).toMatchObject({ agentId: "codex", handOffCount: 3 });
+		expect(moved).not.toHaveProperty("quotaBlockedAt");
+		expect(moved).not.toHaveProperty("handedOff");
+		expect(workspaceState.board.columns[2]?.cards).toHaveLength(0);
+	});
+
+	it("refuses a quotaRetry handoff when agent review is not enabled", async () => {
+		workspaceState.board.columns[2]?.cards.splice(0, 1, { ...card(), agentReviewEnabled: false, handOffCount: 2 });
+		const deps = dependencies();
+		expect(await handOffTask(deps, { taskId: "task-1", reason: "Reason", quotaRetry: true })).toEqual({
+			ok: false,
+			error: "Agent review is not enabled for this task",
+		});
+		expect(workspaceState.board.columns[1]?.cards).toHaveLength(0);
+	});
+
 	it("refuses an unknown id without changing the board", async () => {
 		const before = structuredClone(workspaceState.board);
 		const deps = dependencies();

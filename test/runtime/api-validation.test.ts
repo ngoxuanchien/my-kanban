@@ -110,11 +110,30 @@ describe("agent review card fields", () => {
 		expect(card.agentReviewEnabled).toBe(true);
 		expect(card.reviewRound).toBe(2);
 	});
+
+	it("keeps quotaBlockedAt epoch milliseconds on the card", () => {
+		const card = runtimeBoardCardSchema.parse({ ...baseCard, quotaBlockedAt: 1700000000000 });
+		expect(card.quotaBlockedAt).toBe(1700000000000);
+	});
+
+	it("omits quotaBlockedAt when the card has none", () => {
+		const card = runtimeBoardCardSchema.parse(baseCard);
+		expect(card.quotaBlockedAt).toBeUndefined();
+	});
 });
 
 describe("runtimeTaskHandOffRequestSchema", () => {
 	it("rejects an empty reason", () => {
 		expect(runtimeTaskHandOffRequestSchema.safeParse({ taskId: "task-1", reason: "" }).success).toBe(false);
+	});
+
+	it("strips quotaRetry from the handoff request", () => {
+		const withQuotaRetry = runtimeTaskHandOffRequestSchema.parse({
+			taskId: "task-1",
+			reason: "Fix it",
+			quotaRetry: true,
+		});
+		expect(withQuotaRetry).toEqual({ taskId: "task-1", reason: "Fix it" });
 	});
 });
 
