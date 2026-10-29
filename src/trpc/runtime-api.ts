@@ -49,6 +49,7 @@ import { resolveTaskTitle } from "../core/task-title.js";
 import { openInBrowser } from "../server/browser";
 import { handOffTask as handOffTaskInWorkspace } from "../server/hand-off-task";
 import { recordAgentScoreEvent } from "../state/agent-scores";
+import { recordTaskHistoryEvent } from "../state/task-history";
 import { loadWorkspaceBoardById } from "../state/workspace-state";
 import { buildRuntimeConfigResponse, resolveAgentCommand } from "../terminal/agent-registry";
 import { sendPromptToSession } from "../terminal/send-prompt-to-session";
@@ -149,6 +150,17 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 			}
 		} catch (error) {
 			warnAgentScoreRecording("Could not record agent score event.", error);
+		}
+	};
+	const recordTaskStarted = async (
+		workspaceScope: RuntimeTrpcWorkspaceScope,
+		taskId: string,
+		agentId: string,
+	): Promise<void> => {
+		try {
+			await recordTaskHistoryEvent(workspaceScope.workspaceId, taskId, { type: "started", agentId });
+		} catch (error) {
+			warnAgentScoreRecording("Could not record task history event.", error);
 		}
 	};
 	const debugResetTargetPaths = [
@@ -335,6 +347,7 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 						baseUrl: clineLaunchConfig.baseUrl,
 						reasoningEffort: clineLaunchConfig.reasoningEffort,
 					});
+					await recordTaskStarted(workspaceScope, body.taskId, summary.agentId ?? "cline");
 
 					let nextSummary = summary;
 					if (shouldCaptureTurnCheckpoint) {
@@ -386,6 +399,7 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 					rows: body.rows,
 					workspaceId: workspaceScope.workspaceId,
 				});
+				await recordTaskStarted(workspaceScope, body.taskId, summary.agentId ?? resolved.agentId);
 
 				let nextSummary = summary;
 				if (shouldCaptureTurnCheckpoint) {
@@ -505,6 +519,16 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 				}
 				const reviewCard = findReviewRoundCard(board, taskId);
 				if (reviewCard?.agentId) {
+					try {
+						await recordTaskHistoryEvent(workspaceScope.workspaceId, taskId, {
+							type: "fail",
+							agentId: reviewCard.agentId,
+							round: reviewCard.reviewRound,
+							detail: messageText,
+						});
+					} catch (error) {
+						warnAgentScoreRecording("Could not record task history event.", error);
+					}
 					await recordScore(workspaceScope, {
 						type: "fail",
 						agentId: reviewCard.agentId,

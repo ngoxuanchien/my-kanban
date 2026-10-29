@@ -3,6 +3,7 @@ import type { RuntimeConfigState } from "../config/runtime-config";
 import type { RuntimeBoardCard, RuntimeTaskSessionSummary } from "../core/api-contract";
 import { getHandOffCount, getReviewRoundCap, isHandOffAgentId, MAX_HAND_OFFS } from "../core/hand-off-cap";
 import { createHomeAgentSessionId, isHomeAgentSessionId } from "../core/home-agent-session";
+import { recordTaskHistoryEvent } from "../state/task-history";
 import { loadWorkspaceState, mutateWorkspaceState } from "../state/workspace-state";
 import { sendPromptToSession } from "../terminal/send-prompt-to-session";
 import type { TerminalSessionManager } from "../terminal/session-manager";
@@ -17,8 +18,14 @@ export interface CreateSidebarReviewServiceDependencies {
 	terminalManager: TerminalSessionManager;
 	clineService: ClineTaskSessionService;
 	loadRuntimeConfig: () => Promise<RuntimeConfigState>;
-	handOffTask: (taskId: string, reason: string) => Promise<{ ok: boolean; error?: string | null }>;
-	retryQuotaBlockedTask: (taskId: string, reason: string) => Promise<{ ok: boolean; error?: string | null }>;
+	handOffTask: (
+		taskId: string,
+		reason: string,
+	) => Promise<{ ok: boolean; error?: string | null; fromAgentId?: string; toAgentId?: string }>;
+	retryQuotaBlockedTask: (
+		taskId: string,
+		reason: string,
+	) => Promise<{ ok: boolean; error?: string | null; fromAgentId?: string; toAgentId?: string }>;
 	broadcastStateUpdated: () => Promise<void> | void;
 	warn: (message: string) => void;
 	now?: () => number;
@@ -55,6 +62,13 @@ export function createSidebarReviewService(deps: CreateSidebarReviewServiceDepen
 	const quotaWarnedTaskIds = new Set<string>();
 	const processingTaskIds = new Set<string>();
 	const now = deps.now ?? Date.now;
+	const recordHistory = async (taskId: string, event: Parameters<typeof recordTaskHistoryEvent>[2]): Promise<void> => {
+		try {
+			await recordTaskHistoryEvent(deps.workspaceId, taskId, event);
+		} catch (error) {
+			deps.warn(`[sidebar-review] Could not record task history for ${taskId}: ${errorMessage(error)}`);
+		}
+	};
 	let sidebarIdleAvailable = false;
 	let started = false;
 	let retryInterval: ReturnType<typeof setInterval> | undefined;
@@ -73,11 +87,21 @@ export function createSidebarReviewService(deps: CreateSidebarReviewServiceDepen
 					)
 						continue;
 					try {
-						const result = await deps.retryQuotaBlockedTask(
-							card.id,
-							"Every agent hit their usage limit. Kanban waited 1 hour and is retrying with you.",
-						);
-						if (result.ok) continue;
+						const retryReason =
+							"Every agent hit their usage limit. Kanban waited 1 hour and is retrying with you.";
+						const result = await deps.retryQuotaBlockedTask(card.id, retryReason);
+						if (result.ok) {
+							const retryAgentId = result.toAgentId ?? card.agentId;
+							if (retryAgentId) {
+								await recordHistory(card.id, {
+									type: "retry",
+									agentId: retryAgentId,
+									round: card.reviewRound,
+									detail: retryReason,
+								});
+							}
+							continue;
+						}
 						deps.warn(
 							`[sidebar-review] Could not retry quota-blocked task ${card.id}: ${result.error ?? "unknown error"}`,
 						);
@@ -183,7 +207,16 @@ export function createSidebarReviewService(deps: CreateSidebarReviewServiceDepen
 								};
 								return { board, value: true, save: true };
 							});
-							if (mutation.saved) await deps.broadcastStateUpdated();
+							if (mutation.saved) {
+								if (card.agentId) {
+									await recordHistory(summary.taskId, {
+										type: "quota_blocked",
+										agentId: card.agentId,
+										round: card.reviewRound,
+									});
+								}
+								await deps.broadcastStateUpdated();
+							}
 							if (!quotaWarnedTaskIds.has(summary.taskId)) {
 								quotaWarnedTaskIds.add(summary.taskId);
 								deps.warn(
@@ -194,7 +227,18 @@ export function createSidebarReviewService(deps: CreateSidebarReviewServiceDepen
 						}
 						const reason = `The previous agent hit its usage limit ("${phrase}").`;
 						const result = await deps.handOffTask(summary.taskId, reason);
-						if (result.ok) return;
+						if (result.ok) {
+							if (card.agentId) {
+								await recordHistory(summary.taskId, {
+									type: "handoff",
+									agentId: result.fromAgentId ?? card.agentId,
+									toAgentId: result.toAgentId,
+									round: card.reviewRound,
+									detail: reason,
+								});
+							}
+							return;
+						}
 						deps.warn(
 							`[sidebar-review] Could not hand off task ${summary.taskId}: ${result.error ?? "unknown error"}`,
 						);
@@ -310,6 +354,15 @@ export function createSidebarReviewService(deps: CreateSidebarReviewServiceDepen
 							`[sidebar-review] Could not hand off task ${summary.taskId}: ${result.error ?? "unknown error"}`,
 						);
 					} else {
+						if (found.card.agentId) {
+							await recordHistory(summary.taskId, {
+								type: "handoff",
+								agentId: result.fromAgentId ?? found.card.agentId,
+								toAgentId: result.toAgentId,
+								round: found.card.reviewRound,
+								detail: reason,
+							});
+						}
 						return;
 					}
 				}

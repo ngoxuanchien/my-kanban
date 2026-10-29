@@ -53,11 +53,22 @@ const sendPromptToSession = vi.hoisted(() =>
 );
 const runGit = vi.hoisted(() => vi.fn());
 const handOffTask = vi.hoisted(() =>
-	vi.fn(async (): Promise<{ ok: boolean; error?: string | null }> => ({ ok: true })),
+	vi.fn(
+		async (): Promise<{ ok: boolean; error?: string | null; fromAgentId?: string; toAgentId?: string }> => ({
+			ok: true,
+		}),
+	),
 );
 const retryQuotaBlockedTask = vi.hoisted(() =>
-	vi.fn(async (): Promise<{ ok: boolean; error?: string | null }> => ({ ok: true })),
+	vi.fn(
+		async (): Promise<{ ok: boolean; error?: string | null; toAgentId?: string }> => ({
+			ok: true,
+			toAgentId: "codex",
+		}),
+	),
 );
+const recordAgentScoreEvent = vi.hoisted(() => vi.fn(async () => true));
+const recordTaskHistoryEvent = vi.hoisted(() => vi.fn(async () => true));
 
 vi.mock("../../../src/state/workspace-state", () => ({
 	loadWorkspaceState: vi.fn(async () => ({ board: workspaceState.board })),
@@ -78,6 +89,8 @@ vi.mock("../../../src/state/workspace-state", () => ({
 }));
 
 vi.mock("../../../src/terminal/send-prompt-to-session", () => ({ sendPromptToSession }));
+vi.mock("../../../src/state/agent-scores", () => ({ recordAgentScoreEvent }));
+vi.mock("../../../src/state/task-history", () => ({ recordTaskHistoryEvent }));
 vi.mock("../../../src/workspace/task-worktree", () => ({
 	getTaskWorkspacePathInfo: vi.fn(async () => ({ path: "/worktree/task-1" })),
 }));
@@ -173,10 +186,12 @@ describe("createSidebarReviewService", () => {
 		workspaceState.board.columns[0].cards[1].agentReviewEnabled = true;
 		workspaceState.board.columns[0].cards[1].agentId = undefined;
 		sendPromptToSession.mockClear();
+		recordAgentScoreEvent.mockClear();
+		recordTaskHistoryEvent.mockClear();
 		handOffTask.mockReset();
+		handOffTask.mockResolvedValue({ ok: true, fromAgentId: "codex", toAgentId: "opencode" });
 		retryQuotaBlockedTask.mockReset();
-		retryQuotaBlockedTask.mockResolvedValue({ ok: true });
-		handOffTask.mockResolvedValue({ ok: true });
+		retryQuotaBlockedTask.mockResolvedValue({ ok: true, toAgentId: "codex" });
 		runGit.mockReset();
 		runGit.mockResolvedValueOnce({ ok: true, stdout: " M file" }).mockResolvedValueOnce({ ok: true, stdout: "0" });
 	});
@@ -207,6 +222,14 @@ describe("createSidebarReviewService", () => {
 		await vi.waitFor(() =>
 			expect(handOffTask).toHaveBeenCalledWith("task-1", "The previous agent stopped with an error (exit code 7)."),
 		);
+		expect(recordTaskHistoryEvent).toHaveBeenCalledWith("workspace-1", "task-1", {
+			type: "handoff",
+			agentId: "codex",
+			toAgentId: "opencode",
+			round: 0,
+			detail: "The previous agent stopped with an error (exit code 7).",
+		});
+		expect(recordAgentScoreEvent).not.toHaveBeenCalled();
 		expect(sendPromptToSession).not.toHaveBeenCalled();
 		expect(card.reviewRound).toBe(0);
 		service.dispose();
@@ -743,6 +766,14 @@ describe("createSidebarReviewService", () => {
 				'The previous agent hit its usage limit ("hit your usage limit").',
 			),
 		);
+		expect(recordTaskHistoryEvent).toHaveBeenCalledWith("workspace-1", "task-1", {
+			type: "handoff",
+			agentId: "codex",
+			toAgentId: "opencode",
+			round: 0,
+			detail: 'The previous agent hit its usage limit ("hit your usage limit").',
+		});
+		expect(recordAgentScoreEvent).not.toHaveBeenCalled();
 		expect(card.reviewRound).toBe(0);
 		expect(sendPromptToSession).not.toHaveBeenCalled();
 		expect(broadcastStateUpdated).not.toHaveBeenCalled();
@@ -787,6 +818,12 @@ describe("createSidebarReviewService", () => {
 		expect(sendPromptToSession).not.toHaveBeenCalled();
 		expect(broadcastStateUpdated).toHaveBeenCalledTimes(1);
 		expect(workspaceState.board.columns[0].cards[0].quotaBlockedAt).toBe(123456);
+		expect(recordTaskHistoryEvent).toHaveBeenCalledWith("workspace-1", "task-1", {
+			type: "quota_blocked",
+			agentId: "opencode",
+			round: 0,
+		});
+		expect(recordAgentScoreEvent).not.toHaveBeenCalled();
 		expect(retryQuotaBlockedTask).not.toHaveBeenCalled();
 		expect(warn).toHaveBeenCalledTimes(1);
 		expect(card.reviewRound).toBe(0);
@@ -816,6 +853,14 @@ describe("createSidebarReviewService", () => {
 				"task-1",
 				"Every agent hit their usage limit. Kanban waited 1 hour and is retrying with you.",
 			),
+		);
+		await vi.waitFor(() =>
+			expect(recordTaskHistoryEvent).toHaveBeenCalledWith("workspace-1", "task-1", {
+				type: "retry",
+				agentId: "codex",
+				round: 0,
+				detail: "Every agent hit their usage limit. Kanban waited 1 hour and is retrying with you.",
+			}),
 		);
 		service.dispose();
 	});

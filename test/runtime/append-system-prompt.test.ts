@@ -86,19 +86,21 @@ describe("renderAppendSystemPrompt", () => {
 		expect(rendered).toContain("task send");
 		expect(rendered).toContain("task handoff");
 		expect(rendered).toContain("task review-failed --task-id <task_id>");
-		expect(rendered).toContain("task done --task-id <task_id> --review-passed");
+		expect(rendered).toContain(
+			"task done --task-id <task_id> --review-passed --commit <hash of the cherry-picked commit on the base branch>",
+		);
 		expect(rendered).toContain(
 			'3. If it fails on a round below the cap and the round is not a multiple of 3, use `task send --task-id <task_id> --message "<concrete fix list with file:line and failing command output>"`. Report what you sent, identifying the task by title and id, in one chat line.',
 		);
 		expect(rendered).toContain("identify it by its title followed by its id in parentheses");
 		expect(rendered).toContain(
-			"If handoff returns an error, run `task review-failed --task-id <task_id>`, leave the task in Review",
+			'If handoff returns an error, run `task review-failed --task-id <task_id> --message "<the same fix list>"`, leave the task in Review',
 		);
 		expect(rendered).toContain(
 			'If it fails on a round equal to the cap and `handOffCount` from `task list` is less than 2, run `task handoff --task-id <task_id> --message "<the same concrete fix list>"`',
 		);
 		expect(rendered).toContain(
-			"If it fails on a round equal to the cap and `handOffCount` from `task list` is 2, run `task review-failed --task-id <task_id>`, do not send or hand off, leave it in Review",
+			'If it fails on a round equal to the cap and `handOffCount` from `task list` is 2, run `task review-failed --task-id <task_id> --message "<the same fix list>"`, do not send or hand off, leave it in Review',
 		);
 		expect(rendered).toContain("The cap is 3 × (handOffCount + 1), using `handOffCount` from `task list`");
 		expect(rendered).not.toContain("below the cap that is a multiple of 3");

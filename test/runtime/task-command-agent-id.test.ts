@@ -7,16 +7,29 @@ const cliMocks = vi.hoisted(() => ({
 		workspace: {
 			notifyStateUpdated: { mutate: vi.fn(async () => ({ ok: true })) },
 			getState: { query: vi.fn(async () => ({}) as never) },
+			deleteWorktree: { mutate: vi.fn(async () => ({ ok: true, removed: true })) },
 		},
-		runtime: { handOffTask: { mutate: vi.fn() } },
+		runtime: {
+			handOffTask: { mutate: vi.fn() },
+			stopTaskSession: { mutate: vi.fn(async () => ({ ok: true })) },
+		},
 	},
 	loadWorkspaceContext: vi.fn(async () => ({ repoPath: "/tmp/repo" })),
 	workspaceState: {
-		board: { columns: ["backlog", "in_progress", "review", "trash"].map((id) => ({ id, title: id, cards: [] })) },
+		repoPath: "/tmp/repo",
+		board: {
+			columns: ["backlog", "in_progress", "review", "trash"].map((id) => ({ id, title: id, cards: [] })),
+			dependencies: [],
+		},
 		git: { currentBranch: "main", defaultBranch: "main", branches: ["main"] },
+		sessions: {},
 	},
 }));
 const scoreMocks = vi.hoisted(() => ({ recordAgentScoreEvent: vi.fn(async () => true) }));
+const historyMocks = vi.hoisted(() => ({
+	recordTaskHistoryEvent: vi.fn(async () => true),
+	deleteTaskHistory: vi.fn(async () => undefined),
+}));
 const completionMocks = vi.hoisted(() => ({ completeTaskToDone: vi.fn() }));
 
 vi.mock("@trpc/client", () => ({
@@ -33,6 +46,7 @@ vi.mock("../../src/state/workspace-state", () => ({
 	}),
 }));
 vi.mock("../../src/state/agent-scores", () => ({ recordAgentScoreEvent: scoreMocks.recordAgentScoreEvent }));
+vi.mock("../../src/state/task-history", () => historyMocks);
 vi.mock("../../src/workspace/complete-task-to-done", () => ({
 	columnCanHaveLiveTaskSession: (columnId: string) => columnId === "in_progress" || columnId === "review",
 	completeTaskToDone: completionMocks.completeTaskToDone,
@@ -156,6 +170,8 @@ describe("task review scoring commands", () => {
 	beforeEach(() => {
 		scoreMocks.recordAgentScoreEvent.mockReset();
 		scoreMocks.recordAgentScoreEvent.mockResolvedValue(true);
+		historyMocks.recordTaskHistoryEvent.mockClear();
+		historyMocks.deleteTaskHistory.mockClear();
 		completionMocks.completeTaskToDone.mockReset();
 		cliMocks.client.workspace.getState.query.mockResolvedValue({
 			repoPath: "/tmp/repo",
@@ -197,6 +213,28 @@ describe("task review scoring commands", () => {
 		return output;
 	}
 
+	it("records review-failed with message when --message is provided", async () => {
+		expect(
+			JSON.parse(await execute(["review-failed", "--task-id", "task-1", "--message", "syntax error in file.ts"])),
+		).toEqual({
+			ok: true,
+			taskId: "task-1",
+			recorded: true,
+		});
+		expect(scoreMocks.recordAgentScoreEvent).toHaveBeenCalledWith("workspace-1", {
+			type: "fail",
+			agentId: "codex",
+			taskId: "task-1",
+			round: 2,
+		});
+		expect(historyMocks.recordTaskHistoryEvent).toHaveBeenCalledWith("workspace-1", "task-1", {
+			type: "fail",
+			agentId: "codex",
+			round: 2,
+			detail: "syntax error in file.ts",
+		});
+	});
+
 	it("records review-failed with the card agent and round, then reports de-duplication", async () => {
 		expect(JSON.parse(await execute(["review-failed", "--task-id", "task-1"]))).toEqual({
 			ok: true,
@@ -220,6 +258,23 @@ describe("task review scoring commands", () => {
 		expect(scoreMocks.recordAgentScoreEvent).not.toHaveBeenCalled();
 	});
 
+	it("records a pass with commit when task done includes --commit", async () => {
+		await execute(["done", "--task-id", "task-1", "--review-passed", "--commit", "abc1234"]);
+		expect(scoreMocks.recordAgentScoreEvent).toHaveBeenCalledWith("workspace-1", {
+			type: "pass",
+			agentId: "codex",
+			taskId: "task-1",
+			round: 2,
+		});
+		expect(historyMocks.recordTaskHistoryEvent).toHaveBeenCalledWith("workspace-1", "task-1", {
+			type: "pass",
+			agentId: "codex",
+			round: 2,
+			commit: "abc1234",
+		});
+		expect(historyMocks.deleteTaskHistory).not.toHaveBeenCalled();
+	});
+
 	it("records a pass only when task done explicitly marks a passed review", async () => {
 		await execute(["done", "--task-id", "task-1", "--review-passed"]);
 		expect(scoreMocks.recordAgentScoreEvent).toHaveBeenCalledWith("workspace-1", {
@@ -233,6 +288,26 @@ describe("task review scoring commands", () => {
 		scoreMocks.recordAgentScoreEvent.mockClear();
 		await execute(["done", "--task-id", "task-1"]);
 		expect(scoreMocks.recordAgentScoreEvent).not.toHaveBeenCalled();
+	});
+
+	it("removes task history file when task is permanently deleted by task-id", async () => {
+		cliMocks.workspaceState.board.columns[2].cards = [{ id: "task-1", prompt: "Review" }] as never;
+		const output = await execute(["delete", "--task-id", "task-1"]);
+		expect(JSON.parse(output)).toMatchObject({ ok: true, count: 1 });
+		expect(historyMocks.deleteTaskHistory).toHaveBeenCalledWith("workspace-1", "task-1");
+	});
+
+	it("removes every deleted task's history file when task delete --column done is run", async () => {
+		cliMocks.workspaceState.board.columns[3].cards = [
+			{ id: "task-done-1", prompt: "Done 1" },
+			{ id: "task-done-2", prompt: "Done 2" },
+		] as never;
+		historyMocks.deleteTaskHistory.mockClear();
+
+		const output = await execute(["delete", "--column", "done"]);
+		expect(JSON.parse(output)).toMatchObject({ ok: true, count: 2 });
+		expect(historyMocks.deleteTaskHistory).toHaveBeenCalledWith("workspace-1", "task-done-1");
+		expect(historyMocks.deleteTaskHistory).toHaveBeenCalledWith("workspace-1", "task-done-2");
 	});
 });
 

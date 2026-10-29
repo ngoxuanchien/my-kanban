@@ -196,6 +196,7 @@ import {
 	runtimeWorktreeEnsureResponseSchema,
 } from "../core/api-contract";
 import { recordAgentScoreEvent } from "../state/agent-scores";
+import { recordTaskHistoryEvent } from "../state/task-history";
 import { loadWorkspaceBoardById } from "../state/workspace-state";
 
 const warnAgentScoreRecording = console.warn.bind(console);
@@ -520,16 +521,41 @@ export const runtimeAppRouter = t.router({
 					warnAgentScoreRecording("Could not read agent review round for handoff score.", error);
 				}
 				const result = await ctx.runtimeApi.handOffTask(ctx.workspaceScope, input);
-				if (result.ok && result.fromAgentId && reviewRound !== null) {
+				if (result.ok && result.fromAgentId) {
 					try {
-						if (
-							await recordAgentScoreEvent(ctx.workspaceScope.workspaceId, {
-								type: "fail",
-								agentId: result.fromAgentId,
-								taskId: input.taskId,
-								round: reviewRound,
-							})
-						) {
+						let updated = false;
+						if (reviewRound !== null) {
+							if (
+								await recordAgentScoreEvent(ctx.workspaceScope.workspaceId, {
+									type: "fail",
+									agentId: result.fromAgentId,
+									taskId: input.taskId,
+									round: reviewRound,
+								})
+							) {
+								updated = true;
+							}
+						}
+						try {
+							await Promise.all([
+								recordTaskHistoryEvent(ctx.workspaceScope.workspaceId, input.taskId, {
+									type: "fail",
+									agentId: result.fromAgentId,
+									round: reviewRound ?? undefined,
+									detail: input.reason,
+								}),
+								recordTaskHistoryEvent(ctx.workspaceScope.workspaceId, input.taskId, {
+									type: "handoff",
+									agentId: result.fromAgentId,
+									...(result.toAgentId ? { toAgentId: result.toAgentId } : {}),
+									round: reviewRound ?? undefined,
+									detail: input.reason,
+								}),
+							]);
+						} catch (error) {
+							warnAgentScoreRecording("Could not record task history event.", error);
+						}
+						if (updated) {
 							await ctx.workspaceApi.notifyStateUpdated(ctx.workspaceScope);
 						}
 					} catch (error) {

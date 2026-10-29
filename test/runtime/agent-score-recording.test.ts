@@ -5,19 +5,61 @@ interface ScoreEvent {
 	agentId: string;
 	taskId: string;
 	round?: number;
+	detail?: string;
+	commit?: string;
+	toAgentId?: string;
+}
+
+interface HistoryEvent extends Omit<ScoreEvent, "taskId"> {
+	type: string;
+	toAgentId?: string;
+	agentSession?: { agentId: string; id?: string; transcriptPath?: string };
 }
 
 const mocks = vi.hoisted(() => ({
 	board: { columns: [] as Array<{ id: string; title: string; cards: unknown[] }> },
 	loadWorkspaceBoardById: vi.fn(),
 	events: [] as ScoreEvent[],
+	historyEvents: [] as Array<HistoryEvent & { taskId: string }>,
 	recordAgentScoreEvent: vi.fn(async (_workspaceId: string, event: ScoreEvent) => {
-		const eventKey = (candidate: ScoreEvent) =>
-			`${candidate.type}:${candidate.agentId}:${candidate.taskId}:${candidate.type === "fail" ? candidate.round : ""}`;
-		if (mocks.events.some((existing) => eventKey(existing) === eventKey(event))) {
-			return false;
+		if (event.type === "fail") {
+			const existing = mocks.events.find(
+				(e) =>
+					e.type === "fail" && e.agentId === event.agentId && e.taskId === event.taskId && e.round === event.round,
+			);
+			if (existing) {
+				if (!existing.detail && event.detail) {
+					existing.detail = event.detail;
+					return true;
+				}
+				return false;
+			}
+		} else {
+			const eventKey = (candidate: ScoreEvent) =>
+				`${candidate.type}:${candidate.agentId}:${candidate.taskId}:${candidate.round ?? ""}`;
+			if (mocks.events.some((existing) => eventKey(existing) === eventKey(event))) {
+				return false;
+			}
 		}
 		mocks.events.push(event);
+		return true;
+	}),
+	recordTaskHistoryEvent: vi.fn(async (_workspaceId: string, taskId: string, event: HistoryEvent) => {
+		const existing =
+			event.type === "fail"
+				? mocks.historyEvents.find(
+						(candidate) =>
+							candidate.type === "fail" && candidate.taskId === taskId && candidate.round === event.round,
+					)
+				: undefined;
+		if (existing) {
+			if (!existing.detail && event.detail) {
+				existing.detail = event.detail;
+				return true;
+			}
+			return false;
+		}
+		mocks.historyEvents.push({ ...event, taskId });
 		return true;
 	}),
 	notifyStateUpdated: vi.fn(),
@@ -34,6 +76,9 @@ vi.mock("../../src/state/workspace-state", () => ({
 }));
 vi.mock("../../src/state/agent-scores", () => ({
 	recordAgentScoreEvent: mocks.recordAgentScoreEvent,
+}));
+vi.mock("../../src/state/task-history", () => ({
+	recordTaskHistoryEvent: mocks.recordTaskHistoryEvent,
 }));
 vi.mock("../../src/workspace/task-worktree", () => ({ resolveTaskCwd: mocks.resolveTaskCwd }));
 vi.mock("../../src/workspace/turn-checkpoints", () => ({ captureTaskTurnCheckpoint: mocks.captureTaskTurnCheckpoint }));
@@ -98,7 +143,9 @@ function createRuntimeApi(terminalManager: Record<string, unknown> = {}) {
 describe("agent score recording for runtime task starts", () => {
 	beforeEach(() => {
 		mocks.events.splice(0);
+		mocks.historyEvents.splice(0);
 		mocks.recordAgentScoreEvent.mockClear();
+		mocks.recordTaskHistoryEvent.mockClear();
 		mocks.broadcastRuntimeWorkspaceStateUpdated.mockReset().mockResolvedValue(undefined);
 		mocks.resolveTaskCwd.mockReset().mockResolvedValue("/tmp/worktree");
 		mocks.captureTaskTurnCheckpoint.mockReset().mockRejectedValue(new Error("skip checkpoint"));
@@ -109,7 +156,7 @@ describe("agent score recording for runtime task starts", () => {
 		setBoard("in_progress", { ...reviewCard, agentId: "codex" });
 		const api = createRuntimeApi({
 			getSummary: vi.fn(() => null),
-			startTaskSession: vi.fn(async () => ({ taskId: "task-1" })),
+			startTaskSession: vi.fn(async () => ({ taskId: "task-1", agentId: "codex" })),
 		});
 		const input = { taskId: "task-1", prompt: "work", baseRef: "main", agentId: "codex" as const };
 
@@ -117,13 +164,17 @@ describe("agent score recording for runtime task starts", () => {
 		expect((await api.startTaskSession(scope, input)).ok).toBe(true);
 		expect(mocks.events).toEqual([{ type: "assigned", agentId: "codex", taskId: "task-1" }]);
 		expect(mocks.recordAgentScoreEvent).toHaveBeenCalledTimes(2);
+		expect(mocks.recordTaskHistoryEvent).toHaveBeenCalledWith("workspace-1", "task-1", {
+			type: "started",
+			agentId: "codex",
+		});
 	});
 
 	it("does not record assignment when the card has no agentId", async () => {
 		setBoard("in_progress", { ...reviewCard, agentId: undefined });
 		const api = createRuntimeApi({
 			getSummary: vi.fn(() => null),
-			startTaskSession: vi.fn(async () => ({ taskId: "task-1" })),
+			startTaskSession: vi.fn(async () => ({ taskId: "task-1", agentId: "codex" })),
 		});
 
 		await api.startTaskSession(scope, {
@@ -134,14 +185,19 @@ describe("agent score recording for runtime task starts", () => {
 		});
 
 		expect(mocks.recordAgentScoreEvent).not.toHaveBeenCalled();
-		expect(mocks.events).toEqual([]);
+		expect(mocks.recordTaskHistoryEvent).toHaveBeenCalledWith("workspace-1", "task-1", {
+			type: "started",
+			agentId: "codex",
+		});
 	});
 });
 
 describe("agent score recording for runtime review messages", () => {
 	beforeEach(() => {
 		mocks.events.splice(0);
+		mocks.historyEvents.splice(0);
 		mocks.recordAgentScoreEvent.mockClear();
+		mocks.recordTaskHistoryEvent.mockClear();
 		mocks.broadcastRuntimeWorkspaceStateUpdated.mockReset().mockResolvedValue(undefined);
 		mocks.sendPromptToSession.mockReset().mockResolvedValue({ ok: true });
 	});
@@ -150,13 +206,16 @@ describe("agent score recording for runtime review messages", () => {
 		return createRuntimeApi({ writeInput: vi.fn() });
 	}
 
-	it("records one round-two fail across repeated sends", async () => {
+	it("records one round-two fail with message across repeated sends", async () => {
 		setBoard("review", reviewCard);
 		const api = createMessageApi();
 		await api.sendTaskMessage(scope, { taskId: "task-1", message: "fix it" });
 		await api.sendTaskMessage(scope, { taskId: "task-1", message: "fix it again" });
 
 		expect(mocks.events).toEqual([{ type: "fail", agentId: "codex", taskId: "task-1", round: 2 }]);
+		expect(mocks.historyEvents).toEqual([
+			{ type: "fail", agentId: "codex", round: 2, detail: "fix it", taskId: "task-1" },
+		]);
 		expect(mocks.broadcastRuntimeWorkspaceStateUpdated).toHaveBeenCalledTimes(1);
 	});
 
@@ -181,7 +240,9 @@ describe("agent score recording for runtime review messages", () => {
 describe("agent score recording for public review handoffs", () => {
 	beforeEach(() => {
 		mocks.events.splice(0);
+		mocks.historyEvents.splice(0);
 		mocks.recordAgentScoreEvent.mockClear();
+		mocks.recordTaskHistoryEvent.mockClear();
 		mocks.notifyStateUpdated.mockReset().mockResolvedValue({ ok: true });
 		mocks.handOffTask.mockReset().mockResolvedValue({
 			ok: true,
@@ -192,16 +253,39 @@ describe("agent score recording for public review handoffs", () => {
 		setBoard("review", reviewCard);
 	});
 
-	it("records the source agent and review round after a successful handoff", async () => {
+	it("records fail with reason and handoff with toAgentId after a successful handoff", async () => {
 		await createCaller().runtime.handOffTask({ taskId: "task-1", reason: "fix it" });
 
 		expect(mocks.events).toEqual([{ type: "fail", agentId: "codex", taskId: "task-1", round: 2 }]);
+		expect(mocks.historyEvents).toEqual([
+			{ type: "fail", agentId: "codex", taskId: "task-1", round: 2, detail: "fix it" },
+			{ type: "handoff", agentId: "codex", toAgentId: "opencode", taskId: "task-1", round: 2, detail: "fix it" },
+		]);
 		expect(mocks.notifyStateUpdated).toHaveBeenCalledWith(scope);
+	});
+
+	it("task handoff right after task review-failed in the same round keeps one fail with the reason", async () => {
+		mocks.historyEvents.push({ type: "fail", agentId: "codex", taskId: "task-1", round: 2 });
+
+		await createCaller().runtime.handOffTask({ taskId: "task-1", reason: "fix it" });
+
+		const fails = mocks.historyEvents.filter((e) => e.type === "fail");
+		expect(fails).toHaveLength(1);
+		expect(fails[0]).toEqual({ type: "fail", agentId: "codex", taskId: "task-1", round: 2, detail: "fix it" });
+		expect(mocks.historyEvents).toContainEqual({
+			type: "handoff",
+			agentId: "codex",
+			toAgentId: "opencode",
+			taskId: "task-1",
+			round: 2,
+			detail: "fix it",
+		});
 	});
 
 	it("does not record a failed handoff", async () => {
 		mocks.handOffTask.mockResolvedValue({ ok: false, error: "failed" });
 		await createCaller().runtime.handOffTask({ taskId: "task-1", reason: "fix it" });
 		expect(mocks.recordAgentScoreEvent).not.toHaveBeenCalled();
+		expect(mocks.recordTaskHistoryEvent).not.toHaveBeenCalled();
 	});
 });

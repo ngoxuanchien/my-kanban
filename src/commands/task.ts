@@ -26,6 +26,7 @@ import {
 } from "../core/task-board-mutations";
 import { resolveProjectInputPath } from "../projects/project-path";
 import { recordAgentScoreEvent } from "../state/agent-scores";
+import { deleteTaskHistory, recordTaskHistoryEvent } from "../state/task-history";
 import { getTaskWorktreesHomePath, loadWorkspaceContext, mutateWorkspaceState } from "../state/workspace-state";
 import type { RuntimeAppRouter } from "../trpc/app-router";
 import { columnCanHaveLiveTaskSession, completeTaskToDone } from "../workspace/complete-task-to-done";
@@ -311,6 +312,8 @@ async function recordReviewScore(input: {
 	workspaceId: string;
 	taskId: string;
 	type: "pass" | "fail";
+	detail?: string;
+	commit?: string;
 }): Promise<boolean> {
 	try {
 		const state = await input.runtimeClient.workspace.getState.query();
@@ -322,6 +325,17 @@ async function recordReviewScore(input: {
 			(card.reviewRound ?? 0) < 1
 		) {
 			return false;
+		}
+		try {
+			await recordTaskHistoryEvent(input.workspaceId, input.taskId, {
+				type: input.type,
+				agentId: card.agentId,
+				round: card.reviewRound,
+				detail: input.detail,
+				commit: input.commit,
+			});
+		} catch (error) {
+			warnAgentScoreRecording("Could not record task history event.", error);
 		}
 		const recorded = await recordAgentScoreEvent(input.workspaceId, {
 			type: input.type,
@@ -949,6 +963,7 @@ async function trashTask(input: {
 	column?: ListTaskColumn;
 	projectPath?: string;
 	reviewPassed?: boolean;
+	commit?: string;
 }): Promise<JsonRecord> {
 	if (input.reviewPassed && !input.taskId?.trim()) {
 		throw new Error("--review-passed requires --task-id");
@@ -960,7 +975,13 @@ async function trashTask(input: {
 
 	if (target.kind === "task") {
 		if (input.reviewPassed) {
-			await recordReviewScore({ runtimeClient, workspaceId, taskId: target.taskId, type: "pass" });
+			await recordReviewScore({
+				runtimeClient,
+				workspaceId,
+				taskId: target.taskId,
+				type: "pass",
+				commit: input.commit,
+			});
 		}
 		const trashed = await trashTaskById({
 			cwd: input.cwd,
@@ -1039,7 +1060,12 @@ async function trashTask(input: {
 	};
 }
 
-async function reviewFailed(input: { cwd: string; taskId: string; projectPath?: string }): Promise<JsonRecord> {
+async function reviewFailed(input: {
+	cwd: string;
+	taskId: string;
+	message?: string;
+	projectPath?: string;
+}): Promise<JsonRecord> {
 	const workspaceRepoPath = await resolveWorkspaceRepoPath(input.projectPath, input.cwd);
 	const workspaceId = await ensureRuntimeWorkspace(workspaceRepoPath);
 	const runtimeClient = createRuntimeTrpcClient(workspaceId);
@@ -1048,6 +1074,7 @@ async function reviewFailed(input: { cwd: string; taskId: string; projectPath?: 
 		workspaceId,
 		taskId: input.taskId,
 		type: "fail",
+		detail: input.message,
 	});
 	return { ok: true, taskId: input.taskId, recorded };
 }
@@ -1131,6 +1158,15 @@ async function deleteTaskCommand(input: {
 			count: 0,
 		};
 	}
+	await Promise.all(
+		mutation.value.deletedTaskIds.map(async (taskId) => {
+			try {
+				await deleteTaskHistory(workspaceId, taskId);
+			} catch (error) {
+				warnAgentScoreRecording(`Could not delete task history for ${taskId}.`, error);
+			}
+		}),
+	);
 
 	await Promise.all(
 		mutation.value.taskIdsRequiringStop.map(async (taskId) => await stopTaskRuntimeSession(runtimeClient, taskId)),
@@ -1348,12 +1384,14 @@ export function registerTaskCommand(program: Command): void {
 		)
 		.option("--project-path <path>", "Workspace path. Defaults to current directory workspace.")
 		.option("--review-passed", "Record a passed agent review before moving the task to done.")
+		.option("--commit <hash>", "Cherry-picked commit hash on the base branch for a passed review.")
 		.action(
 			async (options: {
 				taskId?: string;
 				column?: ListTaskColumn;
 				projectPath?: string;
 				reviewPassed?: boolean;
+				commit?: string;
 			}) => {
 				await runTaskCommand(
 					async () =>
@@ -1363,6 +1401,7 @@ export function registerTaskCommand(program: Command): void {
 							column: options.column,
 							projectPath: options.projectPath,
 							reviewPassed: options.reviewPassed,
+							commit: options.commit,
 						}),
 				);
 			},
@@ -1372,11 +1411,17 @@ export function registerTaskCommand(program: Command): void {
 		.command("review-failed")
 		.description("Record a failed agent review for a task.")
 		.requiredOption("--task-id <id>", "Task ID.")
+		.option("--message <text>", "Failure reason or fix list.")
 		.option("--project-path <path>", "Workspace path. Defaults to current directory workspace.")
-		.action(async (options: { taskId: string; projectPath?: string }) => {
+		.action(async (options: { taskId: string; message?: string; projectPath?: string }) => {
 			await runTaskCommand(
 				async () =>
-					await reviewFailed({ cwd: process.cwd(), taskId: options.taskId, projectPath: options.projectPath }),
+					await reviewFailed({
+						cwd: process.cwd(),
+						taskId: options.taskId,
+						message: options.message,
+						projectPath: options.projectPath,
+					}),
 			);
 		});
 

@@ -16,7 +16,8 @@ import {
 	parseWorktreeDeleteRequest,
 	parseWorktreeEnsureRequest,
 } from "../core/api-validation";
-import { saveWorkspaceState, WorkspaceStateConflictError } from "../state/workspace-state";
+import { deleteTaskHistory } from "../state/task-history";
+import { loadWorkspaceState, saveWorkspaceState, WorkspaceStateConflictError } from "../state/workspace-state";
 import type { TerminalSessionManager } from "../terminal/session-manager";
 import {
 	createEmptyWorkspaceChangesResponse,
@@ -34,6 +35,8 @@ import {
 	resolveTaskCwd,
 } from "../workspace/task-worktree";
 import type { RuntimeTrpcContext } from "./app-router";
+
+const warnTaskHistoryDeletion = console.warn.bind(console);
 
 export interface CreateWorkspaceApiDependencies {
 	ensureTerminalManagerForWorkspace: (workspaceId: string, repoPath: string) => Promise<TerminalSessionManager>;
@@ -372,7 +375,23 @@ export function createWorkspaceApi(deps: CreateWorkspaceApiDependencies): Runtim
 				for (const summary of terminalManager.listSummaries()) {
 					input.sessions[summary.taskId] = summary;
 				}
+				const previousState = await loadWorkspaceState(workspaceScope.workspacePath);
 				const response = await saveWorkspaceState(workspaceScope.workspacePath, input);
+				const savedTaskIds = new Set(input.board.columns.flatMap((column) => column.cards.map((card) => card.id)));
+				const removedDoneTaskIds =
+					previousState.board.columns
+						.find((column) => column.id === "trash")
+						?.cards.filter((card) => !savedTaskIds.has(card.id))
+						.map((card) => card.id) ?? [];
+				await Promise.all(
+					removedDoneTaskIds.map(async (taskId) => {
+						try {
+							await deleteTaskHistory(workspaceScope.workspaceId, taskId);
+						} catch (error) {
+							warnTaskHistoryDeletion(`Could not delete task history for ${taskId}.`, error);
+						}
+					}),
+				);
 				void deps.broadcastRuntimeWorkspaceStateUpdated(workspaceScope.workspaceId, workspaceScope.workspacePath);
 				void deps.broadcastRuntimeProjectsUpdated(workspaceScope.workspaceId);
 				deps.onWorkspaceStateChanged?.(workspaceScope.workspaceId, workspaceScope.workspacePath);
