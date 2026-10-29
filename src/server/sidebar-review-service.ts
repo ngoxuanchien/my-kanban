@@ -1,6 +1,7 @@
 import type { ClineTaskSessionService } from "../cline-sdk/cline-task-session-service";
 import type { RuntimeConfigState } from "../config/runtime-config";
 import type { RuntimeBoardCard, RuntimeTaskSessionSummary } from "../core/api-contract";
+import { resolveEffectiveTaskAgentId } from "../core/effective-task-agent";
 import { getHandOffCount, getReviewRoundCap, isHandOffAgentId, MAX_HAND_OFFS } from "../core/hand-off-cap";
 import { createHomeAgentSessionId, isHomeAgentSessionId } from "../core/home-agent-session";
 import { recordTaskHistoryEvent } from "../state/task-history";
@@ -40,6 +41,14 @@ export interface SidebarReviewService {
 }
 
 const reviewQueue = createSidebarReviewQueue;
+const QUOTA_NUDGE_WAIT_MS = 300000;
+
+interface QuotaNudge {
+	sentAt: number;
+	turn: number | null;
+	isRunning: boolean;
+	warned: boolean;
+}
 
 function isSidebarIdle(summary: RuntimeTaskSessionSummary | undefined): boolean {
 	return Boolean(summary && summary.pid !== null && (summary.state === "awaiting_review" || summary.state === "idle"));
@@ -59,6 +68,7 @@ export function createSidebarReviewService(deps: CreateSidebarReviewServiceDepen
 	const queue = reviewQueue();
 	const previousSummaries = new Map<string, RuntimeTaskSessionSummary>();
 	const nudgedTaskIds = new Set<string>();
+	const quotaNudges = new Map<string, QuotaNudge>();
 	const quotaWarnedTaskIds = new Set<string>();
 	const processingTaskIds = new Set<string>();
 	const now = deps.now ?? Date.now;
@@ -149,6 +159,162 @@ export function createSidebarReviewService(deps: CreateSidebarReviewServiceDepen
 		});
 		if (mutation.saved) await deps.broadcastStateUpdated();
 	};
+	const handleUsageLimit = async (
+		summary: RuntimeTaskSessionSummary,
+		card: RuntimeBoardCard,
+		phrase: string | null,
+		isRunning: boolean,
+	): Promise<boolean> => {
+		const turn = summary.latestTurnCheckpoint?.turn ?? summary.startedAt;
+		let nudge = quotaNudges.get(summary.taskId);
+		if (nudge && nudge.turn !== turn) {
+			quotaNudges.delete(summary.taskId);
+			nudge = undefined;
+		}
+		const idleSince = summary.lastOutputAt ?? summary.startedAt;
+		const stillStuck =
+			Boolean(phrase) || (isRunning && idleSince !== null && now() - idleSince >= QUOTA_NUDGE_WAIT_MS);
+		if (!nudge) {
+			if (!stillStuck) return false;
+			const sent =
+				isRunning && (summary.agentId ?? card.agentId) === "antigravity"
+					? Boolean(deps.terminalManager.writeInput(summary.taskId, Buffer.from("\r")))
+					: (
+							await sendPromptToSession({
+								sessionId: summary.taskId,
+								agentId: summary.agentId ?? card.agentId ?? null,
+								prompt: "continue",
+								terminalManager: deps.terminalManager,
+								clineService: deps.clineService,
+							})
+						).ok;
+			if (!sent) return false;
+			nudge = { sentAt: now(), turn, isRunning, warned: false };
+			quotaNudges.set(summary.taskId, nudge);
+			const { selectedAgentId } = await deps.loadRuntimeConfig();
+			const agentId = resolveEffectiveTaskAgentId(card.agentId, summary.agentId, selectedAgentId);
+			if (agentId)
+				await recordHistory(summary.taskId, {
+					type: "retry",
+					agentId,
+					round: card.reviewRound,
+					detail: "continue sent (usage limit or no output for 5 min)",
+				});
+			return true;
+		}
+		if (now() - nudge.sentAt < QUOTA_NUDGE_WAIT_MS) return true;
+		if (!stillStuck) {
+			quotaNudges.delete(summary.taskId);
+			return false;
+		}
+		if (!isHandOffAgentId(card.agentId)) {
+			if (!nudge.warned) {
+				nudge.warned = true;
+				deps.warn(
+					`[sidebar-review] Task ${summary.taskId}: still stuck after continue; no handoff agent is available`,
+				);
+			}
+			return true;
+		}
+		if (getHandOffCount(card) >= MAX_HAND_OFFS) {
+			const mutation = await mutateWorkspaceState(deps.workspacePath, (current) => {
+				const currentCard = findCard(current.board, summary.taskId)?.card;
+				if (!currentCard || currentCard.quotaBlockedAt !== undefined)
+					return { board: current.board, value: null, save: false };
+				const board = {
+					...current.board,
+					columns: current.board.columns.map((column) => ({
+						...column,
+						cards: column.cards.map((candidate) =>
+							candidate.id === summary.taskId ? { ...candidate, quotaBlockedAt: now() } : candidate,
+						),
+					})),
+				};
+				return { board, value: true, save: true };
+			});
+			if (mutation.saved) {
+				if (card.agentId)
+					await recordHistory(summary.taskId, {
+						type: "quota_blocked",
+						agentId: card.agentId,
+						round: card.reviewRound,
+					});
+				await deps.broadcastStateUpdated();
+			}
+			if (!quotaWarnedTaskIds.has(summary.taskId)) {
+				quotaWarnedTaskIds.add(summary.taskId);
+				deps.warn(
+					!phrase
+						? `[sidebar-review] Task ${summary.taskId}: no output after continue; leaving it in Review`
+						: `[sidebar-review] Task ${summary.taskId}: both agents hit their usage limit; leaving it in Review`,
+				);
+			}
+		} else {
+			const reason = !phrase
+				? "The previous agent produced no terminal output for 5 minutes after continue."
+				: `The previous agent hit its usage limit ("${phrase}").`;
+			const result = await deps.handOffTask(summary.taskId, reason);
+			if (result.ok) {
+				if (card.agentId)
+					await recordHistory(summary.taskId, {
+						type: "handoff",
+						agentId: result.fromAgentId ?? card.agentId,
+						toAgentId: result.toAgentId,
+						round: card.reviewRound,
+						detail: reason,
+					});
+			} else {
+				deps.warn(`[sidebar-review] Could not hand off task ${summary.taskId}: ${result.error ?? "unknown error"}`);
+				quotaNudges.delete(summary.taskId);
+				return false;
+			}
+		}
+		quotaNudges.delete(summary.taskId);
+		return true;
+	};
+	const checkStuckTasks = async (): Promise<void> => {
+		await retryQuotaBlockedTasks();
+		const state = await loadWorkspaceState(deps.workspacePath);
+		const summaries = deps.terminalManager.listSummaries();
+		for (const column of state.board.columns) {
+			if (column.id !== "in_progress" && column.id !== "review") continue;
+			for (const card of column.cards) {
+				if (card.agentReviewEnabled !== true || processingTaskIds.has(card.id)) continue;
+				const summary = summaries.find((candidate) => candidate.taskId === card.id);
+				if (!summary || summary.agentId === "cline" || card.agentId === "cline") continue;
+				if (summary.state === "running") {
+					let terminal: Awaited<ReturnType<TerminalSessionManager["getRestoreSnapshot"]>>;
+					try {
+						terminal = await deps.terminalManager.getRestoreSnapshot(card.id);
+					} catch (error) {
+						deps.warn(`[sidebar-review] Could not check usage limit for ${card.id}: ${errorMessage(error)}`);
+						continue;
+					}
+					const phrase = terminal ? detectUsageLimit(terminal.snapshot) : null;
+					const idleSince = summary.lastOutputAt ?? summary.startedAt;
+					const silent = idleSince !== null && now() - idleSince >= QUOTA_NUDGE_WAIT_MS;
+					if (phrase || silent || quotaNudges.has(card.id)) {
+						processingTaskIds.add(card.id);
+						try {
+							await handleUsageLimit(summary, card, phrase, true);
+						} finally {
+							processingTaskIds.delete(card.id);
+						}
+					}
+				} else if (summary.state === "awaiting_review" && isHandOffAgentId(card.agentId)) {
+					let terminal: Awaited<ReturnType<TerminalSessionManager["getRestoreSnapshot"]>>;
+					try {
+						terminal = await deps.terminalManager.getRestoreSnapshot(card.id);
+					} catch (error) {
+						deps.warn(`[sidebar-review] Could not check usage limit for ${card.id}: ${errorMessage(error)}`);
+						continue;
+					}
+					const phrase = terminal ? detectUsageLimit(terminal.snapshot) : null;
+					if (phrase || quotaNudges.has(card.id)) await processReviewableSummary(summary, card);
+				}
+			}
+		}
+	};
 
 	const deliverNext = async (): Promise<void> => {
 		if (!sidebarIdleAvailable) {
@@ -186,63 +352,17 @@ export function createSidebarReviewService(deps: CreateSidebarReviewServiceDepen
 		if (processingTaskIds.has(summary.taskId)) return;
 		processingTaskIds.add(summary.taskId);
 		try {
-			if (isHandOffAgentId(card.agentId)) {
+			const completedRunningNudge = quotaNudges.get(summary.taskId)?.isRunning === true;
+			if (completedRunningNudge) quotaNudges.delete(summary.taskId);
+			if (!completedRunningNudge && isHandOffAgentId(card.agentId)) {
 				try {
 					const terminal = await deps.terminalManager.getRestoreSnapshot(summary.taskId);
 					const phrase = terminal ? detectUsageLimit(terminal.snapshot) : null;
-					if (phrase) {
-						if (getHandOffCount(card) >= MAX_HAND_OFFS) {
-							const mutation = await mutateWorkspaceState(deps.workspacePath, (current) => {
-								const currentCard = findCard(current.board, summary.taskId)?.card;
-								if (!currentCard || currentCard.quotaBlockedAt !== undefined)
-									return { board: current.board, value: null, save: false };
-								const board = {
-									...current.board,
-									columns: current.board.columns.map((column) => ({
-										...column,
-										cards: column.cards.map((candidate) =>
-											candidate.id === summary.taskId ? { ...candidate, quotaBlockedAt: now() } : candidate,
-										),
-									})),
-								};
-								return { board, value: true, save: true };
-							});
-							if (mutation.saved) {
-								if (card.agentId) {
-									await recordHistory(summary.taskId, {
-										type: "quota_blocked",
-										agentId: card.agentId,
-										round: card.reviewRound,
-									});
-								}
-								await deps.broadcastStateUpdated();
-							}
-							if (!quotaWarnedTaskIds.has(summary.taskId)) {
-								quotaWarnedTaskIds.add(summary.taskId);
-								deps.warn(
-									`[sidebar-review] Task ${summary.taskId}: both agents hit their usage limit; leaving it in Review`,
-								);
-							}
-							return;
-						}
-						const reason = `The previous agent hit its usage limit ("${phrase}").`;
-						const result = await deps.handOffTask(summary.taskId, reason);
-						if (result.ok) {
-							if (card.agentId) {
-								await recordHistory(summary.taskId, {
-									type: "handoff",
-									agentId: result.fromAgentId ?? card.agentId,
-									toAgentId: result.toAgentId,
-									round: card.reviewRound,
-									detail: reason,
-								});
-							}
-							return;
-						}
-						deps.warn(
-							`[sidebar-review] Could not hand off task ${summary.taskId}: ${result.error ?? "unknown error"}`,
-						);
-					}
+					if (
+						(phrase || quotaNudges.has(summary.taskId)) &&
+						(await handleUsageLimit(summary, card, phrase, false))
+					)
+						return;
 				} catch (error) {
 					deps.warn(`[sidebar-review] Could not check usage limit for ${summary.taskId}: ${errorMessage(error)}`);
 				}
@@ -363,6 +483,7 @@ export function createSidebarReviewService(deps: CreateSidebarReviewServiceDepen
 								detail: reason,
 							});
 						}
+						quotaNudges.delete(summary.taskId);
 						return;
 					}
 				}
@@ -395,7 +516,7 @@ export function createSidebarReviewService(deps: CreateSidebarReviewServiceDepen
 				}
 			}
 			await retryQuotaBlockedTasks();
-			retryInterval = (deps.setInterval ?? setInterval)(() => void retryQuotaBlockedTasks(), 300000);
+			retryInterval = (deps.setInterval ?? setInterval)(() => void checkStuckTasks(), QUOTA_NUDGE_WAIT_MS);
 			for (const summary of [...deps.terminalManager.listSummaries(), ...deps.clineService.listSummaries()]) {
 				previousSummaries.set(summary.taskId, summary);
 			}
