@@ -60,6 +60,17 @@ describe("sendPromptToSession", () => {
 		expect(deps.clineService.sendTaskSessionInput).not.toHaveBeenCalled();
 	});
 
+	it("sends Antigravity prompts through the PTY as a bracketed paste before Enter", async () => {
+		const deps = createDeps();
+
+		const result = await sendPromptToSession({ ...deps.input, agentId: "antigravity" });
+
+		expect(result).toEqual({ ok: true });
+		expect(deps.writes).toEqual(["\x1b[200~fix it\x1b[201~", "\r"]);
+		expect(deps.input.sleep).toHaveBeenCalledWith(200);
+		expect(deps.clineService.sendTaskSessionInput).not.toHaveBeenCalled();
+	});
+
 	it("reports a dead PTY session as session_not_running", async () => {
 		const deps = createDeps();
 		deps.terminalManager.writeInput.mockReturnValue(null);
