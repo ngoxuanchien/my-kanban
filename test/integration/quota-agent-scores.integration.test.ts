@@ -240,7 +240,16 @@ describe("quota and agent score integration", () => {
 			expect(seeded.status).toBe(200);
 
 			const failed = await runCli(
-				["task", "review-failed", "--task-id", taskId, "--project-path", projectPath],
+				[
+					"task",
+					"review-failed",
+					"--task-id",
+					taskId,
+					"--message",
+					"missing coverage",
+					"--project-path",
+					projectPath,
+				],
 				projectPath,
 				env,
 			);
@@ -278,7 +287,7 @@ describe("quota and agent score integration", () => {
 			});
 			expect(bumped.status).toBe(200);
 			const failedRoundTwo = await runCli(
-				["task", "review-failed", "--task-id", taskId, "--project-path", projectPath],
+				["task", "review-failed", "--task-id", taskId, "--message", "second review", "--project-path", projectPath],
 				projectPath,
 				env,
 			);
@@ -302,11 +311,34 @@ describe("quota and agent score integration", () => {
 			);
 			expect(noPass.exitCode).toBe(0);
 			const doneWithPass = await runCli(
-				["task", "done", "--task-id", taskId, "--review-passed", "--project-path", projectPath],
+				[
+					"task",
+					"done",
+					"--task-id",
+					taskId,
+					"--review-passed",
+					"--commit",
+					"abc123",
+					"--project-path",
+					projectPath,
+				],
 				projectPath,
 				env,
 			);
 			expect(doneWithPass.exitCode).toBe(0);
+			const history = await request<{ events: Array<{ type: string; detail?: string; commit?: string }> }>({
+				baseUrl,
+				procedure: "workspace.getTaskHistory",
+				type: "query",
+				workspaceId,
+				payload: { taskId },
+			});
+			expect(history.status).toBe(200);
+			expect(history.payload.events.filter((event) => event.type === "fail").map((event) => event.detail)).toEqual([
+				"missing coverage",
+				"second review",
+			]);
+			expect(history.payload.events.find((event) => event.type === "pass")?.commit).toBe("abc123");
 
 			const invalidPass = await runCli(
 				["task", "done", "--column", "review", "--review-passed", "--project-path", projectPath],

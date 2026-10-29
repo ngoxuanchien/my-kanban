@@ -6,6 +6,8 @@ import { initTRPC, TRPCError } from "@trpc/server";
 import { z } from "zod";
 
 import type {
+	RuntimeAgentTranscriptRequest,
+	RuntimeAgentTranscriptResponse,
 	RuntimeClineAccountBalanceResponse,
 	RuntimeClineAccountOrganizationsResponse,
 	RuntimeClineAccountProfileResponse,
@@ -34,6 +36,8 @@ import type {
 	RuntimeClineUpdateProviderResponse,
 	RuntimeCommandRunRequest,
 	RuntimeCommandRunResponse,
+	RuntimeCommitChangesRequest,
+	RuntimeCommitChangesResponse,
 	RuntimeConfigResponse,
 	RuntimeConfigSaveRequest,
 	RuntimeDebugResetAllStateResponse,
@@ -77,6 +81,8 @@ import type {
 	RuntimeTaskChatSendResponse,
 	RuntimeTaskHandOffRequest,
 	RuntimeTaskHandOffResponse,
+	RuntimeTaskHistoryRequest,
+	RuntimeTaskHistoryResponse,
 	RuntimeTaskSendMessageRequest,
 	RuntimeTaskSendMessageResponse,
 	RuntimeTaskSessionInputRequest,
@@ -101,6 +107,8 @@ import type {
 	RuntimeWorktreeEnsureResponse,
 } from "../core/api-contract";
 import {
+	runtimeAgentTranscriptRequestSchema,
+	runtimeAgentTranscriptResponseSchema,
 	runtimeClineAccountBalanceResponseSchema,
 	runtimeClineAccountOrganizationsResponseSchema,
 	runtimeClineAccountProfileResponseSchema,
@@ -129,6 +137,8 @@ import {
 	runtimeClineUpdateProviderResponseSchema,
 	runtimeCommandRunRequestSchema,
 	runtimeCommandRunResponseSchema,
+	runtimeCommitChangesRequestSchema,
+	runtimeCommitChangesResponseSchema,
 	runtimeConfigResponseSchema,
 	runtimeConfigSaveRequestSchema,
 	runtimeDebugResetAllStateResponseSchema,
@@ -172,6 +182,8 @@ import {
 	runtimeTaskChatSendResponseSchema,
 	runtimeTaskHandOffRequestSchema,
 	runtimeTaskHandOffResponseSchema,
+	runtimeTaskHistoryRequestSchema,
+	runtimeTaskHistoryResponseSchema,
 	runtimeTaskSendMessageRequestSchema,
 	runtimeTaskSendMessageResponseSchema,
 	runtimeTaskSessionInputRequestSchema,
@@ -317,6 +329,18 @@ export interface RuntimeTrpcContext {
 			scope: RuntimeTrpcWorkspaceScope,
 			input: RuntimeCommandRunRequest,
 		) => Promise<RuntimeCommandRunResponse>;
+		getTaskHistory: (
+			scope: RuntimeTrpcWorkspaceScope,
+			input: RuntimeTaskHistoryRequest,
+		) => Promise<RuntimeTaskHistoryResponse>;
+		getCommitChanges: (
+			scope: RuntimeTrpcWorkspaceScope,
+			input: RuntimeCommitChangesRequest,
+		) => Promise<RuntimeCommitChangesResponse>;
+		getAgentTranscript: (
+			scope: RuntimeTrpcWorkspaceScope,
+			input: RuntimeAgentTranscriptRequest,
+		) => Promise<RuntimeAgentTranscriptResponse>;
 		resetAllState: (scope: RuntimeTrpcWorkspaceScope | null) => Promise<RuntimeDebugResetAllStateResponse>;
 		openFile: (input: RuntimeOpenFileRequest) => Promise<RuntimeOpenFileResponse>;
 		getUpdateStatus: (scope: RuntimeTrpcWorkspaceScope | null) => Promise<RuntimeUpdateStatusResponse>;
@@ -762,6 +786,18 @@ export const runtimeAppRouter = t.router({
 		getWorkspaceChanges: workspaceProcedure.output(runtimeWorkspaceChangesResponseSchema).query(async ({ ctx }) => {
 			return await ctx.workspaceApi.loadWorkspaceChanges(ctx.workspaceScope);
 		}),
+		getTaskHistory: workspaceProcedure
+			.input(runtimeTaskHistoryRequestSchema)
+			.output(runtimeTaskHistoryResponseSchema)
+			.query(async ({ ctx, input }) => await ctx.runtimeApi.getTaskHistory(ctx.workspaceScope, input)),
+		getCommitChanges: workspaceProcedure
+			.input(runtimeCommitChangesRequestSchema)
+			.output(runtimeCommitChangesResponseSchema)
+			.query(async ({ ctx, input }) => await ctx.runtimeApi.getCommitChanges(ctx.workspaceScope, input)),
+		getAgentTranscript: workspaceProcedure
+			.input(runtimeAgentTranscriptRequestSchema)
+			.output(runtimeAgentTranscriptResponseSchema)
+			.query(async ({ ctx, input }) => await ctx.runtimeApi.getAgentTranscript(ctx.workspaceScope, input)),
 		getGitLog: workspaceProcedure
 			.input(runtimeGitLogRequestSchema)
 			.output(runtimeGitLogResponseSchema)

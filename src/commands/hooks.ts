@@ -342,6 +342,24 @@ function normalizeHookMetadata(
 		hookEventName: flagMetadata.hookEventName ?? hookEventName ?? null,
 		toolName: flagMetadata.toolName ?? toolName ?? null,
 		notificationType: flagMetadata.notificationType ?? notificationType ?? null,
+		conversationId:
+			flagMetadata.conversationId ??
+			(sourceHint?.toLowerCase() === "antigravity"
+				? payload
+					? (readStringField(payload, "conversationId") ??
+						readStringField(payload, "conversation_id") ??
+						undefined)
+					: undefined
+				: undefined),
+		transcriptPath:
+			flagMetadata.transcriptPath ??
+			(sourceHint?.toLowerCase() === "antigravity"
+				? payload
+					? (readStringField(payload, "transcriptPath") ??
+						readStringField(payload, "transcript_path") ??
+						undefined)
+					: undefined
+				: undefined),
 		finalMessage: flagMetadata.finalMessage ?? (finalMessage ? normalizeWhitespace(finalMessage) : null),
 		activityText: flagMetadata.activityText ?? (activityText ? normalizeWhitespace(activityText) : null),
 	};
@@ -439,6 +457,14 @@ function appendMetadataFlags(args: string[], metadata?: Partial<RuntimeTaskHookA
 	}
 	if (metadata.notificationType) {
 		args.push("--notification-type", metadata.notificationType);
+	}
+	if (metadata.conversationId || metadata.transcriptPath) {
+		args.push(
+			"--metadata-base64",
+			Buffer.from(
+				JSON.stringify({ conversationId: metadata.conversationId, transcriptPath: metadata.transcriptPath }),
+			).toString("base64"),
+		);
 	}
 	return args;
 }

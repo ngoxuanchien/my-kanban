@@ -40,6 +40,50 @@ export const runtimeWorkspaceChangesResponseSchema = z.object({
 });
 export type RuntimeWorkspaceChangesResponse = z.infer<typeof runtimeWorkspaceChangesResponseSchema>;
 
+export const runtimeTaskHistoryEventSchema = z.object({
+	type: z.enum(["started", "fail", "handoff", "quota_blocked", "retry", "pass", "session"]),
+	agentId: z.string(),
+	at: z.number(),
+	round: z.number().optional(),
+	detail: z.string().optional(),
+	commit: z.string().optional(),
+	toAgentId: z.string().optional(),
+	agentSession: z
+		.object({ agentId: z.string(), id: z.string().optional(), transcriptPath: z.string().optional() })
+		.optional(),
+});
+export type RuntimeTaskHistoryEvent = z.infer<typeof runtimeTaskHistoryEventSchema>;
+
+export const runtimeTaskHistoryRequestSchema = z.object({ taskId: z.string() });
+export type RuntimeTaskHistoryRequest = z.infer<typeof runtimeTaskHistoryRequestSchema>;
+export const runtimeTaskHistoryResponseSchema = z.object({ events: z.array(runtimeTaskHistoryEventSchema) });
+export type RuntimeTaskHistoryResponse = z.infer<typeof runtimeTaskHistoryResponseSchema>;
+
+export const runtimeCommitChangesRequestSchema = z.object({ commit: z.string() });
+export type RuntimeCommitChangesRequest = z.infer<typeof runtimeCommitChangesRequestSchema>;
+export const runtimeCommitChangesResponseSchema = z.union([
+	runtimeWorkspaceChangesResponseSchema,
+	z.object({ notFound: z.literal(true), commit: z.string() }),
+]);
+export type RuntimeCommitChangesResponse = z.infer<typeof runtimeCommitChangesResponseSchema>;
+
+export const runtimeAgentTranscriptRequestSchema = z.object({
+	taskId: z.string(),
+	sessionId: z.string(),
+	before: z.number().optional(),
+});
+export type RuntimeAgentTranscriptRequest = z.infer<typeof runtimeAgentTranscriptRequestSchema>;
+export const runtimeAgentTranscriptTurnSchema = z.object({
+	role: z.enum(["user", "assistant", "tool"]),
+	text: z.string(),
+	at: z.number().optional(),
+});
+export const runtimeAgentTranscriptResponseSchema = z.union([
+	z.object({ turns: z.array(runtimeAgentTranscriptTurnSchema), truncated: z.boolean() }),
+	z.object({ unavailable: z.string() }),
+]);
+export type RuntimeAgentTranscriptResponse = z.infer<typeof runtimeAgentTranscriptResponseSchema>;
+
 export const runtimeWorkspaceFileSearchRequestSchema = z.object({
 	query: z.string(),
 	limit: z.number().int().positive().optional(),
@@ -292,6 +336,8 @@ export const runtimeTaskHookActivitySchema = z.object({
 	hookEventName: z.string().nullable().default(null),
 	notificationType: z.string().nullable().default(null),
 	source: z.string().nullable().default(null),
+	conversationId: z.string().optional(),
+	transcriptPath: z.string().optional(),
 });
 export type RuntimeTaskHookActivity = z.infer<typeof runtimeTaskHookActivitySchema>;
 

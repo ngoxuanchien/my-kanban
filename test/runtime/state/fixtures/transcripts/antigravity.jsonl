@@ -1,0 +1,2 @@
+{"type":"USER_INPUT","created_at":"2026-01-01T00:00:00Z","content":"hello"}
+{"type":"PLANNER_RESPONSE","created_at":"2026-01-01T00:00:01Z","content":"working","tool_calls":[{"name":"read_file","args":{"path":"a.ts"}}]}

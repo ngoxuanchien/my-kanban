@@ -67,6 +67,7 @@ Update this file whenever a file or folder is created or moved.
 | `contexte/agent-review-live-terminal.md` | Superseded: reviewer ran as a live PTY session; verdict-file design and its gotchas. |
 | `contexte/opencode-multi-account.md` | Zen free limit is per IP, not per account; multi-account routers tried and removed. |
 | `contexte/antigravity-agent.md` | Antigravity CLI hook spike findings and adapter behavior. |
+| `contexte/agent-transcripts.md` | Transcript formats, normalized readers, and session capture limits. |
 
 ## livrables/
 _(empty)_

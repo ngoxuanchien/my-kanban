@@ -15,12 +15,19 @@ import type { ClineTaskSessionService } from "../cline-sdk/cline-task-session-se
 import type { RuntimeConfigState } from "../config/runtime-config";
 import { updateGlobalRuntimeConfig, updateRuntimeConfig } from "../config/runtime-config";
 import type {
+	RuntimeAgentTranscriptRequest,
+	RuntimeAgentTranscriptResponse,
 	RuntimeBoardCard,
 	RuntimeBoardData,
 	RuntimeCommandRunResponse,
+	RuntimeCommitChangesRequest,
+	RuntimeCommitChangesResponse,
 	RuntimeRunUpdateResponse,
 	RuntimeTaskHandOffResponse,
+	RuntimeTaskHistoryRequest,
+	RuntimeTaskHistoryResponse,
 	RuntimeUpdateStatusResponse,
+	RuntimeWorkspaceFileChange,
 } from "../core/api-contract";
 import {
 	parseClineAccountSwitchRequest,
@@ -50,11 +57,13 @@ import { resolveTaskTitle } from "../core/task-title.js";
 import { openInBrowser } from "../server/browser";
 import { handOffTask as handOffTaskInWorkspace } from "../server/hand-off-task";
 import { recordAgentScoreEvent } from "../state/agent-scores";
-import { recordTaskHistoryEvent } from "../state/task-history";
+import { readAgentTranscript } from "../state/agent-transcripts";
+import { loadTaskHistory, recordTaskHistoryEvent } from "../state/task-history";
 import { loadWorkspaceBoardById } from "../state/workspace-state";
 import { buildRuntimeConfigResponse, resolveAgentCommand } from "../terminal/agent-registry";
 import { sendPromptToSession } from "../terminal/send-prompt-to-session";
 import type { TerminalSessionManager } from "../terminal/session-manager";
+import { getGitStdout } from "../workspace/git-utils";
 import { resolveTaskCwd } from "../workspace/task-worktree";
 import { captureTaskTurnCheckpoint } from "../workspace/turn-checkpoints";
 import type { RuntimeTrpcContext, RuntimeTrpcWorkspaceScope } from "./app-router";
@@ -890,6 +899,100 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 					message,
 				});
 			}
+		},
+		getTaskHistory: async (workspaceScope, input: RuntimeTaskHistoryRequest): Promise<RuntimeTaskHistoryResponse> => {
+			return { events: await loadTaskHistory(workspaceScope.workspaceId, input.taskId) };
+		},
+		getCommitChanges: async (
+			workspaceScope,
+			input: RuntimeCommitChangesRequest,
+		): Promise<RuntimeCommitChangesResponse> => {
+			const { commit } = input;
+			const exists = await getGitStdout(
+				["cat-file", "-e", "--end-of-options", `${commit}^{commit}`],
+				workspaceScope.workspacePath,
+			).then(
+				() => true,
+				() => false,
+			);
+			if (!exists) return { notFound: true, commit };
+			const parent = await getGitStdout(["rev-parse", "--verify", `${commit}^`], workspaceScope.workspacePath).catch(
+				() => null,
+			);
+			const rawFiles = await getGitStdout(
+				["diff-tree", "--root", "-r", "--no-commit-id", "--name-status", "-M", "--end-of-options", commit],
+				workspaceScope.workspacePath,
+			);
+			const files: RuntimeWorkspaceFileChange[] = await Promise.all(
+				rawFiles
+					.split("\n")
+					.filter(Boolean)
+					.map(async (line) => {
+						const [rawStatus = "M", firstPath = "", secondPath] = line.split("\t");
+						const renamed = rawStatus.startsWith("R") || rawStatus.startsWith("C");
+						const status = rawStatus.startsWith("A")
+							? "added"
+							: rawStatus.startsWith("D")
+								? "deleted"
+								: rawStatus.startsWith("R")
+									? "renamed"
+									: rawStatus.startsWith("C")
+										? "copied"
+										: "modified";
+						const path = renamed ? (secondPath ?? firstPath) : firstPath;
+						const previousPath = renamed ? firstPath : path;
+						const oldText =
+							parent && status !== "added"
+								? await getGitStdout(["show", `${parent}:${previousPath}`], workspaceScope.workspacePath).catch(
+										() => null,
+									)
+								: null;
+						const newText =
+							status !== "deleted"
+								? await getGitStdout(["show", `${commit}:${path}`], workspaceScope.workspacePath).catch(
+										() => null,
+									)
+								: null;
+						const numstat = await getGitStdout(
+							parent
+								? ["diff", "--numstat", parent, commit, "--", previousPath, ...(renamed ? [path] : [])]
+								: [
+										"diff-tree",
+										"--root",
+										"--numstat",
+										"-r",
+										"-M",
+										"--end-of-options",
+										commit,
+										"--",
+										previousPath,
+									],
+							workspaceScope.workspacePath,
+						).catch(() => "");
+						const [added = "0", deleted = "0"] = numstat.split("\t");
+						return {
+							path,
+							...(renamed ? { previousPath } : {}),
+							status,
+							additions: Number(added) || 0,
+							deletions: Number(deleted) || 0,
+							oldText,
+							newText,
+						};
+					}),
+			);
+			return { repoRoot: workspaceScope.workspacePath, generatedAt: Date.now(), files };
+		},
+		getAgentTranscript: async (
+			workspaceScope,
+			input: RuntimeAgentTranscriptRequest,
+		): Promise<RuntimeAgentTranscriptResponse> => {
+			const history = await loadTaskHistory(workspaceScope.workspaceId, input.taskId);
+			const session = history.find(
+				(event) => event.type === "session" && event.agentSession?.id === input.sessionId,
+			)?.agentSession;
+			if (!session?.transcriptPath) return { unavailable: "session not found" };
+			return await readAgentTranscript(session.agentId, session.transcriptPath, input.before);
 		},
 		resetAllState: async (_workspaceScope) => {
 			await deps.prepareForStateReset?.();

@@ -578,6 +578,8 @@ export function parseHookIngestRequest(value: unknown): RuntimeHookIngestRequest
 				hookEventName: parsed.metadata.hookEventName?.trim(),
 				notificationType: parsed.metadata.notificationType?.trim(),
 				source: parsed.metadata.source?.trim(),
+				conversationId: parsed.metadata.conversationId?.trim(),
+				transcriptPath: parsed.metadata.transcriptPath?.trim(),
 			}
 		: undefined;
 	return {
