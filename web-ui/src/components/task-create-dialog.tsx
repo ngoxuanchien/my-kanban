@@ -111,6 +111,8 @@ export function TaskCreateDialog({
 	onStartInPlanModeChange,
 	autoReviewEnabled,
 	onAutoReviewEnabledChange,
+	agentReviewEnabled,
+	onAgentReviewEnabledChange,
 	autoReviewMode,
 	onAutoReviewModeChange,
 	startInPlanModeDisabled = false,
@@ -142,6 +144,8 @@ export function TaskCreateDialog({
 	onStartInPlanModeChange: (value: boolean) => void;
 	autoReviewEnabled: boolean;
 	onAutoReviewEnabledChange: (value: boolean) => void;
+	agentReviewEnabled: boolean;
+	onAgentReviewEnabledChange: (value: boolean) => void;
 	autoReviewMode: TaskAutoReviewMode;
 	onAutoReviewModeChange: (value: TaskAutoReviewMode) => void;
 	startInPlanModeDisabled?: boolean;
@@ -170,6 +174,7 @@ export function TaskCreateDialog({
 	const nextFocusIndexRef = useRef<number | null>(null);
 	const startInPlanModeId = useId();
 	const autoReviewEnabledId = useId();
+	const agentReviewEnabledId = useId();
 	const createMoreId = useId();
 	const [primaryStartAction, setPrimaryStartAction] = useRawLocalStorageValue<TaskCreateStartAction>(
 		LocalStorageKey.TaskCreatePrimaryStartAction,
@@ -545,6 +550,23 @@ export function TaskCreateDialog({
 						/>
 					</div>
 
+					<label
+						htmlFor={agentReviewEnabledId}
+						className="flex items-center gap-2 text-[12px] text-text-primary cursor-pointer select-none"
+					>
+						<RadixCheckbox.Root
+							id={agentReviewEnabledId}
+							checked={agentReviewEnabled}
+							onCheckedChange={(checked) => onAgentReviewEnabledChange(checked === true)}
+							className="flex h-3.5 w-3.5 cursor-pointer items-center justify-center rounded-sm border border-border-bright bg-surface-3 data-[state=checked]:bg-accent data-[state=checked]:border-accent"
+						>
+							<RadixCheckbox.Indicator>
+								<Check size={10} className="text-white" />
+							</RadixCheckbox.Indicator>
+						</RadixCheckbox.Root>
+						Agent review (sidebar agent reviews and commits)
+					</label>
+
 					<div className="flex items-center gap-2 flex-wrap">
 						<label
 							htmlFor={autoReviewEnabledId}
@@ -554,7 +576,8 @@ export function TaskCreateDialog({
 								id={autoReviewEnabledId}
 								checked={autoReviewEnabled}
 								onCheckedChange={(checked) => onAutoReviewEnabledChange(checked === true)}
-								className="flex h-3.5 w-3.5 cursor-pointer items-center justify-center rounded-sm border border-border-bright bg-surface-3 data-[state=checked]:bg-accent data-[state=checked]:border-accent"
+								disabled={agentReviewEnabled}
+								className="flex h-3.5 w-3.5 cursor-pointer items-center justify-center rounded-sm border border-border-bright bg-surface-3 data-[state=checked]:bg-accent data-[state=checked]:border-accent disabled:cursor-default disabled:opacity-40"
 							>
 								<RadixCheckbox.Indicator>
 									<Check size={10} className="text-white" />
@@ -566,6 +589,7 @@ export function TaskCreateDialog({
 							size="sm"
 							value={autoReviewMode}
 							onChange={(e) => onAutoReviewModeChange(e.currentTarget.value as TaskAutoReviewMode)}
+							disabled={agentReviewEnabled}
 							style={{ width: "16ch", maxWidth: "100%" }}
 						>
 							{AUTO_REVIEW_MODE_OPTIONS.map((option) => (

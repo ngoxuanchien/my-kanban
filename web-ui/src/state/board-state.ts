@@ -24,6 +24,7 @@ export interface TaskDraft {
 	startInPlanMode?: boolean;
 	autoReviewEnabled?: boolean;
 	autoReviewMode?: TaskAutoReviewMode;
+	agentReviewEnabled?: boolean;
 	images?: TaskImage[];
 	agentId?: RuntimeAgentId;
 	clineSettings?: RuntimeTaskClineSettings;
@@ -156,6 +157,8 @@ function normalizeCard(rawCard: unknown): BoardCard | null {
 		startInPlanMode?: unknown;
 		autoReviewEnabled?: unknown;
 		autoReviewMode?: unknown;
+		agentReviewEnabled?: unknown;
+		reviewRound?: unknown;
 		images?: unknown;
 		baseRef?: unknown;
 		agentId?: unknown;
@@ -196,6 +199,11 @@ function normalizeCard(rawCard: unknown): BoardCard | null {
 		autoReviewMode: resolveTaskAutoReviewMode(
 			typeof card.autoReviewMode === "string" ? (card.autoReviewMode as TaskAutoReviewMode) : undefined,
 		),
+		agentReviewEnabled: typeof card.agentReviewEnabled === "boolean" ? card.agentReviewEnabled : false,
+		reviewRound:
+			typeof card.reviewRound === "number" && Number.isInteger(card.reviewRound) && card.reviewRound >= 0
+				? card.reviewRound
+				: 0,
 		images: normalizeTaskImages(card.images),
 		baseRef,
 		...(typeof card.agentId === "string" && card.agentId ? { agentId: card.agentId as RuntimeAgentId } : {}),
@@ -351,9 +359,20 @@ export function addTaskToColumnWithResult(
 		},
 		createBrowserUuid,
 	);
+	// The runtime draft type does not carry agent review yet, so apply the web-ui field here.
+	const task: BoardCard = {
+		...result.task,
+		agentReviewEnabled: draft.agentReviewEnabled === true,
+	};
 	return {
-		board: result.board,
-		task: result.task,
+		board: {
+			...result.board,
+			columns: result.board.columns.map((column) => ({
+				...column,
+				cards: column.cards.map((card) => (card.id === task.id ? task : card)),
+			})),
+		},
+		task,
 	};
 }
 
@@ -538,6 +557,8 @@ export function updateTask(board: BoardData, taskId: string, draft: TaskDraft): 
 				startInPlanMode: Boolean(draft.startInPlanMode),
 				autoReviewEnabled: Boolean(draft.autoReviewEnabled),
 				autoReviewMode: resolveTaskAutoReviewMode(draft.autoReviewMode ?? DEFAULT_TASK_AUTO_REVIEW_MODE),
+				agentReviewEnabled:
+					draft.agentReviewEnabled === undefined ? card.agentReviewEnabled : draft.agentReviewEnabled,
 				images:
 					draft.images === undefined
 						? card.images

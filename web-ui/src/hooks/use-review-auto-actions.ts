@@ -9,7 +9,8 @@ import { resolveTaskAutoReviewMode } from "@/types";
 const AUTO_REVIEW_ACTION_DELAY_MS = 500;
 
 function isTaskAutoReviewEnabled(task: BoardCard): boolean {
-	return task.autoReviewEnabled === true;
+	// Agent-reviewed tasks are committed by the sidebar agent, so the upstream automation must not fire.
+	return task.autoReviewEnabled === true && task.agentReviewEnabled !== true;
 }
 
 interface TaskGitActionLoadingStateLike {

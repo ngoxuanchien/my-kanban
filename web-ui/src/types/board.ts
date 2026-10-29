@@ -43,6 +43,8 @@ export interface BoardCard {
 	startInPlanMode: boolean;
 	autoReviewEnabled?: boolean;
 	autoReviewMode?: TaskAutoReviewMode;
+	agentReviewEnabled?: boolean;
+	reviewRound?: number;
 	images?: TaskImage[];
 	agentId?: RuntimeAgentId;
 	clineSettings?: RuntimeTaskClineSettings;

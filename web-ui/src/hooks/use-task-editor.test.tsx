@@ -41,6 +41,7 @@ interface HookSnapshot {
 	newTaskBranchRef: string;
 	newTaskAgentId: RuntimeAgentId | undefined;
 	newTaskClineSettings: RuntimeTaskClineSettings | undefined;
+	newTaskAgentReviewEnabled: boolean;
 	editingTaskId: string | null;
 	editTaskPrompt: string;
 	editTaskStartInPlanMode: boolean;
@@ -58,6 +59,7 @@ interface HookSnapshot {
 	setEditTaskAutoReviewMode: (value: TaskAutoReviewMode) => void;
 	setNewTaskAgentId: (value: RuntimeAgentId | undefined) => void;
 	setNewTaskClineSettings: (value: RuntimeTaskClineSettings | undefined) => void;
+	setNewTaskAgentReviewEnabled: (value: boolean) => void;
 }
 
 function requireSnapshot(snapshot: HookSnapshot | null): HookSnapshot {
@@ -98,6 +100,7 @@ function HookHarness({
 			newTaskBranchRef: editor.newTaskBranchRef,
 			newTaskAgentId: editor.newTaskAgentId,
 			newTaskClineSettings: editor.newTaskClineSettings,
+			newTaskAgentReviewEnabled: editor.newTaskAgentReviewEnabled,
 			editingTaskId: editor.editingTaskId,
 			editTaskPrompt: editor.editTaskPrompt,
 			editTaskStartInPlanMode: editor.editTaskStartInPlanMode,
@@ -115,6 +118,7 @@ function HookHarness({
 			setEditTaskAutoReviewMode: editor.setEditTaskAutoReviewMode,
 			setNewTaskAgentId: editor.setNewTaskAgentId,
 			setNewTaskClineSettings: editor.setNewTaskClineSettings,
+			setNewTaskAgentReviewEnabled: editor.setNewTaskAgentReviewEnabled,
 		});
 	}, [
 		board,
@@ -133,10 +137,12 @@ function HookHarness({
 		editor.newTaskImages,
 		editor.newTaskBranchRef,
 		editor.newTaskAgentId,
+		editor.newTaskAgentReviewEnabled,
 		editor.newTaskClineSettings,
 		editor.setEditTaskAutoReviewEnabled,
 		editor.setEditTaskAutoReviewMode,
 		editor.setEditTaskPrompt,
+		editor.setNewTaskAgentReviewEnabled,
 		editor.setNewTaskImages,
 		editor.setNewTaskPrompt,
 		onSnapshot,
@@ -474,5 +480,71 @@ describe("useTaskEditor", () => {
 				reasoningEffort: "medium",
 			});
 		}
+	});
+
+	it("creates a task with agentReviewEnabled when the toggle is on", async () => {
+		let latestSnapshot: HookSnapshot | null = null;
+
+		await act(async () => {
+			root.render(
+				<HookHarness
+					initialBoard={createBoard()}
+					onSnapshot={(snapshot) => {
+						latestSnapshot = snapshot;
+					}}
+				/>,
+			);
+		});
+
+		await act(async () => {
+			requireSnapshot(latestSnapshot).handleOpenCreateTask();
+		});
+
+		await act(async () => {
+			requireSnapshot(latestSnapshot).setNewTaskPrompt("Let the sidebar agent review this");
+			requireSnapshot(latestSnapshot).setNewTaskAgentReviewEnabled(true);
+		});
+
+		expect(requireSnapshot(latestSnapshot).newTaskAgentReviewEnabled).toBe(true);
+
+		await act(async () => {
+			requireSnapshot(latestSnapshot).handleCreateTask();
+		});
+
+		const createdCard = requireSnapshot(latestSnapshot).board.columns[0]?.cards[0];
+		expect(createdCard?.prompt).toBe("Let the sidebar agent review this");
+		expect(createdCard?.agentReviewEnabled).toBe(true);
+		expect(requireSnapshot(latestSnapshot).newTaskAgentReviewEnabled).toBe(false);
+	});
+
+	it("creates tasks with agent review off by default", async () => {
+		let latestSnapshot: HookSnapshot | null = null;
+
+		await act(async () => {
+			root.render(
+				<HookHarness
+					initialBoard={createBoard()}
+					onSnapshot={(snapshot) => {
+						latestSnapshot = snapshot;
+					}}
+				/>,
+			);
+		});
+
+		await act(async () => {
+			requireSnapshot(latestSnapshot).handleOpenCreateTask();
+		});
+
+		expect(requireSnapshot(latestSnapshot).newTaskAgentReviewEnabled).toBe(false);
+
+		await act(async () => {
+			requireSnapshot(latestSnapshot).setNewTaskPrompt("Plain task");
+		});
+
+		await act(async () => {
+			requireSnapshot(latestSnapshot).handleCreateTask();
+		});
+
+		expect(requireSnapshot(latestSnapshot).board.columns[0]?.cards[0]?.agentReviewEnabled).toBe(false);
 	});
 });

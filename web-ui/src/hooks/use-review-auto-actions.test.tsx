@@ -6,7 +6,7 @@ import { useReviewAutoActions } from "@/hooks/use-review-auto-actions";
 import { resetWorkspaceMetadataStore, setTaskWorkspaceSnapshot } from "@/stores/workspace-metadata-store";
 import type { BoardColumnId, BoardData, ReviewTaskWorkspaceSnapshot } from "@/types";
 
-function createBoard(autoReviewEnabled: boolean): BoardData {
+function createBoard(autoReviewEnabled: boolean, agentReviewEnabled = false): BoardData {
 	return {
 		columns: [
 			{ id: "backlog", title: "Backlog", cards: [] },
@@ -22,6 +22,7 @@ function createBoard(autoReviewEnabled: boolean): BoardData {
 						startInPlanMode: false,
 						autoReviewEnabled,
 						autoReviewMode: "commit",
+						agentReviewEnabled,
 						baseRef: "main",
 						createdAt: 1,
 						updatedAt: 1,
@@ -144,5 +145,24 @@ describe("useReviewAutoActions", () => {
 			vi.advanceTimersByTime(1000);
 		});
 		expect(runAutoReviewGitAction).toHaveBeenCalledWith("task-1", "commit");
+	});
+
+	it("skips auto-commit for agent-reviewed tasks", async () => {
+		const runAutoReviewGitAction = vi.fn(async () => true);
+		const requestMoveTaskToTrash = vi.fn(async () => {});
+		await act(async () => {
+			root.render(
+				<HookHarness
+					board={createBoard(true, true)}
+					runAutoReviewGitAction={runAutoReviewGitAction}
+					requestMoveTaskToTrash={requestMoveTaskToTrash}
+				/>,
+			);
+		});
+		await act(async () => {
+			vi.advanceTimersByTime(1000);
+		});
+		expect(runAutoReviewGitAction).not.toHaveBeenCalled();
+		expect(requestMoveTaskToTrash).not.toHaveBeenCalled();
 	});
 });

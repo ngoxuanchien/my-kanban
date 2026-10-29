@@ -295,6 +295,8 @@ export default function App(): ReactElement {
 		setNewTaskStartInPlanMode,
 		newTaskAutoReviewEnabled,
 		setNewTaskAutoReviewEnabled,
+		newTaskAgentReviewEnabled,
+		setNewTaskAgentReviewEnabled,
 		newTaskAutoReviewMode,
 		setNewTaskAutoReviewMode,
 		isNewTaskStartInPlanModeDisabled,
@@ -313,6 +315,8 @@ export default function App(): ReactElement {
 		setEditTaskStartInPlanMode,
 		editTaskAutoReviewEnabled,
 		setEditTaskAutoReviewEnabled,
+		editTaskAgentReviewEnabled,
+		setEditTaskAgentReviewEnabled,
 		editTaskAutoReviewMode,
 		setEditTaskAutoReviewMode,
 		isEditTaskStartInPlanModeDisabled,
@@ -775,6 +779,8 @@ export default function App(): ReactElement {
 			startInPlanModeDisabled={isEditTaskStartInPlanModeDisabled}
 			autoReviewEnabled={editTaskAutoReviewEnabled}
 			onAutoReviewEnabledChange={setEditTaskAutoReviewEnabled}
+			agentReviewEnabled={editTaskAgentReviewEnabled}
+			onAgentReviewEnabledChange={setEditTaskAgentReviewEnabled}
 			autoReviewMode={editTaskAutoReviewMode}
 			onAutoReviewModeChange={setEditTaskAutoReviewMode}
 			workspaceId={currentProjectId}
@@ -1123,6 +1129,8 @@ export default function App(): ReactElement {
 					startInPlanModeDisabled={isNewTaskStartInPlanModeDisabled}
 					autoReviewEnabled={newTaskAutoReviewEnabled}
 					onAutoReviewEnabledChange={setNewTaskAutoReviewEnabled}
+					agentReviewEnabled={newTaskAgentReviewEnabled}
+					onAgentReviewEnabledChange={setNewTaskAgentReviewEnabled}
 					autoReviewMode={newTaskAutoReviewMode}
 					onAutoReviewModeChange={setNewTaskAutoReviewMode}
 					workspaceId={currentProjectId}

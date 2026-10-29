@@ -57,6 +57,8 @@ export function TaskInlineCreateCard({
 	onStartInPlanModeChange,
 	autoReviewEnabled,
 	onAutoReviewEnabledChange,
+	agentReviewEnabled,
+	onAgentReviewEnabledChange,
 	autoReviewMode,
 	onAutoReviewModeChange,
 	startInPlanModeDisabled = false,
@@ -89,6 +91,8 @@ export function TaskInlineCreateCard({
 	onStartInPlanModeChange: (value: boolean) => void;
 	autoReviewEnabled: boolean;
 	onAutoReviewEnabledChange: (value: boolean) => void;
+	agentReviewEnabled: boolean;
+	onAgentReviewEnabledChange: (value: boolean) => void;
 	autoReviewMode: TaskAutoReviewMode;
 	onAutoReviewModeChange: (value: TaskAutoReviewMode) => void;
 	startInPlanModeDisabled?: boolean;
@@ -115,6 +119,7 @@ export function TaskInlineCreateCard({
 	const promptId = `${idPrefix}-prompt-input`;
 	const planModeId = `${idPrefix}-plan-mode-toggle`;
 	const autoReviewEnabledId = `${idPrefix}-auto-review-enabled-toggle`;
+	const agentReviewEnabledId = `${idPrefix}-agent-review-enabled-toggle`;
 	const autoReviewModeId = `${idPrefix}-auto-review-mode-select`;
 	const branchSelectId = `${idPrefix}-branch-select`;
 	const actionLabel = mode === "edit" ? "Save" : "Create";
@@ -273,6 +278,24 @@ export function TaskInlineCreateCard({
 					/>
 				</div>
 
+				<label
+					htmlFor={agentReviewEnabledId}
+					className="flex items-center gap-2 text-[12px] text-text-primary cursor-pointer select-none"
+				>
+					<RadixCheckbox.Root
+						id={agentReviewEnabledId}
+						aria-label="Agent review (sidebar agent reviews and commits)"
+						checked={agentReviewEnabled}
+						onCheckedChange={(checked) => onAgentReviewEnabledChange(checked === true)}
+						className="flex h-3.5 w-3.5 cursor-pointer items-center justify-center rounded-sm border border-border-bright bg-surface-3 data-[state=checked]:bg-accent data-[state=checked]:border-accent"
+					>
+						<RadixCheckbox.Indicator>
+							<Check size={10} className="text-white" />
+						</RadixCheckbox.Indicator>
+					</RadixCheckbox.Root>
+					<span>Agent review (sidebar agent reviews and commits)</span>
+				</label>
+
 				<div className="flex items-center gap-2 flex-wrap">
 					<label
 						htmlFor={autoReviewEnabledId}
@@ -283,7 +306,8 @@ export function TaskInlineCreateCard({
 							aria-label="Enable automatic review action"
 							checked={autoReviewEnabled}
 							onCheckedChange={(checked) => onAutoReviewEnabledChange(checked === true)}
-							className="flex h-3.5 w-3.5 cursor-pointer items-center justify-center rounded-sm border border-border-bright bg-surface-3 data-[state=checked]:bg-accent data-[state=checked]:border-accent"
+							disabled={agentReviewEnabled}
+							className="flex h-3.5 w-3.5 cursor-pointer items-center justify-center rounded-sm border border-border-bright bg-surface-3 data-[state=checked]:bg-accent data-[state=checked]:border-accent disabled:cursor-default disabled:opacity-40"
 						>
 							<RadixCheckbox.Indicator>
 								<Check size={10} className="text-white" />
@@ -296,6 +320,7 @@ export function TaskInlineCreateCard({
 						size="sm"
 						value={autoReviewMode}
 						onChange={(event) => onAutoReviewModeChange(event.currentTarget.value as TaskAutoReviewMode)}
+						disabled={agentReviewEnabled}
 						style={{
 							width: `${AUTO_REVIEW_MODE_SELECT_WIDTH_CH}ch`,
 							maxWidth: "100%",
