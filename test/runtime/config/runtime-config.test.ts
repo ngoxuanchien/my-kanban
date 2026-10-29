@@ -10,6 +10,7 @@ import {
 	saveRuntimeConfig,
 	updateRuntimeConfig,
 } from "../../../src/config/runtime-config";
+import { isRuntimeAgentLaunchSupported } from "../../../src/core/agent-catalog";
 import { createTempDir } from "../../utilities/temp-dir";
 
 function withTemporaryEnv<T>(
@@ -235,6 +236,26 @@ describe.sequential("runtime-config auto agent selection", () => {
 			});
 		} finally {
 			cleanupBin();
+			cleanupProject();
+			cleanupHome();
+		}
+	});
+
+	it("keeps Antigravity as a supported configured launch agent", async () => {
+		const { path: tempHome, cleanup: cleanupHome } = createTempDir("kanban-home-runtime-config-antigravity-");
+		const { path: tempProject, cleanup: cleanupProject } = createTempDir(
+			"kanban-project-runtime-config-antigravity-",
+		);
+		const runtimeConfigDir = join(tempHome, ".cline", "kanban");
+		mkdirSync(runtimeConfigDir, { recursive: true });
+		writeFileSync(join(runtimeConfigDir, "config.json"), JSON.stringify({ selectedAgentId: "antigravity" }), "utf8");
+
+		try {
+			await withTemporaryEnv({ home: tempHome }, async () => {
+				expect(isRuntimeAgentLaunchSupported("antigravity")).toBe(true);
+				expect((await loadRuntimeConfig(tempProject)).selectedAgentId).toBe("antigravity");
+			});
+		} finally {
 			cleanupProject();
 			cleanupHome();
 		}

@@ -145,4 +145,40 @@ describe("createHooksApi", () => {
 			ref: "refs/kanban/checkpoints/task-1/turn/1",
 		});
 	});
+
+	// The board moves the card to Review when it sees awaiting_review; Antigravity needs no server-side move.
+	it("handles Antigravity to_review through the same path as other agents", async () => {
+		const manager = {
+			getSummary: vi.fn(() => createSummary({ state: "running" })),
+			transitionToReview: vi.fn(() => createSummary({ state: "awaiting_review", reviewReason: "hook" })),
+			transitionToRunning: vi.fn(),
+			applyHookActivity: vi.fn(),
+			applyTurnCheckpoint: vi.fn(),
+		} as unknown as TerminalSessionManager;
+		const broadcastTaskReadyForReview = vi.fn();
+		const api = createHooksApi({
+			getWorkspacePathById: vi.fn(() => "/tmp/repo"),
+			ensureTerminalManagerForWorkspace: vi.fn(async () => manager),
+			broadcastRuntimeWorkspaceStateUpdated: vi.fn(),
+			broadcastTaskReadyForReview,
+			captureTaskTurnCheckpoint: vi.fn(async () => {
+				throw new Error("skip checkpoint");
+			}),
+		});
+
+		const response = await api.ingest({
+			taskId: "task-1",
+			workspaceId: "workspace-1",
+			event: "to_review",
+			metadata: { source: "antigravity", hookEventName: "Stop" },
+		});
+
+		expect(response).toEqual({ ok: true });
+		expect(manager.transitionToReview).toHaveBeenCalledWith("task-1", "hook");
+		expect(manager.applyHookActivity).toHaveBeenCalledWith("task-1", {
+			source: "antigravity",
+			hookEventName: "Stop",
+		});
+		expect(broadcastTaskReadyForReview).toHaveBeenCalledWith("workspace-1", "task-1");
+	});
 });

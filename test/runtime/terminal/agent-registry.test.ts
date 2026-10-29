@@ -47,7 +47,7 @@ describe("agent-registry", () => {
 		const detected = detectInstalledCommands();
 
 		expect(detected).toEqual(["claude"]);
-		expect(commandDiscoveryMocks.isBinaryAvailableOnPath).toHaveBeenCalledTimes(8);
+		expect(commandDiscoveryMocks.isBinaryAvailableOnPath).toHaveBeenCalledTimes(9);
 	});
 
 	it("treats shell-only agents as unavailable", () => {
@@ -85,12 +85,14 @@ describe("buildRuntimeConfigResponse", () => {
 			"opencode",
 			"droid",
 			"kiro",
+			"antigravity",
 		]);
 		expect(response.agents.find((agent) => agent.id === "claude")?.defaultArgs).toEqual([]);
 		expect(response.agents.find((agent) => agent.id === "codex")?.defaultArgs).toEqual([]);
 		expect(response.agents.find((agent) => agent.id === "cline")?.defaultArgs).toEqual([]);
 		expect(response.agents.find((agent) => agent.id === "droid")?.defaultArgs).toEqual([]);
 		expect(response.agents.find((agent) => agent.id === "kiro")?.defaultArgs).toEqual(["chat"]);
+		expect(response.agents.find((agent) => agent.id === "antigravity")?.command).toBe("agy");
 		expect(response.agents.find((agent) => agent.id === "cline")?.installed).toBe(true);
 	});
 
@@ -120,6 +122,7 @@ describe("buildRuntimeConfigResponse", () => {
 			"opencode",
 			"droid",
 			"kiro",
+			"antigravity",
 		]);
 		expect(response.agents.find((agent) => agent.id === "claude")?.defaultArgs).toEqual([]);
 		expect(response.agents.find((agent) => agent.id === "codex")?.defaultArgs).toEqual([]);

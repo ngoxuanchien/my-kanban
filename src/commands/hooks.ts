@@ -7,6 +7,7 @@ import type { RuntimeHookEvent, RuntimeTaskHookActivity } from "../core/api-cont
 import { buildKanbanCommandParts } from "../core/kanban-command";
 import { buildKanbanRuntimeUrl, getRuntimeFetch } from "../core/runtime-endpoint";
 import { buildWindowsCmdArgsArray, resolveWindowsComSpec, shouldUseWindowsCmdLaunch } from "../core/windows-cmd-launch";
+import { resolveHomeAgentAppendSystemPrompt } from "../prompts/append-system-prompt";
 import { parseHookRuntimeContextFromEnv } from "../terminal/hook-runtime-context";
 import type { RuntimeAppRouter } from "../trpc/app-router";
 import {
@@ -531,6 +532,24 @@ function mapGeminiHookEvent(eventName: string): RuntimeHookEvent | null {
 	return null;
 }
 
+export function mapAntigravityHookEvent(
+	eventName: string,
+	payload: Record<string, unknown> | null,
+): RuntimeHookEvent | null {
+	if (eventName === "Stop") {
+		return payload?.terminationReason === "NO_TOOL_CALL" || payload?.terminationReason === "ERROR"
+			? "to_review"
+			: null;
+	}
+	if (eventName === "PreInvocation") {
+		return "to_in_progress";
+	}
+	if (eventName === "PreToolUse" || eventName === "PostToolUse") {
+		return "activity";
+	}
+	return null;
+}
+
 async function runCodexHookSubcommand(
 	event: RuntimeHookEvent,
 	options: HookCommandMetadataOptionValues,
@@ -587,6 +606,48 @@ async function runGeminiHookSubcommand(): Promise<void> {
 	const metadata = normalizeHookMetadata(mappedEvent, payloadRecord, {
 		source: "gemini",
 		hookEventName: hookEventName || undefined,
+	});
+	spawnBackgroundKanban(appendMetadataFlags(["hooks", "notify", "--event", mappedEvent], metadata));
+}
+
+async function runAntigravityHookSubcommand(eventName: string): Promise<void> {
+	let payload = "";
+	try {
+		payload = await readStdinText();
+	} catch {
+		payload = "";
+	}
+
+	let payloadRecord: Record<string, unknown> | null = null;
+	try {
+		payloadRecord = asRecord(JSON.parse(payload || "{}"));
+	} catch {
+		payloadRecord = null;
+	}
+
+	const response =
+		eventName === "PreToolUse"
+			? { decision: "allow" }
+			: eventName === "SessionStart"
+				? resolveHomeAgentAppendSystemPrompt(process.env.KANBAN_HOOK_TASK_ID ?? "")
+				: null;
+	process.stdout.write(
+		response
+			? `${JSON.stringify(
+					eventName === "SessionStart"
+						? { injectSteps: [{ systemMessage: { systemMessage: response } }] }
+						: response,
+				)}\n`
+			: "{}\n",
+	);
+
+	const mappedEvent = mapAntigravityHookEvent(eventName, payloadRecord);
+	if (!mappedEvent) {
+		return;
+	}
+	const metadata = normalizeHookMetadata(mappedEvent, payloadRecord, {
+		source: "antigravity",
+		hookEventName: eventName,
 	});
 	spawnBackgroundKanban(appendMetadataFlags(["hooks", "notify", "--event", mappedEvent], metadata));
 }
@@ -784,6 +845,14 @@ export function registerHooksCommand(program: Command): void {
 		.description("Gemini hook entrypoint.")
 		.action(async () => {
 			await runGeminiHookSubcommand();
+		});
+
+	hooks
+		.command("antigravity-hook")
+		.description("Antigravity hook entrypoint.")
+		.requiredOption("--event <name>", "Antigravity lifecycle event name.")
+		.action(async (options: { event: string }) => {
+			await runAntigravityHookSubcommand(options.event);
 		});
 
 	hooks

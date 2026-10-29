@@ -1,10 +1,12 @@
+import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
 import { afterEach, describe, expect, it } from "vitest";
 
+import { createGitProcessEnv } from "../../../src/core/git-process-env";
 import { prepareAgentLaunch } from "../../../src/terminal/agent-session-adapters";
 
 const originalHome = process.env.HOME;
@@ -231,6 +233,70 @@ describe("prepareAgentLaunch hook strategies", () => {
 		expect(afterToolCommand).toContain("gemini-hook");
 		const hookScriptPath = join(homedir(), ".cline", "kanban", "hooks", "gemini", "gemini-hook.mjs");
 		expect(existsSync(hookScriptPath)).toBe(false);
+	});
+
+	it("writes Antigravity hooks in Kanban config and launches with the interactive prompt", async () => {
+		const home = setupTempHome();
+		const cwd = join(home, "agy-task-worktree");
+		mkdirSync(cwd, { recursive: true });
+		// Strip GIT_DIR/GIT_INDEX_FILE so a pre-commit hook run cannot redirect these commands to the real repo.
+		const env = createGitProcessEnv();
+		execFileSync("git", ["init", "-q"], { cwd, env });
+		const excludePath = execFileSync("git", ["rev-parse", "--git-path", "info/exclude"], {
+			cwd,
+			env,
+			encoding: "utf8",
+		}).trim();
+		rmSync(resolve(cwd, excludePath), { force: true });
+		const launch = await prepareAgentLaunch({
+			taskId: "task-antigravity",
+			agentId: "antigravity",
+			binary: "agy",
+			args: [],
+			autonomousModeEnabled: true,
+			cwd,
+			prompt: "do X",
+			workspaceId: "workspace-1",
+		});
+
+		expect(launch.args).toContain("--dangerously-skip-permissions");
+		const addDirIndexes = launch.args.flatMap((arg, index) => (arg === "--add-dir" ? [index] : []));
+		const hooksDirectory = join(cwd, ".agents");
+		expect(addDirIndexes).toHaveLength(1);
+		const addDirIndex = addDirIndexes[0] ?? -1;
+		expect(addDirIndex).toBeGreaterThanOrEqual(0);
+		expect(launch.args[addDirIndex + 1]).toBe(cwd);
+		expect(readFileSync(resolve(cwd, excludePath), "utf8")).toContain(".agents/");
+		expect(launch.args.slice(-2)).toEqual(["-i", "do X"]);
+		expect(launch.env.KANBAN_HOOK_TASK_ID).toBe("task-antigravity");
+
+		const hooksPath = join(hooksDirectory, "hooks.json");
+		const config = JSON.parse(readFileSync(hooksPath, "utf8")) as {
+			kanban?: Record<string, Array<{ command?: string; matcher?: string; hooks?: Array<{ command?: string }> }>>;
+		};
+		const commands = [
+			config.kanban?.SessionStart?.[0]?.command,
+			config.kanban?.PreInvocation?.[0]?.command,
+			config.kanban?.Stop?.[0]?.command,
+			config.kanban?.PreToolUse?.[0]?.hooks?.[0]?.command,
+			config.kanban?.PostToolUse?.[0]?.hooks?.[0]?.command,
+		];
+		expect(config.kanban?.PreToolUse?.[0]?.matcher).toBe("*");
+		expect(config.kanban?.PostToolUse?.[0]?.matcher).toBe("*");
+		expect(commands.every((command) => command?.includes("antigravity-hook"))).toBe(true);
+		expect(readFileSync(hooksPath, "utf8")).toContain("SessionStart");
+
+		const resumed = await prepareAgentLaunch({
+			taskId: "task-antigravity-resume",
+			agentId: "antigravity",
+			binary: "agy",
+			args: [],
+			cwd,
+			prompt: "do X",
+			resumeFromTrash: true,
+			workspaceId: "workspace-1",
+		});
+		expect(resumed.args).toContain("--continue");
 	});
 
 	it("writes an OpenCode v2 plugin directory and launches with a private server", async () => {

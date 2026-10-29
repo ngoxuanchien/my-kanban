@@ -58,6 +58,7 @@ Update this file whenever a file or folder is created or moved.
 | `contexte/memory-orchestrator.md` | Decisions + measured token findings for shared memory (Basic Memory) and agent orchestration. |
 | `contexte/agent-review-live-terminal.md` | Superseded: reviewer ran as a live PTY session; verdict-file design and its gotchas. |
 | `contexte/opencode-multi-account.md` | Zen free limit is per IP, not per account; multi-account routers tried and removed. |
+| `contexte/antigravity-agent.md` | Antigravity CLI hook spike findings and adapter behavior. |
 
 ## livrables/
 _(empty)_

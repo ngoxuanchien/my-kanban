@@ -1,5 +1,6 @@
+import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { isAbsolute, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
 import type {
@@ -13,6 +14,7 @@ import { quoteShellArg } from "../core/shell";
 import { lockedFileSystem } from "../fs/locked-file-system";
 import { resolveHomeAgentAppendSystemPrompt } from "../prompts/append-system-prompt";
 import { getRuntimeHomePath } from "../state/workspace-state";
+import { getGitStdout } from "../workspace/git-utils";
 import { configureCodexHooks, hasCodexConfigOverride } from "./codex-hook-config";
 import { createHookRuntimeEnv } from "./hook-runtime-context";
 import { stripAnsi } from "./output-utils";
@@ -684,6 +686,67 @@ const geminiAdapter: AgentSessionAdapter = {
 	},
 };
 
+const antigravityAdapter: AgentSessionAdapter = {
+	async prepare(input) {
+		const args = [...input.args];
+		const env: Record<string, string | undefined> = {};
+		if (input.autonomousModeEnabled && !hasCliOption(args, "--dangerously-skip-permissions")) {
+			args.push("--dangerously-skip-permissions");
+		}
+		if (input.resumeFromTrash && !hasCliOption(args, "--continue")) {
+			args.push("--continue");
+		}
+
+		const hooks = resolveHookContext(input);
+		if (hooks) {
+			const hooksDirectory = join(input.cwd, ".agents");
+			const excludePath = await getGitStdout(["rev-parse", "--git-path", "info/exclude"], input.cwd);
+			const absoluteExcludePath = isAbsolute(excludePath) ? excludePath : resolve(input.cwd, excludePath);
+			await lockedFileSystem.withLock({ path: absoluteExcludePath }, async () => {
+				const excludeContents = await readFile(absoluteExcludePath, "utf8").catch(
+					(error: NodeJS.ErrnoException) => {
+						if (error.code === "ENOENT") {
+							return "";
+						}
+						throw error;
+					},
+				);
+				if (!excludeContents.split(/\r?\n/u).includes(".agents/")) {
+					await lockedFileSystem.writeTextFileAtomic(
+						absoluteExcludePath,
+						`${excludeContents}${excludeContents && !excludeContents.endsWith("\n") ? "\n" : ""}.agents/\n`,
+						{ lock: null },
+					);
+				}
+			});
+			const hook = (event: string) => ({
+				type: "command",
+				command: buildHooksCommand(["antigravity-hook", "--event", event]),
+			});
+			const config = {
+				kanban: {
+					SessionStart: [hook("SessionStart")],
+					PreInvocation: [hook("PreInvocation")],
+					Stop: [hook("Stop")],
+					PreToolUse: [{ matcher: "*", hooks: [hook("PreToolUse")] }],
+					PostToolUse: [{ matcher: "*", hooks: [hook("PostToolUse")] }],
+				},
+			};
+			await ensureTextFile(join(hooksDirectory, "hooks.json"), JSON.stringify(config, null, 2));
+			if (!hasCliOption(args, "--add-dir")) {
+				args.push("--add-dir", input.cwd);
+			}
+			Object.assign(env, createHookRuntimeEnv({ taskId: hooks.taskId, workspaceId: hooks.workspaceId }));
+		}
+
+		const trimmed = input.prompt.trim();
+		if (trimmed) {
+			args.push("-i", trimmed);
+		}
+		return { args, env };
+	},
+};
+
 function hasOpenCodeAgentArg(args: string[]): boolean {
 	for (const arg of args) {
 		if (arg === "--agent") {
@@ -1017,6 +1080,7 @@ const ADAPTERS: Record<RuntimeAgentId, AgentSessionAdapter> = {
 	claude: claudeAdapter,
 	codex: codexAdapter,
 	gemini: geminiAdapter,
+	antigravity: antigravityAdapter,
 	opencode: opencodeAdapter,
 	droid: droidAdapter,
 	kiro: kiroAdapter,

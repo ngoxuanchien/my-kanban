@@ -14,7 +14,10 @@ const execMock = vi.hoisted(() =>
 		return { stdin: { end: stdinEndMock } };
 	}),
 );
-vi.mock("node:child_process", () => ({ exec: execMock }));
+vi.mock("node:child_process", async (importOriginal) => ({
+	...(await importOriginal()),
+	exec: execMock,
+}));
 
 interface OpenCodeEvent {
 	type: string;
