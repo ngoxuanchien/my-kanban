@@ -52,7 +52,7 @@ afterEach(() => {
 });
 
 describe("board dependency state", () => {
-	it("defaults handedOff to false when normalizing older cards", () => {
+	it("defaults handOffCount to zero when normalizing older cards", () => {
 		const normalized = normalizeBoardData({
 			columns: [
 				{ id: "backlog", cards: [{ id: "old", prompt: "Old task", startInPlanMode: false, baseRef: "main" }] },
@@ -63,7 +63,7 @@ describe("board dependency state", () => {
 			dependencies: [],
 		});
 
-		expect(normalized?.columns[0]?.cards[0]?.handedOff).toBe(false);
+		expect(normalized?.columns[0]?.cards[0]?.handOffCount).toBe(0);
 	});
 
 	it("creates tasks when randomUUID is unavailable", () => {

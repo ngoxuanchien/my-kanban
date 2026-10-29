@@ -148,6 +148,7 @@ export const runtimeBoardCardSchema = z
 		autoReviewMode: runtimeTaskAutoReviewModeSchema.optional(),
 		agentReviewEnabled: z.boolean().optional(),
 		reviewRound: z.number().int().min(0).optional(),
+		handOffCount: z.number().int().min(0).optional(),
 		handedOff: z.boolean().optional(),
 		images: z.array(runtimeTaskImageSchema).optional(),
 		agentId: runtimeAgentIdSchema.optional(),
@@ -1064,8 +1065,8 @@ export type RuntimeTaskHandOffRequest = z.infer<typeof runtimeTaskHandOffRequest
 export const runtimeTaskHandOffResponseSchema = z.object({
 	ok: z.boolean(),
 	error: z.string().nullable().optional(),
-	fromAgentId: z.enum(["codex", "opencode"]).optional(),
-	toAgentId: z.enum(["codex", "opencode"]).optional(),
+	fromAgentId: z.enum(["codex", "opencode", "antigravity"]).optional(),
+	toAgentId: z.enum(["codex", "opencode", "antigravity"]).optional(),
 });
 export type RuntimeTaskHandOffResponse = z.infer<typeof runtimeTaskHandOffResponseSchema>;
 

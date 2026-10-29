@@ -1,9 +1,12 @@
+import { getReviewRoundCap } from "../core/hand-off-cap";
+
 export interface SidebarReviewTask {
 	id: string;
 	title: string;
 	agentReviewEnabled?: boolean;
 	reviewRound?: number;
 	handedOff?: boolean;
+	handOffCount?: number;
 }
 
 export function createSidebarReviewQueue() {
@@ -15,14 +18,14 @@ export function createSidebarReviewQueue() {
 			return;
 		}
 		queuedTaskIds.add(task.id);
-		queue.push({ id: task.id, title: task.title, round, cap: task.handedOff === true ? 6 : 3 });
+		queue.push({ id: task.id, title: task.title, round, cap: getReviewRoundCap(task) });
 	};
 	const formatWakeup = (task: { id: string; title: string; round: number; cap: number }): string =>
 		`[Kanban review] Task ${task.id} "${task.title}" is in Review, round ${task.round}/${task.cap}. Review it now.`;
 
 	return {
 		onTaskTurnEnd(task: SidebarReviewTask): { round: number } | null {
-			const cap = task.handedOff === true ? 6 : 3;
+			const cap = getReviewRoundCap(task);
 			if (task.agentReviewEnabled !== true || (task.reviewRound ?? 0) >= cap) {
 				return null;
 			}

@@ -159,6 +159,7 @@ function normalizeCard(rawCard: unknown): BoardCard | null {
 		autoReviewMode?: unknown;
 		agentReviewEnabled?: unknown;
 		reviewRound?: unknown;
+		handOffCount?: unknown;
 		handedOff?: unknown;
 		images?: unknown;
 		baseRef?: unknown;
@@ -201,7 +202,12 @@ function normalizeCard(rawCard: unknown): BoardCard | null {
 			typeof card.autoReviewMode === "string" ? (card.autoReviewMode as TaskAutoReviewMode) : undefined,
 		),
 		agentReviewEnabled: typeof card.agentReviewEnabled === "boolean" ? card.agentReviewEnabled : false,
-		handedOff: typeof card.handedOff === "boolean" ? card.handedOff : false,
+		handOffCount:
+			typeof card.handOffCount === "number" && Number.isInteger(card.handOffCount) && card.handOffCount >= 0
+				? card.handOffCount
+				: card.handedOff === true
+					? 1
+					: 0,
 		reviewRound:
 			typeof card.reviewRound === "number" && Number.isInteger(card.reviewRound) && card.reviewRound >= 0
 				? card.reviewRound

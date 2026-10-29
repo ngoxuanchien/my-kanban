@@ -1,6 +1,7 @@
 import type { ClineTaskSessionService } from "../cline-sdk/cline-task-session-service";
 import type { RuntimeConfigState } from "../config/runtime-config";
 import type { RuntimeBoardCard, RuntimeTaskSessionSummary } from "../core/api-contract";
+import { getHandOffCount, getReviewRoundCap, isHandOffAgentId, MAX_HAND_OFFS } from "../core/hand-off-cap";
 import { createHomeAgentSessionId, isHomeAgentSessionId } from "../core/home-agent-session";
 import { loadWorkspaceState, mutateWorkspaceState } from "../state/workspace-state";
 import { sendPromptToSession } from "../terminal/send-prompt-to-session";
@@ -89,12 +90,12 @@ export function createSidebarReviewService(deps: CreateSidebarReviewServiceDepen
 		if (processingTaskIds.has(summary.taskId)) return;
 		processingTaskIds.add(summary.taskId);
 		try {
-			if (card.agentId === "codex" || card.agentId === "opencode") {
+			if (isHandOffAgentId(card.agentId)) {
 				try {
 					const terminal = await deps.terminalManager.getRestoreSnapshot(summary.taskId);
 					const phrase = terminal ? detectUsageLimit(terminal.snapshot) : null;
 					if (phrase) {
-						if (card.handedOff === true) {
+						if (getHandOffCount(card) >= MAX_HAND_OFFS) {
 							if (!quotaWarnedTaskIds.has(summary.taskId)) {
 								quotaWarnedTaskIds.add(summary.taskId);
 								deps.warn(
@@ -114,7 +115,7 @@ export function createSidebarReviewService(deps: CreateSidebarReviewServiceDepen
 					deps.warn(`[sidebar-review] Could not check usage limit for ${summary.taskId}: ${errorMessage(error)}`);
 				}
 			}
-			if ((card.reviewRound ?? 0) < 3) {
+			if ((card.reviewRound ?? 0) < getReviewRoundCap(card)) {
 				try {
 					const { path: worktreePath } = await getTaskWorkspacePathInfo({
 						cwd: deps.workspacePath,
@@ -212,10 +213,7 @@ export function createSidebarReviewService(deps: CreateSidebarReviewServiceDepen
 				return;
 			}
 			if (crashed) {
-				if (
-					found.card.handedOff !== true &&
-					(found.card.agentId === "codex" || found.card.agentId === "opencode")
-				) {
+				if (getHandOffCount(found.card) < MAX_HAND_OFFS && isHandOffAgentId(found.card.agentId)) {
 					const reason = `The previous agent stopped with an error (exit code ${summary.exitCode ?? "unknown"}).`;
 					const result = await deps.handOffTask(summary.taskId, reason);
 					if (!result.ok) {
@@ -245,7 +243,7 @@ export function createSidebarReviewService(deps: CreateSidebarReviewServiceDepen
 						column.id === "review" &&
 						card.agentReviewEnabled &&
 						(card.reviewRound ?? 0) >= 1 &&
-						(card.reviewRound ?? 0) <= (card.handedOff === true ? 6 : 3)
+						(card.reviewRound ?? 0) <= getReviewRoundCap(card)
 					) {
 						queue.restoreTask(card, card.reviewRound ?? 0);
 					} else if (column.id === "trash" || !card.agentReviewEnabled) {
@@ -271,9 +269,10 @@ export function createSidebarReviewService(deps: CreateSidebarReviewServiceDepen
 						if (column.id === "trash" || !card.agentReviewEnabled) {
 							nudgedTaskIds.delete(card.id);
 							quotaWarnedTaskIds.delete(card.id);
-							if ((card.reviewRound ?? 0) !== 0 || card.handedOff === true) {
+							if ((card.reviewRound ?? 0) !== 0 || getHandOffCount(card) !== 0 || card.handedOff === true) {
 								changed = true;
-								return { ...card, reviewRound: 0, handedOff: false };
+								const { handedOff: _legacyHandedOff, ...resetCard } = card;
+								return { ...resetCard, reviewRound: 0, handOffCount: 0 };
 							}
 						}
 						return card;

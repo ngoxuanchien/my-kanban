@@ -1,8 +1,14 @@
-import type { RuntimeAgentId, RuntimeBoardCard } from "../core/api-contract";
+import type { RuntimeBoardCard } from "../core/api-contract";
+import {
+	getHandOffCount,
+	type HandOffAgentId,
+	handOffHistory,
+	isHandOffAgentId,
+	MAX_HAND_OFFS,
+	nextHandOffAgent,
+} from "../core/hand-off-cap";
 import { moveTaskToColumn } from "../core/task-board-mutations";
 import { loadWorkspaceState, mutateWorkspaceState } from "../state/workspace-state";
-
-export type HandOffAgentId = "codex" | "opencode";
 
 export interface HandOffTaskDependencies {
 	workspacePath: string;
@@ -23,11 +29,14 @@ export type HandOffTaskResult =
 
 export function buildHandOffPrompt(input: {
 	originalPrompt: string;
-	fromAgentId: HandOffAgentId;
+	previousAgentIds: HandOffAgentId[];
 	baseRef: string;
 	reason: string;
 }): string {
-	return `${input.originalPrompt}\n\n---\n[Kanban handoff] Another agent (${input.fromAgentId}) worked on this task before you and could not finish it.\nIts unfinished work is already in this worktree (uncommitted changes and commits since ${input.baseRef}). Check it and continue from it; do not start over.\nWhy it was handed off: ${input.reason}`;
+	const agents = input.previousAgentIds.join(", then ");
+	const agentDescription =
+		input.previousAgentIds.length > 1 ? `Other agents (${agents}) worked` : `Another agent (${agents}) worked`;
+	return `${input.originalPrompt}\n\n---\n[Kanban handoff] ${agentDescription} on this task before you and could not finish it.\nIts unfinished work is already in this worktree (uncommitted changes and commits since ${input.baseRef}). Check it and continue from it; do not start over.\nWhy it was handed off: ${input.reason}`;
 }
 
 function findCard(board: { columns: Array<{ cards: RuntimeBoardCard[] }> }, taskId: string): RuntimeBoardCard | null {
@@ -38,15 +47,11 @@ function findCard(board: { columns: Array<{ cards: RuntimeBoardCard[] }> }, task
 	return null;
 }
 
-function isHandOffAgentId(agentId: RuntimeAgentId | undefined): agentId is HandOffAgentId {
-	return agentId === "codex" || agentId === "opencode";
-}
-
 function refusal(card: RuntimeBoardCard | null): string | null {
 	if (!card) return "Task not found";
 	if (card.agentReviewEnabled !== true) return "Agent review is not enabled for this task";
-	if (card.handedOff === true) return "Task has already been handed off";
-	if (!isHandOffAgentId(card.agentId)) return "Task agent must be codex or opencode to hand off";
+	if (getHandOffCount(card) >= MAX_HAND_OFFS) return "Task has already been handed off twice";
+	if (!isHandOffAgentId(card.agentId)) return "Task agent must be codex, opencode, or antigravity to hand off";
 	return null;
 }
 
@@ -59,15 +64,16 @@ export async function handOffTask(
 	const initialRefusal = refusal(card);
 	if (initialRefusal) return { ok: false, error: initialRefusal };
 	if (!card || !isHandOffAgentId(card.agentId))
-		return { ok: false, error: "Task agent must be codex or opencode to hand off" };
+		return { ok: false, error: "Task agent must be codex, opencode, or antigravity to hand off" };
 
 	const fromAgentId = card.agentId;
-	const toAgentId: HandOffAgentId = fromAgentId === "codex" ? "opencode" : "codex";
+	const handOffCount = getHandOffCount(card);
+	const toAgentId = nextHandOffAgent(fromAgentId);
 	await deps.stopTaskSession(input.taskId);
 	const mutation = await mutateWorkspaceState<HandOffTaskResult>(deps.workspacePath, (current) => {
 		const currentCard = findCard(current.board, input.taskId);
 		const currentRefusal = refusal(currentCard);
-		if (currentRefusal || currentCard?.agentId !== fromAgentId) {
+		if (currentRefusal || currentCard?.agentId !== fromAgentId || getHandOffCount(currentCard) !== handOffCount) {
 			return {
 				board: current.board,
 				value: { ok: false as const, error: currentRefusal ?? "Task agent changed before handoff" },
@@ -78,9 +84,11 @@ export async function handOffTask(
 			...current.board,
 			columns: current.board.columns.map((column) => ({
 				...column,
-				cards: column.cards.map((candidate) =>
-					candidate.id === input.taskId ? { ...candidate, agentId: toAgentId, handedOff: true } : candidate,
-				),
+				cards: column.cards.map((candidate) => {
+					if (candidate.id !== input.taskId) return candidate;
+					const { handedOff: _legacyHandedOff, ...updatedCandidate } = candidate;
+					return { ...updatedCandidate, agentId: toAgentId, handOffCount: getHandOffCount(candidate) + 1 };
+				}),
 			})),
 		};
 		return {
@@ -95,7 +103,7 @@ export async function handOffTask(
 		taskId: input.taskId,
 		prompt: buildHandOffPrompt({
 			originalPrompt: card.prompt,
-			fromAgentId,
+			previousAgentIds: handOffHistory(fromAgentId, handOffCount),
 			baseRef: card.baseRef,
 			reason: input.reason,
 		}),

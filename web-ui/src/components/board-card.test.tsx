@@ -184,7 +184,7 @@ describe("BoardCard", () => {
 		expect(getCardReviewLabel(createCard())).toBeNull();
 		expect(getCardReviewLabel(createCard({ agentReviewEnabled: true, reviewRound: 0 }))).toBe("Review");
 		expect(getCardReviewLabel(createCard({ agentReviewEnabled: true, reviewRound: 2 }))).toBe("Review 2/3");
-		expect(getCardReviewLabel(createCard({ agentReviewEnabled: true, reviewRound: 4, handedOff: true }))).toBe(
+		expect(getCardReviewLabel(createCard({ agentReviewEnabled: true, reviewRound: 4, handOffCount: 1 }))).toBe(
 			"Review 4/6",
 		);
 	});
@@ -210,7 +210,7 @@ describe("BoardCard", () => {
 		await act(async () => {
 			root.render(
 				<BoardCard
-					card={createCard({ agentId: "opencode", agentReviewEnabled: true, reviewRound: 4, handedOff: true })}
+					card={createCard({ agentId: "opencode", agentReviewEnabled: true, reviewRound: 4, handOffCount: 2 })}
 					index={0}
 					columnId="backlog"
 				/>,
@@ -220,7 +220,7 @@ describe("BoardCard", () => {
 		expect(
 			Array.from(container.querySelectorAll("span.truncate")).find((span) => span.textContent?.includes("Review"))
 				?.textContent,
-		).toBe("OpenCode · Handed off · Review 4/6");
+		).toBe("OpenCode · Handed off ×2 · Review 4/9");
 	});
 
 	it("shows a mode-specific cancel button and hides it after canceling auto review", async () => {

@@ -328,12 +328,12 @@ Command:
 
 # Reviewing tasks
 
-When you receive a message beginning with \`[Kanban review]\`, review the named task:
+When you receive a message beginning with \`[Kanban review]\`, review the named task. Whenever you report on a task, identify it by its title followed by its id in parentheses, for example \`"Fix login bug" (bd268)\`; never use a bare task id:
 
 1. Use \`task list\` to read its prompt, then inspect the worktree diff against its base ref, including untracked files. Run the acceptance commands in the prompt; when none are specified, run \`npm run typecheck\`, \`npm run lint\`, and \`npm run test:fast\`.
-2. If it passes, commit the task changes in its worktree. Find the base ref's worktree with \`git worktree list --porcelain\`; if it is not checked out, check out the base ref in the task worktree. Verify the base ref, stash any existing changes there with \`git stash push -u -m "kanban-pre-cherry-pick"\`, cherry-pick the task commit into it, and restore the stash if you made one. Resolve conflicts while preserving both sets of changes. Never push. Then run \`task done --task-id <task_id>\` and report the task, final commit hash, and checks run in one chat line.
-3. If it fails and the round is below its cap (the number after the slash), use \`task send --task-id <task_id> --message "<concrete fix list with file:line and failing command output>"\`. Report what you sent in one chat line.
-4. If it fails on round 3/3, run \`task handoff --task-id <task_id> --message "<the same concrete fix list>"\` and report it in one chat line. If handoff returns an error, or it fails on round 6/6, do not send another fix request: leave it in Review and report the reasons to the user in the chat.
+2. If it passes, commit the task changes in its worktree. Find the base ref's worktree with \`git worktree list --porcelain\`; if it is not checked out, check out the base ref in the task worktree. Verify the base ref, stash any existing changes there with \`git stash push -u -m "kanban-pre-cherry-pick"\`, cherry-pick the task commit into it, and restore the stash if you made one. Resolve conflicts while preserving both sets of changes. Never push. Then run \`task done --task-id <task_id>\` and report the task title and id, final commit hash, and checks run in one chat line.
+3. If it fails and the round is below its cap (the number after the slash), use \`task send --task-id <task_id> --message "<concrete fix list with file:line and failing command output>"\`. Report what you sent, identifying the task by title and id, in one chat line.
+4. If it fails on round 3/3 or 6/6 and fewer than two handoffs have been made, run \`task handoff --task-id <task_id> --message "<the same concrete fix list>"\` and report it in one chat line, identifying the task by title and id. If handoff returns an error, or it fails on round 9/9, do not send another fix request: leave it in Review and report the reasons to the user in the chat, identifying the task by title and id.
 `;
 }
 

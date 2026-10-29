@@ -85,11 +85,13 @@ import { createSidebarReviewService } from "../../../src/server/sidebar-review-s
 async function startUsageLimitTurn(options: {
 	agentId: "codex" | "opencode";
 	handedOff?: boolean;
+	handOffCount?: number;
 	getRestoreSnapshot?: () => Promise<{ snapshot: string; cols: number; rows: number } | null>;
 }) {
 	const card = workspaceState.board.columns[0].cards[0];
 	card.agentId = options.agentId;
 	card.handedOff = options.handedOff ?? false;
+	card.handOffCount = options.handOffCount ?? (options.handedOff === true ? 1 : 0);
 	const listeners = new Set<(value: RuntimeTaskSessionSummary) => void>();
 	const broadcastStateUpdated = vi.fn();
 	const warn = vi.fn();
@@ -138,6 +140,8 @@ describe("createSidebarReviewService", () => {
 		workspaceState.board.columns[0].cards[1].reviewRound = 0;
 		workspaceState.board.columns[0].cards[0].handedOff = false;
 		workspaceState.board.columns[0].cards[1].handedOff = false;
+		workspaceState.board.columns[0].cards[0].handOffCount = 0;
+		workspaceState.board.columns[0].cards[1].handOffCount = 0;
 		workspaceState.board.columns[0].cards[0].agentReviewEnabled = true;
 		workspaceState.board.columns[0].cards[0].agentId = undefined;
 		workspaceState.board.columns[0].cards[1].agentReviewEnabled = true;
@@ -209,9 +213,9 @@ describe("createSidebarReviewService", () => {
 		service.dispose();
 	});
 
-	it("does not hand off an already handed-off crash", async () => {
-		workspaceState.board.columns[0].cards[0].agentId = "opencode";
-		workspaceState.board.columns[0].cards[0].handedOff = true;
+	it("hands off an antigravity crash before the limit", async () => {
+		workspaceState.board.columns[0].cards[0].agentId = "antigravity";
+		workspaceState.board.columns[0].cards[0].handOffCount = 0;
 		const listeners = new Set<(value: RuntimeTaskSessionSummary) => void>();
 		const service = createSidebarReviewService({
 			workspaceId: "workspace-1",
@@ -231,6 +235,35 @@ describe("createSidebarReviewService", () => {
 		});
 		await service.start();
 		for (const listener of listeners) listener({ ...summary("task-1", "failed"), agentId: "opencode", exitCode: 1 });
+		await vi.waitFor(() =>
+			expect(handOffTask).toHaveBeenCalledWith("task-1", "The previous agent stopped with an error (exit code 1)."),
+		);
+		service.dispose();
+	});
+
+	it("does not hand off an antigravity crash after two handoffs", async () => {
+		workspaceState.board.columns[0].cards[0].agentId = "antigravity";
+		workspaceState.board.columns[0].cards[0].handOffCount = 2;
+		const listeners = new Set<(value: RuntimeTaskSessionSummary) => void>();
+		const service = createSidebarReviewService({
+			workspaceId: "workspace-1",
+			workspacePath: "/repo",
+			terminalManager: {
+				listSummaries: () => [summary("task-1", "running")],
+				onSummary: (listener: (value: RuntimeTaskSessionSummary) => void) => {
+					listeners.add(listener);
+					return () => listeners.delete(listener);
+				},
+			} as unknown as TerminalSessionManager,
+			clineService: { listSummaries: () => [], onSummary: () => () => {} } as unknown as ClineTaskSessionService,
+			loadRuntimeConfig: async () => ({ selectedAgentId: "claude" }) as RuntimeConfigState,
+			broadcastStateUpdated: vi.fn(),
+			warn: vi.fn(),
+			handOffTask,
+		});
+		await service.start();
+		for (const listener of listeners)
+			listener({ ...summary("task-1", "failed"), agentId: "antigravity", exitCode: 1 });
 		await vi.waitFor(() => expect(handOffTask).not.toHaveBeenCalled());
 		service.dispose();
 	});
@@ -287,10 +320,10 @@ describe("createSidebarReviewService", () => {
 		service.dispose();
 	});
 
-	it("restores handed-off reviews through round 6", async () => {
+	it("restores reviews through round 9", async () => {
 		const card = workspaceState.board.columns[0].cards[0];
-		card.handedOff = true;
-		card.reviewRound = 5;
+		card.handOffCount = 2;
+		card.reviewRound = 8;
 		const service = createSidebarReviewService({
 			workspaceId: "workspace-1",
 			workspacePath: "/repo",
@@ -308,16 +341,16 @@ describe("createSidebarReviewService", () => {
 		await service.start();
 		expect(sendPromptToSession).toHaveBeenCalledWith(
 			expect.objectContaining({
-				prompt: '[Kanban review] Task task-1 "Task one" is in Review, round 5/6. Review it now.',
+				prompt: '[Kanban review] Task task-1 "Task one" is in Review, round 8/9. Review it now.',
 			}),
 		);
 		service.dispose();
 	});
 
-	it("clears handedOff when review is turned off", async () => {
+	it("resets handOffCount when review is turned off", async () => {
 		const card = workspaceState.board.columns[0].cards[0];
 		card.agentReviewEnabled = false;
-		card.handedOff = true;
+		card.handOffCount = 1;
 		card.reviewRound = 4;
 		const service = createSidebarReviewService({
 			workspaceId: "workspace-1",
@@ -331,7 +364,8 @@ describe("createSidebarReviewService", () => {
 		});
 
 		await service.notifyBoardChanged();
-		expect(workspaceState.board.columns[0].cards[0].handedOff).toBe(false);
+		expect(workspaceState.board.columns[0].cards[0].handOffCount).toBe(0);
+		expect(workspaceState.board.columns[0].cards[0]).not.toHaveProperty("handedOff");
 		expect(workspaceState.board.columns[0].cards[0].reviewRound).toBe(0);
 		service.dispose();
 	});
@@ -463,7 +497,7 @@ describe("createSidebarReviewService", () => {
 	it("warns once when both agents hit their usage limit across board notifications", async () => {
 		const card = workspaceState.board.columns[0].cards[0];
 		card.agentId = "codex";
-		card.handedOff = true;
+		card.handOffCount = 2;
 		const warn = vi.fn();
 		const service = createSidebarReviewService({
 			workspaceId: "workspace-1",
@@ -695,7 +729,7 @@ describe("createSidebarReviewService", () => {
 	it("leaves a handed-off task in Review when the other agent also hits its usage limit", async () => {
 		const { card, listeners, broadcastStateUpdated, warn, service } = await startUsageLimitTurn({
 			agentId: "opencode",
-			handedOff: true,
+			handOffCount: 2,
 			getRestoreSnapshot: async () => ({ snapshot: "Free usage limit reached", cols: 80, rows: 24 }),
 		});
 		for (const listener of listeners) listener(summary("task-1", "awaiting_review"));

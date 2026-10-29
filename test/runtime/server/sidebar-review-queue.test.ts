@@ -22,14 +22,19 @@ describe("createSidebarReviewQueue", () => {
 		expect(queue.onTaskTurnEnd({ id: "a", title: "A", agentReviewEnabled: true, reviewRound: 3 })).toBeNull();
 	});
 
-	it("allows handed-off cards through round 6 and reports the expanded cap", () => {
+	it("allows two handoffs through round 9", () => {
 		const queue = createSidebarReviewQueue();
 		expect(
-			queue.onTaskTurnEnd({ id: "a", title: "A", agentReviewEnabled: true, handedOff: true, reviewRound: 3 }),
+			queue.onTaskTurnEnd({ id: "a", title: "A", agentReviewEnabled: true, handOffCount: 1, reviewRound: 3 }),
 		).toEqual({ round: 4 });
 		expect(queue.onSidebarIdle()).toBe('[Kanban review] Task a "A" is in Review, round 4/6. Review it now.');
 		expect(
-			queue.onTaskTurnEnd({ id: "b", title: "B", agentReviewEnabled: true, handedOff: true, reviewRound: 6 }),
+			queue.onTaskTurnEnd({ id: "b", title: "B", agentReviewEnabled: true, handOffCount: 2, reviewRound: 8 }),
+		).toEqual({ round: 9 });
+		queue.onTaskDelivered(queue.onSidebarIdle() ?? "");
+		expect(queue.onSidebarIdle()).toContain("round 9/9");
+		expect(
+			queue.onTaskTurnEnd({ id: "c", title: "C", agentReviewEnabled: true, handOffCount: 2, reviewRound: 9 }),
 		).toBeNull();
 		expect(queue.onTaskTurnEnd({ id: "c", title: "C", agentReviewEnabled: true, reviewRound: 3 })).toBeNull();
 	});

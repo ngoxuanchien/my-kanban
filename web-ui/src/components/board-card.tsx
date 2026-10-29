@@ -1,6 +1,7 @@
 import { Draggable } from "@hello-pangea/dnd";
 import { getRuntimeAgentCatalogEntry } from "@runtime-agent-catalog";
 import { formatClineToolCallLabel } from "@runtime-cline-tool-call-display";
+import { getHandOffCount, getReviewRoundCap } from "@runtime-hand-off-cap";
 import { buildTaskWorktreeDisplayPath } from "@runtime-task-worktree-path";
 import { AlertCircle, AlertTriangle, Bot, GitBranch, Pencil, Play, RotateCcw, Trash2 } from "lucide-react";
 import type { KeyboardEvent, MouseEvent } from "react";
@@ -55,7 +56,7 @@ export function getCardReviewLabel(card: BoardCardModel): string | null {
 	if (card.agentReviewEnabled !== true) {
 		return null;
 	}
-	return card.reviewRound ? `Review ${card.reviewRound}/${card.handedOff ? 6 : 3}` : "Review";
+	return card.reviewRound ? `Review ${card.reviewRound}/${getReviewRoundCap(card)}` : "Review";
 }
 
 function reconstructTaskWorktreeDisplayPath(taskId: string, workspacePath: string | null | undefined): string | null {
@@ -470,13 +471,21 @@ export function BoardCard({
 		});
 	}, [card.clineSettings, defaultClineModelId]);
 	const taskAgentSettingsLabel = useMemo(() => {
-		const handoffLabel = card.handedOff === true ? "Handed off" : null;
+		const handOffCount = getHandOffCount(card);
+		const handoffLabel = handOffCount === 1 ? "Handed off" : handOffCount > 1 ? `Handed off ×${handOffCount}` : null;
 		const reviewLabel = getCardReviewLabel(card);
 		const parts = [agentOverrideLabel, modelOverrideLabel, handoffLabel, reviewLabel].filter(
 			(value): value is string => Boolean(value),
 		);
 		return parts.length > 0 ? parts.join(" · ") : null;
-	}, [agentOverrideLabel, modelOverrideLabel, card.handedOff, card.agentReviewEnabled, card.reviewRound]);
+	}, [
+		agentOverrideLabel,
+		modelOverrideLabel,
+		card.handOffCount,
+		card.handedOff,
+		card.agentReviewEnabled,
+		card.reviewRound,
+	]);
 
 	const activeDescriptionDisplay = isDescriptionExpanded ? descriptionDisplay.expanded : descriptionDisplay.collapsed;
 

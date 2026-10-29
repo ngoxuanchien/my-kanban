@@ -63,46 +63,50 @@ describe("handOffTask", () => {
 	});
 
 	it.each([
-		["codex", "opencode"],
-		["opencode", "codex"],
-	] as const)("switches %s to %s and retains the existing review round", async (fromAgentId, toAgentId) => {
-		workspaceState.board.columns[2]?.cards.splice(0, 1, card(fromAgentId));
-		const events: string[] = [];
-		const deps = dependencies({
-			stopTaskSession: vi.fn(async () => {
-				events.push("stop");
-			}),
-			startTaskSession: vi.fn(async () => {
-				events.push("start");
-				return { ok: true };
-			}),
-		});
-		const result = await handOffTask(deps, { taskId: "task-1", reason: "Fix the failing test" });
+		["codex", "opencode", 1, ["codex"]],
+		["opencode", "antigravity", 2, ["codex", "opencode"]],
+	] as const)(
+		"switches %s to %s and retains the existing review round",
+		async (fromAgentId, toAgentId, handOffCount, previousAgentIds) => {
+			workspaceState.board.columns[2]?.cards.splice(0, 1, { ...card(fromAgentId), handOffCount: handOffCount - 1 });
+			const events: string[] = [];
+			const deps = dependencies({
+				stopTaskSession: vi.fn(async () => {
+					events.push("stop");
+				}),
+				startTaskSession: vi.fn(async () => {
+					events.push("start");
+					return { ok: true };
+				}),
+			});
+			const result = await handOffTask(deps, { taskId: "task-1", reason: "Fix the failing test" });
 
-		expect(result).toEqual({ ok: true, taskId: "task-1", fromAgentId, toAgentId });
-		expect(events).toEqual(["stop", "start"]);
-		expect(deps.startTaskSession).toHaveBeenCalledWith({
-			taskId: "task-1",
-			prompt: buildHandOffPrompt({
-				originalPrompt: "Finish the task",
-				fromAgentId,
+			expect(result).toEqual({ ok: true, taskId: "task-1", fromAgentId, toAgentId });
+			expect(events).toEqual(["stop", "start"]);
+			expect(deps.startTaskSession).toHaveBeenCalledWith({
+				taskId: "task-1",
+				prompt: buildHandOffPrompt({
+					originalPrompt: "Finish the task",
+					previousAgentIds: [...previousAgentIds],
+					baseRef: "main",
+					reason: "Fix the failing test",
+				}),
+				taskTitle: "Task one",
 				baseRef: "main",
-				reason: "Fix the failing test",
-			}),
-			taskTitle: "Task one",
-			baseRef: "main",
-			agentId: toAgentId,
-		});
-		const moved = workspaceState.board.columns[1]?.cards[0];
-		expect(moved).toMatchObject({ agentId: toAgentId, handedOff: true, reviewRound: 3 });
-		expect(workspaceState.board.columns[2]?.cards).toHaveLength(0);
-	});
+				agentId: toAgentId,
+			});
+			const moved = workspaceState.board.columns[1]?.cards[0];
+			expect(moved).toMatchObject({ agentId: toAgentId, handOffCount, reviewRound: 3 });
+			expect(moved).not.toHaveProperty("handedOff");
+			expect(workspaceState.board.columns[2]?.cards).toHaveLength(0);
+		},
+	);
 
 	it("formats the handoff prompt exactly", () => {
 		expect(
 			buildHandOffPrompt({
 				originalPrompt: "Original",
-				fromAgentId: "codex",
+				previousAgentIds: ["codex"],
 				baseRef: "main",
 				reason: "Tests fail",
 			}),
@@ -114,10 +118,10 @@ describe("handOffTask", () => {
 	});
 
 	it.each([
-		["already handed off", { ...card(), handedOff: true }, "Task has already been handed off"],
+		["already handed off twice", { ...card(), handOffCount: 2 }, "Task has already been handed off twice"],
 		["review disabled", { ...card(), agentReviewEnabled: false }, "Agent review is not enabled for this task"],
-		["claude agent", card("claude"), "Task agent must be codex or opencode to hand off"],
-		["unset agent", card(null), "Task agent must be codex or opencode to hand off"],
+		["claude agent", card("claude"), "Task agent must be codex, opencode, or antigravity to hand off"],
+		["unset agent", card(null), "Task agent must be codex, opencode, or antigravity to hand off"],
 	])("refuses %s without changing the board", async (_label, refusedCard, error) => {
 		workspaceState.board.columns[2]?.cards.splice(0, 1, refusedCard);
 		const before = structuredClone(workspaceState.board);
@@ -139,10 +143,61 @@ describe("handOffTask", () => {
 		expect(deps.stopTaskSession).not.toHaveBeenCalled();
 	});
 
-	it("returns a new-session error and keeps the card handed off", async () => {
+	it("returns a new-session error and keeps the handoff count", async () => {
 		const deps = dependencies({ startTaskSession: vi.fn(async () => ({ ok: false, error: "x" })) });
 		expect(await handOffTask(deps, { taskId: "task-1", reason: "Reason" })).toEqual({ ok: false, error: "x" });
-		expect(workspaceState.board.columns[1]?.cards[0]).toMatchObject({ agentId: "opencode", handedOff: true });
+		expect(workspaceState.board.columns[1]?.cards[0]).toMatchObject({ agentId: "opencode", handOffCount: 1 });
 		expect(deps.broadcastStateUpdated).toHaveBeenCalledOnce();
+	});
+
+	it("maps a legacy opencode handoff to antigravity at count two", async () => {
+		workspaceState.board.columns[2]?.cards.splice(0, 1, { ...card("opencode"), handedOff: true });
+		const deps = dependencies();
+		expect(await handOffTask(deps, { taskId: "task-1", reason: "Reason" })).toMatchObject({
+			ok: true,
+			toAgentId: "antigravity",
+		});
+		expect(workspaceState.board.columns[1]?.cards[0]).toMatchObject({ agentId: "antigravity", handOffCount: 2 });
+		expect(workspaceState.board.columns[1]?.cards[0]).not.toHaveProperty("handedOff");
+		expect(deps.startTaskSession).toHaveBeenCalledWith(
+			expect.objectContaining({
+				prompt: expect.stringContaining("Other agents (codex, then opencode) worked on this task"),
+			}),
+		);
+	});
+
+	it("names antigravity as the previous agent when it started the task", async () => {
+		workspaceState.board.columns[2]?.cards.splice(0, 1, card("antigravity"));
+		const deps = dependencies();
+		await handOffTask(deps, { taskId: "task-1", reason: "Reason" });
+		expect(deps.startTaskSession).toHaveBeenCalledWith(
+			expect.objectContaining({ prompt: expect.stringContaining("Another agent (antigravity) worked") }),
+		);
+	});
+
+	it("lists opencode then antigravity before the second handoff", async () => {
+		workspaceState.board.columns[2]?.cards.splice(0, 1, { ...card("antigravity"), handOffCount: 1 });
+		const deps = dependencies();
+		await handOffTask(deps, { taskId: "task-1", reason: "Reason" });
+		expect(deps.startTaskSession).toHaveBeenCalledWith(
+			expect.objectContaining({
+				prompt: expect.stringContaining("Other agents (opencode, then antigravity) worked"),
+			}),
+		);
+	});
+
+	it("visits three agents in two handoffs and refuses the third", async () => {
+		const deps = dependencies();
+		const visited = ["codex"];
+		for (let i = 0; i < 2; i++) {
+			const result = await handOffTask(deps, { taskId: "task-1", reason: "Reason" });
+			expect(result.ok).toBe(true);
+			if (result.ok) visited.push(result.toAgentId);
+		}
+		expect(visited).toEqual(["codex", "opencode", "antigravity"]);
+		expect(await handOffTask(deps, { taskId: "task-1", reason: "Reason" })).toEqual({
+			ok: false,
+			error: "Task has already been handed off twice",
+		});
 	});
 });
