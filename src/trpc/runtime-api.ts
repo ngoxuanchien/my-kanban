@@ -44,6 +44,7 @@ import {
 	parseTaskSessionStartRequest,
 	parseTaskSessionStopRequest,
 } from "../core/api-validation";
+import { resolveEffectiveTaskAgentId } from "../core/effective-task-agent";
 import { isHomeAgentSessionId } from "../core/home-agent-session";
 import { resolveTaskTitle } from "../core/task-title.js";
 import { openInBrowser } from "../server/browser";
@@ -142,12 +143,16 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 			warnAgentScoreRecording("Could not record agent score event.", error);
 		}
 	};
-	const recordTaskAssignment = async (workspaceScope: RuntimeTrpcWorkspaceScope, taskId: string): Promise<void> => {
+	const recordTaskAssignment = async (
+		workspaceScope: RuntimeTrpcWorkspaceScope,
+		taskId: string,
+		sessionAgentId: string | null | undefined,
+		defaultAgentId: string | null | undefined,
+	): Promise<void> => {
 		try {
 			const card = findBoardCard(await loadWorkspaceBoardById(workspaceScope.workspaceId), taskId);
-			if (card?.agentId) {
-				await recordScore(workspaceScope, { type: "assigned", agentId: card.agentId, taskId });
-			}
+			const agentId = resolveEffectiveTaskAgentId(card?.agentId, sessionAgentId, defaultAgentId);
+			if (agentId) await recordScore(workspaceScope, { type: "assigned", agentId, taskId });
 		} catch (error) {
 			warnAgentScoreRecording("Could not record agent score event.", error);
 		}
@@ -364,7 +369,12 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 						}
 					}
 
-					await recordTaskAssignment(workspaceScope, body.taskId);
+					await recordTaskAssignment(
+						workspaceScope,
+						body.taskId,
+						summary.agentId,
+						scopedRuntimeConfig.selectedAgentId,
+					);
 					return {
 						ok: true,
 						summary: nextSummary,
@@ -415,7 +425,12 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 						// Best effort checkpointing only.
 					}
 				}
-				await recordTaskAssignment(workspaceScope, body.taskId);
+				await recordTaskAssignment(
+					workspaceScope,
+					body.taskId,
+					summary.agentId ?? resolved.agentId,
+					scopedRuntimeConfig.selectedAgentId,
+				);
 				return {
 					ok: true,
 					summary: nextSummary,
@@ -518,11 +533,16 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 					return { ok: false, error: `Task "${taskId}" session is not running.` };
 				}
 				const reviewCard = findReviewRoundCard(board, taskId);
-				if (reviewCard?.agentId) {
+				const sessionAgentId =
+					terminalManager.getSummary?.(taskId)?.agentId ?? clineTaskSessionService.getSummary?.(taskId)?.agentId;
+				const agentId = reviewCard
+					? resolveEffectiveTaskAgentId(reviewCard.agentId, sessionAgentId, runtimeConfig.selectedAgentId)
+					: null;
+				if (reviewCard && agentId) {
 					try {
 						await recordTaskHistoryEvent(workspaceScope.workspaceId, taskId, {
 							type: "fail",
-							agentId: reviewCard.agentId,
+							agentId,
 							round: reviewCard.reviewRound,
 							detail: messageText,
 						});
@@ -531,7 +551,7 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 					}
 					await recordScore(workspaceScope, {
 						type: "fail",
-						agentId: reviewCard.agentId,
+						agentId,
 						taskId,
 						round: reviewCard.reviewRound,
 					});

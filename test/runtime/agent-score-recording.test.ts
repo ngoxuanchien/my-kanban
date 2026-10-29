@@ -121,12 +121,12 @@ function createCaller() {
 	} as never);
 }
 
-function createRuntimeApi(terminalManager: Record<string, unknown> = {}) {
+function createRuntimeApi(terminalManager: Record<string, unknown> = {}, selectedAgentId: string | null = "codex") {
 	return createRuntimeApiImpl({
 		getActiveWorkspaceId: () => scope.workspaceId,
 		loadScopedRuntimeConfig: async () =>
 			({
-				selectedAgentId: "codex",
+				selectedAgentId,
 				agentAutonomousModeEnabled: true,
 			}) as never,
 		setActiveRuntimeConfig: () => {},
@@ -170,24 +170,24 @@ describe("agent score recording for runtime task starts", () => {
 		});
 	});
 
-	it("does not record assignment when the card has no agentId", async () => {
+	it("records the launched session agent when the card has no override", async () => {
 		setBoard("in_progress", { ...reviewCard, agentId: undefined });
+		mocks.resolveAgentCommand.mockReturnValue({ agentId: "claude", binary: "claude", args: [] });
 		const api = createRuntimeApi({
 			getSummary: vi.fn(() => null),
-			startTaskSession: vi.fn(async () => ({ taskId: "task-1", agentId: "codex" })),
+			startTaskSession: vi.fn(async () => ({ taskId: "task-1", agentId: "claude" })),
 		});
 
 		await api.startTaskSession(scope, {
 			taskId: "task-1",
 			prompt: "work",
 			baseRef: "main",
-			agentId: "codex",
 		});
 
-		expect(mocks.recordAgentScoreEvent).not.toHaveBeenCalled();
+		expect(mocks.events).toEqual([{ type: "assigned", agentId: "claude", taskId: "task-1" }]);
 		expect(mocks.recordTaskHistoryEvent).toHaveBeenCalledWith("workspace-1", "task-1", {
 			type: "started",
-			agentId: "codex",
+			agentId: "claude",
 		});
 	});
 });
@@ -202,8 +202,8 @@ describe("agent score recording for runtime review messages", () => {
 		mocks.sendPromptToSession.mockReset().mockResolvedValue({ ok: true });
 	});
 
-	function createMessageApi() {
-		return createRuntimeApi({ writeInput: vi.fn() });
+	function createMessageApi(agentId?: string) {
+		return createRuntimeApi({ writeInput: vi.fn(), getSummary: vi.fn(() => (agentId ? { agentId } : null)) });
 	}
 
 	it("records one round-two fail with message across repeated sends", async () => {
@@ -217,6 +217,23 @@ describe("agent score recording for runtime review messages", () => {
 			{ type: "fail", agentId: "codex", round: 2, detail: "fix it", taskId: "task-1" },
 		]);
 		expect(mocks.broadcastRuntimeWorkspaceStateUpdated).toHaveBeenCalledTimes(1);
+	});
+
+	it("uses the running session agent when the review card has no override", async () => {
+		setBoard("review", { ...reviewCard, agentId: undefined });
+		await createMessageApi("claude").sendTaskMessage(scope, { taskId: "task-1", message: "fix it" });
+		expect(mocks.events).toEqual([{ type: "fail", agentId: "claude", taskId: "task-1", round: 2 }]);
+		expect(mocks.historyEvents).toEqual([
+			{ type: "fail", agentId: "claude", round: 2, detail: "fix it", taskId: "task-1" },
+		]);
+	});
+
+	it("does not record a review failure without a card, session, or default agent", async () => {
+		setBoard("review", { ...reviewCard, agentId: undefined });
+		const api = createRuntimeApi({ writeInput: vi.fn() }, null);
+		await api.sendTaskMessage(scope, { taskId: "task-1", message: "fix it" });
+		expect(mocks.events).toEqual([]);
+		expect(mocks.historyEvents).toEqual([]);
 	});
 
 	it.each([

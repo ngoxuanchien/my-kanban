@@ -10,6 +10,7 @@ const cliMocks = vi.hoisted(() => ({
 			deleteWorktree: { mutate: vi.fn(async () => ({ ok: true, removed: true })) },
 		},
 		runtime: {
+			getConfig: { query: vi.fn(async () => ({ selectedAgentId: "claude" })) },
 			handOffTask: { mutate: vi.fn() },
 			stopTaskSession: { mutate: vi.fn(async () => ({ ok: true })) },
 		},
@@ -184,6 +185,7 @@ describe("task review scoring commands", () => {
 			},
 			sessions: {},
 		} as never);
+		cliMocks.client.runtime.getConfig.query.mockResolvedValue({ selectedAgentId: "claude" });
 		completionMocks.completeTaskToDone.mockResolvedValue({
 			previousColumnId: "review",
 			alreadyInTrash: false,
@@ -232,6 +234,63 @@ describe("task review scoring commands", () => {
 			agentId: "codex",
 			round: 2,
 			detail: "syntax error in file.ts",
+		});
+	});
+
+	it("uses the session agent when a review card has no override", async () => {
+		cliMocks.workspaceState.board.columns[2].cards = [{ ...reviewCard, agentId: undefined }] as never;
+		cliMocks.client.workspace.getState.query.mockResolvedValue({
+			repoPath: "/tmp/repo",
+			board: {
+				columns: ["backlog", "in_progress", "review", "trash"].map((id) => ({
+					id,
+					title: id,
+					cards: id === "review" ? [{ ...reviewCard, agentId: undefined }] : [],
+				})),
+			},
+			sessions: { "task-1": { agentId: "claude" } },
+		} as never);
+		await execute(["review-failed", "--task-id", "task-1"]);
+		expect(scoreMocks.recordAgentScoreEvent).toHaveBeenCalledWith("workspace-1", {
+			type: "fail",
+			agentId: "claude",
+			taskId: "task-1",
+			round: 2,
+		});
+		expect(historyMocks.recordTaskHistoryEvent).toHaveBeenCalledWith("workspace-1", "task-1", {
+			type: "fail",
+			agentId: "claude",
+			round: 2,
+			detail: undefined,
+			commit: undefined,
+		});
+	});
+
+	it("records a passed review for the session agent when the card has no override", async () => {
+		const card = { ...reviewCard, agentId: undefined };
+		cliMocks.client.workspace.getState.query.mockResolvedValue({
+			repoPath: "/tmp/repo",
+			board: {
+				columns: ["backlog", "in_progress", "review", "trash"].map((id) => ({
+					id,
+					title: id,
+					cards: id === "review" ? [card] : [],
+				})),
+			},
+			sessions: { "task-1": { agentId: "claude" } },
+		} as never);
+		await execute(["done", "--task-id", "task-1", "--review-passed"]);
+		expect(scoreMocks.recordAgentScoreEvent).toHaveBeenCalledWith("workspace-1", {
+			type: "pass",
+			agentId: "claude",
+			taskId: "task-1",
+			round: 2,
+		});
+		expect(historyMocks.recordTaskHistoryEvent).toHaveBeenCalledWith("workspace-1", "task-1", {
+			type: "pass",
+			agentId: "claude",
+			round: 2,
+			commit: undefined,
 		});
 	});
 

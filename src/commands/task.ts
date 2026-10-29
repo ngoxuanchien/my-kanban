@@ -12,6 +12,7 @@ import type {
 	RuntimeWorkspaceStateResponse,
 } from "../core/api-contract";
 import { runtimeAgentIdSchema, runtimeClineReasoningEffortSchema } from "../core/api-contract";
+import { resolveEffectiveTaskAgentId } from "../core/effective-task-agent";
 import { getHandOffCount } from "../core/hand-off-cap";
 import { buildKanbanRuntimeUrl, getKanbanRuntimeOrigin, getRuntimeFetch } from "../core/runtime-endpoint";
 import {
@@ -318,8 +319,13 @@ async function recordReviewScore(input: {
 	try {
 		const state = await input.runtimeClient.workspace.getState.query();
 		const card = findTaskRecord(state, input.taskId)?.task;
+		const config = await input.runtimeClient.runtime.getConfig.query();
+		const agentId = card
+			? resolveEffectiveTaskAgentId(card.agentId, state.sessions[input.taskId]?.agentId, config.selectedAgentId)
+			: null;
 		if (
-			!card?.agentId ||
+			!card ||
+			!agentId ||
 			getTaskColumnId(state.board, input.taskId) !== "review" ||
 			card.agentReviewEnabled !== true ||
 			(card.reviewRound ?? 0) < 1
@@ -329,7 +335,7 @@ async function recordReviewScore(input: {
 		try {
 			await recordTaskHistoryEvent(input.workspaceId, input.taskId, {
 				type: input.type,
-				agentId: card.agentId,
+				agentId,
 				round: card.reviewRound,
 				detail: input.detail,
 				commit: input.commit,
@@ -339,7 +345,7 @@ async function recordReviewScore(input: {
 		}
 		const recorded = await recordAgentScoreEvent(input.workspaceId, {
 			type: input.type,
-			agentId: card.agentId,
+			agentId,
 			taskId: input.taskId,
 			round: card.reviewRound,
 		});
