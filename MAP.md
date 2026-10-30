@@ -49,6 +49,8 @@ Update this file whenever a file or folder is created or moved.
 | `docs/superpowers/plans/2026-10-30-sidebar-default-task-agent.md` | Plan for the sidebar default task agent spec (1 Kanban task). |
 | `docs/superpowers/specs/2026-10-30-ui-contrast-and-history-polish-design.md` | Spec: impeccable audit findings — raise text tokens, Done card/board fixes, Done history view polish; false positives recorded. |
 | `docs/superpowers/plans/2026-10-30-ui-contrast-and-history-polish.md` | Plan for the UI polish spec, split into 2 parallel Kanban tasks. |
+| `docs/superpowers/specs/2026-10-30-agent-score-bottom-bar-design.md` | Spec: move the agent score strip from the top bar to a slim bottom status bar. |
+| `docs/superpowers/plans/2026-10-30-agent-score-bottom-bar.md` | Plan for the agent score bottom bar spec (1 Kanban task). |
 | `docs/agents/task-prompt-template.md` | Prompt template the planner fills in for every Kanban task. |
 | `.plan/` | Older internal plans, handoffs, investigations (`.plan/docs/`). |
 
