@@ -23,7 +23,7 @@ describe("LockedFileSystem", () => {
 		lockfileMocks.lock.mockResolvedValue(lockfileMocks.release);
 	});
 
-	it("omits onCompromised when no handler is provided", async () => {
+	it("logs a warning when a compromised lock has no caller handler", async () => {
 		const tempDir = createTempDir("kanban-locked-fs-");
 		try {
 			const filePath = join(tempDir.path, "state.json");
@@ -32,8 +32,9 @@ describe("LockedFileSystem", () => {
 			await lockedFileSystem.withLock({ path: filePath, type: "file" }, async () => {});
 
 			expect(lockfileMocks.lock).toHaveBeenCalledTimes(1);
-			const options = lockfileMocks.lock.mock.calls[0]?.[1] as Record<string, unknown>;
-			expect(options).not.toHaveProperty("onCompromised");
+			const options = lockfileMocks.lock.mock.calls[0]?.[1] as { onCompromised?: (error: Error) => void };
+			expect(options.onCompromised).toBeTypeOf("function");
+			expect(() => options.onCompromised?.(new Error("compromised"))).not.toThrow();
 			expect(lockfileMocks.release).toHaveBeenCalledTimes(1);
 		} finally {
 			tempDir.cleanup();
@@ -49,8 +50,11 @@ describe("LockedFileSystem", () => {
 
 			await lockedFileSystem.withLock({ path: filePath, type: "file", onCompromised }, async () => {});
 
-			const options = lockfileMocks.lock.mock.calls[0]?.[1] as Record<string, unknown>;
-			expect(options.onCompromised).toBe(onCompromised);
+			const options = lockfileMocks.lock.mock.calls[0]?.[1] as { onCompromised?: (error: Error) => void };
+			expect(options.onCompromised).toBeTypeOf("function");
+			const error = new Error("compromised");
+			options.onCompromised?.(error);
+			expect(onCompromised).toHaveBeenCalledWith(error);
 		} finally {
 			tempDir.cleanup();
 		}

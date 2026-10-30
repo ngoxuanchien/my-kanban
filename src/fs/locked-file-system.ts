@@ -5,6 +5,7 @@ import type { LockOptions } from "proper-lockfile";
 import * as lockfile from "proper-lockfile";
 
 const DEFAULT_LOCK_STALE_MS = 10_000;
+const warnLockCompromised = console.warn.bind(console);
 const DEFAULT_LOCK_RETRIES: NonNullable<LockOptions["retries"]> = {
 	retries: 200,
 	factor: 1,
@@ -50,10 +51,14 @@ function createLockOptions(request: LockRequest, lockfilePath: string): LockOpti
 		retries: request.retries ?? DEFAULT_LOCK_RETRIES,
 		realpath: false,
 		lockfilePath,
+		onCompromised: (error) => {
+			if (typeof request.onCompromised === "function") {
+				request.onCompromised(error);
+			} else {
+				warnLockCompromised(`[kanban] File lock was compromised: ${error.message}`);
+			}
+		},
 	};
-	if (typeof request.onCompromised === "function") {
-		options.onCompromised = request.onCompromised;
-	}
 	return options;
 }
 
