@@ -9,6 +9,7 @@ import type {
 	RuntimeTaskSessionSummary,
 	RuntimeWorkspaceChangesMode,
 	RuntimeWorkspaceFileSearchResponse,
+	RuntimeWorkspaceMoveTaskToDoneResponse,
 	RuntimeWorkspaceStateResponse,
 } from "../core/api-contract";
 import {
@@ -16,8 +17,14 @@ import {
 	parseWorktreeDeleteRequest,
 	parseWorktreeEnsureRequest,
 } from "../core/api-validation";
+import { trashTaskAndGetReadyLinkedTaskIds } from "../core/task-board-mutations";
 import { deleteTaskHistory } from "../state/task-history";
-import { loadWorkspaceState, saveWorkspaceState, WorkspaceStateConflictError } from "../state/workspace-state";
+import {
+	loadWorkspaceState,
+	mutateWorkspaceState,
+	saveWorkspaceState,
+	WorkspaceStateConflictError,
+} from "../state/workspace-state";
 import type { TerminalSessionManager } from "../terminal/session-manager";
 import {
 	createEmptyWorkspaceChangesResponse,
@@ -337,6 +344,22 @@ export function createWorkspaceApi(deps: CreateWorkspaceApiDependencies): Runtim
 				repoPath: workspaceScope.workspacePath,
 				taskId: body.taskId,
 			});
+		},
+		moveTaskToDone: async (workspaceScope, input): Promise<RuntimeWorkspaceMoveTaskToDoneResponse> => {
+			const mutation = await mutateWorkspaceState(workspaceScope.workspacePath, (latestState) => {
+				const trashed = trashTaskAndGetReadyLinkedTaskIds(latestState.board, input.taskId);
+				return {
+					board: trashed.board,
+					value: { moved: trashed.moved, readyTaskIds: trashed.readyTaskIds },
+					save: trashed.moved,
+				};
+			});
+			if (mutation.saved) {
+				void deps.broadcastRuntimeWorkspaceStateUpdated(workspaceScope.workspaceId, workspaceScope.workspacePath);
+				void deps.broadcastRuntimeProjectsUpdated(workspaceScope.workspaceId);
+				deps.onWorkspaceStateChanged?.(workspaceScope.workspaceId, workspaceScope.workspacePath);
+			}
+			return { ok: true, ...mutation.value, state: mutation.state };
 		},
 		loadTaskContext: async (workspaceScope, input) => {
 			const normalizedInput = normalizeRequiredTaskWorkspaceScopeInput(input);

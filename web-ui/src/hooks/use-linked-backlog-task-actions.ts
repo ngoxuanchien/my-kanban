@@ -1,15 +1,11 @@
 import type { Dispatch, SetStateAction } from "react";
 import { useCallback, useEffect, useRef } from "react";
 
-import { showAppToast } from "@/components/app-toaster";
+import { notifyError, showAppToast } from "@/components/app-toaster";
 import { getDetailTerminalTaskId } from "@/hooks/use-terminal-panels";
-import {
-	addTaskDependency,
-	findCardSelection,
-	moveTaskToColumn,
-	removeTaskDependency,
-	trashTaskAndGetReadyLinkedTaskIds,
-} from "@/state/board-state";
+import { getRuntimeTrpcClient } from "@/runtime/trpc-client";
+import type { RuntimeWorkspaceMoveTaskToDoneResponse, RuntimeWorkspaceStateResponse } from "@/runtime/types";
+import { addTaskDependency, findCardSelection, moveTaskToColumn, removeTaskDependency } from "@/state/board-state";
 import { trackTaskDependencyCreated, trackTasksAutoStartedFromDependency } from "@/telemetry/events";
 import type { BoardCard, BoardColumnId, BoardData } from "@/types";
 import { getNextDetailTaskIdAfterTrashMove } from "@/utils/detail-view-task-order";
@@ -21,6 +17,8 @@ interface RequestMoveTaskToTrashOptions {
 
 export function useLinkedBacklogTaskActions({
 	board,
+	currentProjectId,
+	applyWorkspaceState,
 	setBoard,
 	setSelectedTaskId,
 	stopTaskSession,
@@ -31,6 +29,8 @@ export function useLinkedBacklogTaskActions({
 	waitForBacklogStartAnimationAvailability,
 }: {
 	board: BoardData;
+	currentProjectId: string | null;
+	applyWorkspaceState: (state: RuntimeWorkspaceStateResponse | null) => void;
 	setBoard: Dispatch<SetStateAction<BoardData>>;
 	setSelectedTaskId: Dispatch<SetStateAction<string | null>>;
 	stopTaskSession: (taskId: string) => Promise<void>;
@@ -105,17 +105,22 @@ export function useLinkedBacklogTaskActions({
 	const performMoveTaskToTrash = useCallback(
 		async (task: BoardCard, currentBoard?: BoardData): Promise<void> => {
 			const boardBeforeTrash = currentBoard ?? boardRef.current;
-			const trashed = trashTaskAndGetReadyLinkedTaskIds(boardBeforeTrash, task.id);
-			if (!trashed.moved) {
-				await stopTaskSession(task.id);
-				await cleanupTaskWorkspace(task.id);
+			if (!currentProjectId) {
 				return;
 			}
-
-			setBoard((currentBoardState) => {
-				const latestTrashResult = trashTaskAndGetReadyLinkedTaskIds(currentBoardState, task.id);
-				return latestTrashResult.moved ? latestTrashResult.board : currentBoardState;
-			});
+			let result: RuntimeWorkspaceMoveTaskToDoneResponse;
+			try {
+				result = await getRuntimeTrpcClient(currentProjectId).workspace.moveTaskToDone.mutate({ taskId: task.id });
+			} catch (error) {
+				notifyError(error instanceof Error ? error.message : "Could not move task to Done.");
+				return;
+			}
+			if (!result.ok) {
+				notifyError("Could not move task to Done.");
+				return;
+			}
+			const trashed = { board: result.state.board, readyTaskIds: result.readyTaskIds };
+			applyWorkspaceState(result.state);
 			setSelectedTaskId((currentSelectedTaskId) =>
 				currentSelectedTaskId === task.id
 					? getNextDetailTaskIdAfterTrashMove(boardBeforeTrash, task.id)
@@ -170,6 +175,8 @@ export function useLinkedBacklogTaskActions({
 			await cleanupTaskWorkspace(task.id);
 		},
 		[
+			currentProjectId,
+			applyWorkspaceState,
 			cleanupTaskWorkspace,
 			kickoffTaskInProgress,
 			maybeRequestNotificationPermissionForTaskStart,

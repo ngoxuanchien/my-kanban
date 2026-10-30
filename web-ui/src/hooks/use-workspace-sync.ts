@@ -30,6 +30,7 @@ interface UseWorkspaceSyncResult {
 	workspaceRevision: number | null;
 	setWorkspaceRevision: Dispatch<SetStateAction<number | null>>;
 	workspaceHydrationNonce: number;
+	applyWorkspaceState: (state: RuntimeWorkspaceStateResponse | null) => void;
 	isWorkspaceStateRefreshing: boolean;
 	isWorkspaceMetadataPending: boolean;
 	refreshWorkspaceState: () => Promise<void>;
@@ -198,6 +199,7 @@ export function useWorkspaceSync({
 		workspaceRevision,
 		setWorkspaceRevision,
 		workspaceHydrationNonce,
+		applyWorkspaceState,
 		isWorkspaceStateRefreshing,
 		isWorkspaceMetadataPending,
 		refreshWorkspaceState,

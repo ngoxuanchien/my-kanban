@@ -122,6 +122,7 @@ function HookHarness({
 		selectedCard,
 		selectedTaskId: null,
 		currentProjectId: "project-1",
+		applyWorkspaceState: () => {},
 		setSelectedTaskId: setSelectedTaskIdOverride ?? setSelectedTaskId,
 		setIsClearTrashDialogOpen,
 		setIsGitHistoryOpen,

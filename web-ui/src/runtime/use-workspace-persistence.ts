@@ -127,7 +127,6 @@ export function useWorkspacePersistence({
 							requestId === latestPersistRequestIdRef.current &&
 							currentProjectIdRef.current === persistWorkspaceId
 						) {
-							onWorkspaceRevisionChange(error.currentRevision);
 							onWorkspaceStateConflict?.({
 								workspaceId: persistWorkspaceId,
 								currentRevision: error.currentRevision,

@@ -98,6 +98,8 @@ import type {
 	RuntimeWorkspaceChangesResponse,
 	RuntimeWorkspaceFileSearchRequest,
 	RuntimeWorkspaceFileSearchResponse,
+	RuntimeWorkspaceMoveTaskToDoneRequest,
+	RuntimeWorkspaceMoveTaskToDoneResponse,
 	RuntimeWorkspaceStateNotifyResponse,
 	RuntimeWorkspaceStateResponse,
 	RuntimeWorkspaceStateSaveRequest,
@@ -199,6 +201,8 @@ import {
 	runtimeWorkspaceChangesResponseSchema,
 	runtimeWorkspaceFileSearchRequestSchema,
 	runtimeWorkspaceFileSearchResponseSchema,
+	runtimeWorkspaceMoveTaskToDoneRequestSchema,
+	runtimeWorkspaceMoveTaskToDoneResponseSchema,
 	runtimeWorkspaceStateNotifyResponseSchema,
 	runtimeWorkspaceStateResponseSchema,
 	runtimeWorkspaceStateSaveRequestSchema,
@@ -375,6 +379,10 @@ export interface RuntimeTrpcContext {
 			scope: RuntimeTrpcWorkspaceScope,
 			input: RuntimeWorktreeDeleteRequest,
 		) => Promise<RuntimeWorktreeDeleteResponse>;
+		moveTaskToDone: (
+			scope: RuntimeTrpcWorkspaceScope,
+			input: RuntimeWorkspaceMoveTaskToDoneRequest,
+		) => Promise<RuntimeWorkspaceMoveTaskToDoneResponse>;
 		loadTaskContext: (
 			scope: RuntimeTrpcWorkspaceScope,
 			input: RuntimeTaskWorkspaceInfoRequest,
@@ -756,6 +764,12 @@ export const runtimeAppRouter = t.router({
 			.output(runtimeWorktreeDeleteResponseSchema)
 			.mutation(async ({ ctx, input }) => {
 				return await ctx.workspaceApi.deleteWorktree(ctx.workspaceScope, input);
+			}),
+		moveTaskToDone: workspaceProcedure
+			.input(runtimeWorkspaceMoveTaskToDoneRequestSchema)
+			.output(runtimeWorkspaceMoveTaskToDoneResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.workspaceApi.moveTaskToDone(ctx.workspaceScope, input);
 			}),
 		getTaskContext: workspaceProcedure
 			.input(runtimeTaskWorkspaceInfoRequestSchema)

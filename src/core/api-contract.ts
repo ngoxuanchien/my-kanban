@@ -396,6 +396,17 @@ export const runtimeWorkspaceStateSaveRequestSchema = z.object({
 });
 export type RuntimeWorkspaceStateSaveRequest = z.infer<typeof runtimeWorkspaceStateSaveRequestSchema>;
 
+export const runtimeWorkspaceMoveTaskToDoneRequestSchema = z.object({ taskId: z.string() });
+export type RuntimeWorkspaceMoveTaskToDoneRequest = z.infer<typeof runtimeWorkspaceMoveTaskToDoneRequestSchema>;
+
+export const runtimeWorkspaceMoveTaskToDoneResponseSchema = z.object({
+	ok: z.boolean(),
+	moved: z.boolean(),
+	readyTaskIds: z.array(z.string()),
+	state: runtimeWorkspaceStateResponseSchema,
+});
+export type RuntimeWorkspaceMoveTaskToDoneResponse = z.infer<typeof runtimeWorkspaceMoveTaskToDoneResponseSchema>;
+
 export const runtimeWorkspaceStateConflictResponseSchema = z.object({
 	error: z.string(),
 	currentRevision: z.number(),

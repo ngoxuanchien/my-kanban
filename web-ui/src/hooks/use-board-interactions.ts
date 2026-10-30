@@ -8,7 +8,11 @@ import { useLinkedBacklogTaskActions } from "@/hooks/use-linked-backlog-task-act
 import { useProgrammaticCardMoves } from "@/hooks/use-programmatic-card-moves";
 import { useReviewAutoActions } from "@/hooks/use-review-auto-actions";
 import type { UseTaskSessionsResult } from "@/hooks/use-task-sessions";
-import type { RuntimeTaskSessionSummary, RuntimeTaskWorkspaceInfoResponse } from "@/runtime/types";
+import type {
+	RuntimeTaskSessionSummary,
+	RuntimeTaskWorkspaceInfoResponse,
+	RuntimeWorkspaceStateResponse,
+} from "@/runtime/types";
 import {
 	applyDragResult,
 	clearColumnTasks,
@@ -61,6 +65,7 @@ interface UseBoardInteractionsInput {
 	selectedCard: SelectedBoardCard | null;
 	selectedTaskId: string | null;
 	currentProjectId: string | null;
+	applyWorkspaceState: (state: RuntimeWorkspaceStateResponse | null) => void;
 	setSelectedTaskId: Dispatch<SetStateAction<string | null>>;
 	setIsClearTrashDialogOpen: Dispatch<SetStateAction<boolean>>;
 	setIsGitHistoryOpen: Dispatch<SetStateAction<boolean>>;
@@ -109,6 +114,7 @@ export function useBoardInteractions({
 	selectedCard,
 	selectedTaskId,
 	currentProjectId,
+	applyWorkspaceState,
 	setSelectedTaskId,
 	setIsClearTrashDialogOpen,
 	setIsGitHistoryOpen,
@@ -517,6 +523,8 @@ export function useBoardInteractions({
 	const { confirmMoveTaskToTrash, handleCreateDependency, handleDeleteDependency, requestMoveTaskToTrash } =
 		useLinkedBacklogTaskActions({
 			board,
+			currentProjectId,
+			applyWorkspaceState,
 			setBoard,
 			setSelectedTaskId,
 			stopTaskSession,

@@ -4,10 +4,22 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useLinkedBacklogTaskActions } from "@/hooks/use-linked-backlog-task-actions";
 import { getDetailTerminalTaskId } from "@/hooks/use-terminal-panels";
+import type { RuntimeWorkspaceStateResponse } from "@/runtime/types";
 import type { BoardCard, BoardData, BoardDependency } from "@/types";
 
 const trackTaskDependencyCreatedMock = vi.hoisted(() => vi.fn());
 const trackTasksAutoStartedFromDependencyMock = vi.hoisted(() => vi.fn());
+const moveTaskToDoneMock = vi.hoisted(() => vi.fn());
+const notifyErrorMock = vi.hoisted(() => vi.fn());
+
+vi.mock("@/runtime/trpc-client", () => ({
+	getRuntimeTrpcClient: vi.fn(() => ({ workspace: { moveTaskToDone: { mutate: moveTaskToDoneMock } } })),
+}));
+
+vi.mock("@/components/app-toaster", () => ({
+	notifyError: notifyErrorMock,
+	showAppToast: vi.fn(),
+}));
 
 vi.mock("@/telemetry/events", () => ({
 	trackTaskDependencyCreated: trackTaskDependencyCreatedMock,
@@ -48,6 +60,30 @@ function createBoard(dependencies: BoardDependency[] = []): BoardData {
 	};
 }
 
+function createMoveResponse(readyTaskIds: string[] = []) {
+	const board = createBoard();
+	board.columns = board.columns.map((column) =>
+		column.id === "review"
+			? { ...column, cards: [] }
+			: column.id === "trash"
+				? { ...column, cards: [createTask("task-2", "Review task", 2)] }
+				: column,
+	);
+	return {
+		ok: true,
+		moved: true,
+		readyTaskIds,
+		state: {
+			repoPath: "/tmp/repo",
+			statePath: "/tmp/state",
+			git: { currentBranch: "main", defaultBranch: "main", branches: ["main"] },
+			board,
+			sessions: {},
+			revision: 2,
+		},
+	};
+}
+
 interface HookSnapshot {
 	board: BoardData;
 	handleCreateDependency: (fromTaskId: string, toTaskId: string) => void;
@@ -79,6 +115,7 @@ function HookHarness({
 	waitForBacklogStartAnimationAvailability,
 	stopTaskSession,
 	cleanupTaskWorkspace,
+	onApplyWorkspaceState,
 }: {
 	boardFactory?: () => BoardData;
 	onSnapshot: (snapshot: HookSnapshot) => void;
@@ -92,10 +129,16 @@ function HookHarness({
 	waitForBacklogStartAnimationAvailability?: () => Promise<void>;
 	stopTaskSession?: (taskId: string) => Promise<void>;
 	cleanupTaskWorkspace?: (taskId: string) => Promise<unknown>;
+	onApplyWorkspaceState?: (state: RuntimeWorkspaceStateResponse | null) => void;
 }): null {
 	const [board, setBoard] = useState<BoardData>(() => (boardFactory ? boardFactory() : createBoard()));
 	const actions = useLinkedBacklogTaskActions({
 		board,
+		currentProjectId: "workspace-1",
+		applyWorkspaceState: (state) => {
+			onApplyWorkspaceState?.(state);
+			if (state) setBoard(state.board);
+		},
 		setBoard,
 		setSelectedTaskId: () => {},
 		stopTaskSession: stopTaskSession ?? (async () => {}),
@@ -132,6 +175,8 @@ describe("useLinkedBacklogTaskActions", () => {
 	beforeEach(() => {
 		trackTaskDependencyCreatedMock.mockReset();
 		trackTasksAutoStartedFromDependencyMock.mockReset();
+		moveTaskToDoneMock.mockReset().mockResolvedValue(createMoveResponse());
+		notifyErrorMock.mockReset();
 		previousActEnvironment = (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean })
 			.IS_REACT_ACT_ENVIRONMENT;
 		(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -196,6 +241,7 @@ describe("useLinkedBacklogTaskActions", () => {
 				{ id: "dep-1", fromTaskId: "task-1", toTaskId: "task-2", createdAt: 10 },
 				{ id: "dep-2", fromTaskId: "task-3", toTaskId: "task-2", createdAt: 11 },
 			]);
+		moveTaskToDoneMock.mockResolvedValue(createMoveResponse(["task-1", "task-3"]));
 
 		await act(async () => {
 			root.render(
@@ -236,6 +282,7 @@ describe("useLinkedBacklogTaskActions", () => {
 				{ id: "dep-1", fromTaskId: "task-1", toTaskId: "task-2", createdAt: 10 },
 				{ id: "dep-2", fromTaskId: "task-3", toTaskId: "task-2", createdAt: 11 },
 			]);
+		moveTaskToDoneMock.mockResolvedValue(createMoveResponse(["task-1", "task-3"]));
 
 		await act(async () => {
 			root.render(
@@ -305,6 +352,75 @@ describe("useLinkedBacklogTaskActions", () => {
 		expect(stopTaskSession).toHaveBeenNthCalledWith(2, getDetailTerminalTaskId(reviewTask.id));
 	});
 
+	it("does not stop or clean up when the server move fails", async () => {
+		let latestSnapshot: HookSnapshot | null = null;
+		const stopTaskSession = vi.fn(async (_taskId: string) => {});
+		const cleanupTaskWorkspace = vi.fn(async (_taskId: string) => null);
+		moveTaskToDoneMock.mockRejectedValue(new Error("save failed"));
+
+		await act(async () => {
+			root.render(
+				<HookHarness
+					stopTaskSession={stopTaskSession}
+					cleanupTaskWorkspace={cleanupTaskWorkspace}
+					onSnapshot={(snapshot) => {
+						latestSnapshot = snapshot;
+					}}
+				/>,
+			);
+		});
+		if (latestSnapshot === null) throw new Error("Expected a hook snapshot.");
+		const snapshot = latestSnapshot as HookSnapshot;
+		const reviewTask = snapshot.board.columns.find((column) => column.id === "review")?.cards[0];
+		if (!reviewTask) throw new Error("Expected a review task.");
+		await act(async () => snapshot.confirmMoveTaskToTrash(reviewTask));
+
+		expect(notifyErrorMock).toHaveBeenCalledWith("save failed");
+		expect(stopTaskSession).not.toHaveBeenCalled();
+		expect(cleanupTaskWorkspace).not.toHaveBeenCalled();
+	});
+
+	it("saves the move before stopping sessions and cleaning up", async () => {
+		let latestSnapshot: HookSnapshot | null = null;
+		const order: string[] = [];
+		const appliedStates: RuntimeWorkspaceStateResponse[] = [];
+		moveTaskToDoneMock.mockImplementation(async () => {
+			order.push("save");
+			return createMoveResponse();
+		});
+		const stopTaskSession = vi.fn(async () => {
+			order.push("stop");
+		});
+		const cleanupTaskWorkspace = vi.fn(async () => {
+			order.push("cleanup");
+			return null;
+		});
+
+		await act(async () => {
+			root.render(
+				<HookHarness
+					onApplyWorkspaceState={(state) => {
+						if (state) appliedStates.push(state);
+						order.push("apply");
+					}}
+					stopTaskSession={stopTaskSession}
+					cleanupTaskWorkspace={cleanupTaskWorkspace}
+					onSnapshot={(snapshot) => {
+						latestSnapshot = snapshot;
+					}}
+				/>,
+			);
+		});
+		if (latestSnapshot === null) throw new Error("Expected a hook snapshot.");
+		const snapshot = latestSnapshot as HookSnapshot;
+		const reviewTask = snapshot.board.columns.find((column) => column.id === "review")?.cards[0];
+		if (!reviewTask) throw new Error("Expected a review task.");
+		await act(async () => snapshot.confirmMoveTaskToTrash(reviewTask));
+
+		expect(order).toEqual(["save", "apply", "stop", "stop", "cleanup"]);
+		expect(appliedStates).toEqual([createMoveResponse().state]);
+	});
+
 	it("trashes tasks directly through the request handler", async () => {
 		let latestSnapshot: HookSnapshot | null = null;
 		const cleanupTaskWorkspace = vi.fn(async (_taskId: string) => null);
@@ -357,6 +473,7 @@ describe("useLinkedBacklogTaskActions", () => {
 				{ id: "dep-1", fromTaskId: "task-1", toTaskId: "task-2", createdAt: 10 },
 				{ id: "dep-2", fromTaskId: "task-3", toTaskId: "task-2", createdAt: 11 },
 			]);
+		moveTaskToDoneMock.mockResolvedValue(createMoveResponse(["task-1", "task-3"]));
 
 		await act(async () => {
 			root.render(
@@ -383,6 +500,7 @@ describe("useLinkedBacklogTaskActions", () => {
 		let movePromise: Promise<void> | null = null;
 		await act(async () => {
 			movePromise = initialSnapshot.confirmMoveTaskToTrash(reviewTask, initialSnapshot.board);
+			await Promise.resolve();
 			await Promise.resolve();
 		});
 
