@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ClineTaskSessionService } from "../../../src/cline-sdk/cline-task-session-service";
 import type { RuntimeConfigState } from "../../../src/config/runtime-config";
 import type { RuntimeBoardCard, RuntimeTaskSessionSummary } from "../../../src/core/api-contract";
+import { detectUsageLimit } from "../../../src/server/usage-limit-detector";
 import type { SendPromptToSessionResult } from "../../../src/terminal/send-prompt-to-session";
 import type { TerminalSessionManager } from "../../../src/terminal/session-manager";
 
@@ -798,11 +799,9 @@ describe("createSidebarReviewService", () => {
 		const reviewSummary = { ...summary("task-1", "awaiting_review"), agentId: "codex" as const };
 		for (const listener of listeners) listener(reviewSummary);
 		await vi.waitFor(() =>
-			expect(handOffTask).toHaveBeenCalledWith(
-				"task-1",
-				'The previous agent hit its usage limit ("hit your usage limit").',
-			),
+			expect(handOffTask).toHaveBeenCalledWith("task-1", "The previous agent hit its usage limit."),
 		);
+		expect(detectUsageLimit("The previous agent hit its usage limit.")).toBeNull();
 		expect(recordAgentScoreEvent).not.toHaveBeenCalled();
 		expect(recordTaskHistoryEvent).toHaveBeenCalledWith("workspace-1", "task-1", {
 			type: "handoff",
@@ -830,10 +829,7 @@ describe("createSidebarReviewService", () => {
 		const reviewSummary = summary("task-1", "awaiting_review");
 		for (const listener of listeners) listener(reviewSummary);
 		await vi.waitFor(() =>
-			expect(handOffTask).toHaveBeenCalledWith(
-				"task-1",
-				'The previous agent hit its usage limit ("Free usage limit reached").',
-			),
+			expect(handOffTask).toHaveBeenCalledWith("task-1", "The previous agent hit its usage limit."),
 		);
 		expect(card.reviewRound).toBe(0);
 		expect(sendPromptToSession).not.toHaveBeenCalled();
@@ -849,10 +845,7 @@ describe("createSidebarReviewService", () => {
 		});
 		for (const listener of listeners) listener(summary("task-1", "awaiting_review"));
 		await vi.waitFor(() =>
-			expect(handOffTask).toHaveBeenCalledWith(
-				"task-1",
-				'The previous agent hit its usage limit ("Free usage limit reached").',
-			),
+			expect(handOffTask).toHaveBeenCalledWith("task-1", "The previous agent hit its usage limit."),
 		);
 		expect(sendPromptToSession).not.toHaveBeenCalled();
 		service.dispose();

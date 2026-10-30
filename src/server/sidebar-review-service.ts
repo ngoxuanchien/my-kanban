@@ -282,9 +282,10 @@ export function createSidebarReviewService(deps: CreateSidebarReviewServiceDepen
 				);
 			}
 		} else {
-			const reason = !phrase
+			const detail = !phrase
 				? "The previous agent produced no terminal output for 5 minutes after continue."
 				: `The previous agent hit its usage limit ("${phrase}").`;
+			const reason = phrase ? "The previous agent hit its usage limit." : detail;
 			const result = await deps.handOffTask(summary.taskId, reason);
 			if (result.ok) {
 				if (card.agentId)
@@ -293,7 +294,7 @@ export function createSidebarReviewService(deps: CreateSidebarReviewServiceDepen
 						agentId: result.fromAgentId ?? card.agentId,
 						toAgentId: result.toAgentId,
 						round: card.reviewRound,
-						detail: reason,
+						detail,
 					});
 			} else {
 				deps.warn(`[sidebar-review] Could not hand off task ${summary.taskId}: ${result.error ?? "unknown error"}`);
