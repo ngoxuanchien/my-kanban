@@ -52,6 +52,7 @@ import { type CreateRuntimeApiDependencies, createRuntimeApi } from "../trpc/run
 import { createWorkspaceApi } from "../trpc/workspace-api";
 import { getWebUiDir, normalizeRequestPath, readAsset } from "./assets";
 import { handleHttpRequest, handleSocketUpgrade } from "./middleware";
+import { readOpenCodeLogTail } from "./opencode-log-usage-limit";
 import { resumeInterruptedTasks } from "./resume-interrupted-tasks";
 import type { RuntimeStateHub } from "./runtime-state-hub";
 import { createSidebarReviewService, type SidebarReviewService } from "./sidebar-review-service";
@@ -205,6 +206,7 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 						await deps.runtimeStateHub.broadcastRuntimeProjectsUpdated(workspaceId);
 					},
 					warn: deps.warn,
+					readOpenCodeLog: readOpenCodeLogTail,
 				});
 				await instance.start();
 				return instance;

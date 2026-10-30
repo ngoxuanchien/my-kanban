@@ -10,6 +10,7 @@ import { sendPromptToSession } from "../terminal/send-prompt-to-session";
 import type { TerminalSessionManager } from "../terminal/session-manager";
 import { runGit } from "../workspace/git-utils";
 import { getTaskWorkspacePathInfo } from "../workspace/task-worktree";
+import { findOpenCodeLogUsageLimit, readOpenCodeLogTail } from "./opencode-log-usage-limit";
 import { createSidebarReviewQueue } from "./sidebar-review-queue";
 import { detectUsageLimit } from "./usage-limit-detector";
 
@@ -29,6 +30,7 @@ export interface CreateSidebarReviewServiceDependencies {
 	) => Promise<{ ok: boolean; error?: string | null; fromAgentId?: string; toAgentId?: string }>;
 	broadcastStateUpdated: () => Promise<void> | void;
 	warn: (message: string) => void;
+	readOpenCodeLog?: () => Promise<string | null>;
 	now?: () => number;
 	setInterval?: typeof setInterval;
 	clearInterval?: typeof clearInterval;
@@ -72,6 +74,33 @@ export function createSidebarReviewService(deps: CreateSidebarReviewServiceDepen
 	const quotaWarnedTaskIds = new Set<string>();
 	const processingTaskIds = new Set<string>();
 	const now = deps.now ?? Date.now;
+	const readOpenCodeLog = deps.readOpenCodeLog ?? readOpenCodeLogTail;
+	const findUsageLimit = async (
+		summary: RuntimeTaskSessionSummary,
+		card: RuntimeBoardCard,
+		screenText: string,
+	): Promise<string | null> => {
+		const screenPhrase = detectUsageLimit(screenText);
+		if (screenPhrase) return screenPhrase;
+		try {
+			const selectedAgentId =
+				card.agentId == null && summary.agentId == null
+					? (await deps.loadRuntimeConfig()).selectedAgentId
+					: undefined;
+			if (resolveEffectiveTaskAgentId(card.agentId, summary.agentId, selectedAgentId) !== "opencode") return null;
+			const logText = await readOpenCodeLog();
+			if (!logText) return null;
+			const { path: worktreePath } = await getTaskWorkspacePathInfo({
+				cwd: deps.workspacePath,
+				taskId: summary.taskId,
+				baseRef: card.baseRef,
+			});
+			return findOpenCodeLogUsageLimit(logText, { worktreePath, sinceMs: summary.startedAt ?? 0 });
+		} catch (error) {
+			deps.warn(`[sidebar-review] Could not read OpenCode log for ${summary.taskId}: ${errorMessage(error)}`);
+			return null;
+		}
+	};
 	const recordHistory = async (taskId: string, event: Parameters<typeof recordTaskHistoryEvent>[2]): Promise<void> => {
 		try {
 			await recordTaskHistoryEvent(deps.workspaceId, taskId, event);
@@ -174,7 +203,7 @@ export function createSidebarReviewService(deps: CreateSidebarReviewServiceDepen
 		const idleSince = summary.lastOutputAt ?? summary.startedAt;
 		const stillStuck =
 			Boolean(phrase) || (isRunning && idleSince !== null && now() - idleSince >= QUOTA_NUDGE_WAIT_MS);
-		if (!nudge) {
+		if (!nudge && !phrase) {
 			if (!stillStuck) return false;
 			const sent =
 				isRunning && (summary.agentId ?? card.agentId) === "antigravity"
@@ -202,17 +231,20 @@ export function createSidebarReviewService(deps: CreateSidebarReviewServiceDepen
 				});
 			return true;
 		}
-		if (now() - nudge.sentAt < QUOTA_NUDGE_WAIT_MS) return true;
+		if (nudge && !phrase && now() - nudge.sentAt < QUOTA_NUDGE_WAIT_MS) return true;
 		if (!stillStuck) {
 			quotaNudges.delete(summary.taskId);
 			return false;
 		}
 		if (!isHandOffAgentId(card.agentId)) {
-			if (!nudge.warned) {
+			if (nudge && !nudge.warned) {
 				nudge.warned = true;
 				deps.warn(
 					`[sidebar-review] Task ${summary.taskId}: still stuck after continue; no handoff agent is available`,
 				);
+			} else if (!nudge && phrase && !quotaWarnedTaskIds.has(summary.taskId)) {
+				quotaWarnedTaskIds.add(summary.taskId);
+				deps.warn(`[sidebar-review] Task ${summary.taskId}: usage limit detected; no handoff agent is available`);
 			}
 			return true;
 		}
@@ -290,7 +322,7 @@ export function createSidebarReviewService(deps: CreateSidebarReviewServiceDepen
 						deps.warn(`[sidebar-review] Could not check usage limit for ${card.id}: ${errorMessage(error)}`);
 						continue;
 					}
-					const phrase = terminal ? detectUsageLimit(terminal.snapshot) : null;
+					const phrase = terminal ? await findUsageLimit(summary, card, terminal.snapshot) : null;
 					const idleSince = summary.lastOutputAt ?? summary.startedAt;
 					const silent = idleSince !== null && now() - idleSince >= QUOTA_NUDGE_WAIT_MS;
 					if (phrase || silent || quotaNudges.has(card.id)) {
@@ -309,7 +341,7 @@ export function createSidebarReviewService(deps: CreateSidebarReviewServiceDepen
 						deps.warn(`[sidebar-review] Could not check usage limit for ${card.id}: ${errorMessage(error)}`);
 						continue;
 					}
-					const phrase = terminal ? detectUsageLimit(terminal.snapshot) : null;
+					const phrase = terminal ? await findUsageLimit(summary, card, terminal.snapshot) : null;
 					if (phrase || quotaNudges.has(card.id)) await processReviewableSummary(summary, card);
 				}
 			}
@@ -357,7 +389,7 @@ export function createSidebarReviewService(deps: CreateSidebarReviewServiceDepen
 			if (!completedRunningNudge && isHandOffAgentId(card.agentId)) {
 				try {
 					const terminal = await deps.terminalManager.getRestoreSnapshot(summary.taskId);
-					const phrase = terminal ? detectUsageLimit(terminal.snapshot) : null;
+					const phrase = terminal ? await findUsageLimit(summary, card, terminal.snapshot) : null;
 					if (
 						(phrase || quotaNudges.has(summary.taskId)) &&
 						(await handleUsageLimit(summary, card, phrase, false))

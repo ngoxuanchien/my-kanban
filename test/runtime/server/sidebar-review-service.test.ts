@@ -111,6 +111,7 @@ async function startUsageLimitTurn(options: {
 	sidebarIdle?: boolean;
 	setInterval?: typeof setInterval;
 	clearInterval?: typeof clearInterval;
+	readOpenCodeLog?: () => Promise<string | null>;
 	session?: RuntimeTaskSessionSummary;
 }) {
 	const card = workspaceState.board.columns[0].cards[0];
@@ -149,6 +150,7 @@ async function startUsageLimitTurn(options: {
 		warn,
 		handOffTask,
 		retryQuotaBlockedTask,
+		readOpenCodeLog: options.readOpenCodeLog ?? (async () => null),
 		now: options.now,
 		setInterval: (callback: Parameters<typeof setInterval>[0], delay: Parameters<typeof setInterval>[1]) => {
 			intervalCallback = callback as () => void;
@@ -788,37 +790,20 @@ describe("createSidebarReviewService", () => {
 		service.dispose();
 	});
 
-	it("nudges a Codex task before handing it off for a usage limit", async () => {
-		let clock = 1_000_000;
-		const { card, listeners, broadcastStateUpdated, service, runInterval, setSessionSummary } =
-			await startUsageLimitTurn({
-				agentId: "codex",
-				now: () => clock,
-				getRestoreSnapshot: async () => ({ snapshot: "You’ve hit your usage limit", cols: 80, rows: 24 }),
-			});
+	it("hands off a task immediately when the screen shows a usage limit", async () => {
+		const { card, listeners, broadcastStateUpdated, service } = await startUsageLimitTurn({
+			agentId: "codex",
+			getRestoreSnapshot: async () => ({ snapshot: "You’ve hit your usage limit", cols: 80, rows: 24 }),
+		});
 		const reviewSummary = { ...summary("task-1", "awaiting_review"), agentId: "codex" as const };
 		for (const listener of listeners) listener(reviewSummary);
-		await vi.waitFor(() =>
-			expect(sendPromptToSession).toHaveBeenCalledWith(expect.objectContaining({ prompt: "continue" })),
-		);
-		expect(handOffTask).not.toHaveBeenCalled();
-		expect(recordTaskHistoryEvent).toHaveBeenCalledWith("workspace-1", "task-1", {
-			type: "retry",
-			agentId: "codex",
-			round: 0,
-			detail: "continue sent (usage limit or no output for 5 min)",
-		});
-		expect(recordAgentScoreEvent).not.toHaveBeenCalled();
-		// Drive the service's five-minute interval after the first nudge.
-		setSessionSummary(reviewSummary);
-		clock += 300000;
-		runInterval();
 		await vi.waitFor(() =>
 			expect(handOffTask).toHaveBeenCalledWith(
 				"task-1",
 				'The previous agent hit its usage limit ("hit your usage limit").',
 			),
 		);
+		expect(recordAgentScoreEvent).not.toHaveBeenCalled();
 		expect(recordTaskHistoryEvent).toHaveBeenCalledWith("workspace-1", "task-1", {
 			type: "handoff",
 			agentId: "codex",
@@ -828,16 +813,14 @@ describe("createSidebarReviewService", () => {
 		});
 		expect(recordAgentScoreEvent).not.toHaveBeenCalled();
 		expect(card.reviewRound).toBe(0);
-		expect(sendPromptToSession).toHaveBeenCalledTimes(1);
+		expect(sendPromptToSession).not.toHaveBeenCalled();
 		expect(broadcastStateUpdated).not.toHaveBeenCalled();
 		service.dispose();
 	});
 
-	it("hands off OpenCode after the quota message remains for five minutes", async () => {
-		let clock = 1_000_000;
-		const { card, listeners, service, runInterval, setSessionSummary } = await startUsageLimitTurn({
+	it("hands off OpenCode immediately when the screen shows a quota message", async () => {
+		const { card, listeners, service } = await startUsageLimitTurn({
 			agentId: "opencode",
-			now: () => clock,
 			getRestoreSnapshot: async () => ({
 				snapshot: "AI.Error.QuotaExceeded: Free usage limit\nreached. Free models work in OpenCode",
 				cols: 80,
@@ -846,11 +829,6 @@ describe("createSidebarReviewService", () => {
 		});
 		const reviewSummary = summary("task-1", "awaiting_review");
 		for (const listener of listeners) listener(reviewSummary);
-		await vi.waitFor(() => expect(sendPromptToSession).toHaveBeenCalledTimes(1));
-		expect(handOffTask).not.toHaveBeenCalled();
-		setSessionSummary(reviewSummary);
-		clock += 300000;
-		runInterval();
 		await vi.waitFor(() =>
 			expect(handOffTask).toHaveBeenCalledWith(
 				"task-1",
@@ -858,32 +836,59 @@ describe("createSidebarReviewService", () => {
 			),
 		);
 		expect(card.reviewRound).toBe(0);
-		expect(sendPromptToSession).toHaveBeenCalledTimes(1);
+		expect(sendPromptToSession).not.toHaveBeenCalled();
+		service.dispose();
+	});
+
+	it("hands off immediately when only the OpenCode log has the quota message", async () => {
+		const { listeners, service } = await startUsageLimitTurn({
+			agentId: "opencode",
+			getRestoreSnapshot: async () => ({ snapshot: "clean terminal", cols: 80, rows: 24 }),
+			readOpenCodeLog: async () =>
+				'timestamp=2026-10-30T03:27:26.454Z level=INFO run=abc directory="/worktree/task-1"\ntimestamp=2026-10-30T03:27:31.247Z level=ERROR run=abc cause="AI.Error: Free usage limit reached"',
+		});
+		for (const listener of listeners) listener(summary("task-1", "awaiting_review"));
+		await vi.waitFor(() =>
+			expect(handOffTask).toHaveBeenCalledWith(
+				"task-1",
+				'The previous agent hit its usage limit ("Free usage limit reached").',
+			),
+		);
+		expect(sendPromptToSession).not.toHaveBeenCalled();
+		service.dispose();
+	});
+
+	it("continues normal review when the OpenCode log reader rejects", async () => {
+		const { listeners, service, warn } = await startUsageLimitTurn({
+			agentId: "opencode",
+			getRestoreSnapshot: async () => ({ snapshot: "clean terminal", cols: 80, rows: 24 }),
+			readOpenCodeLog: async () => {
+				throw new Error("log unavailable");
+			},
+		});
+		for (const listener of listeners) listener(summary("task-1", "awaiting_review"));
+		await vi.waitFor(() => expect(workspaceState.board.columns[0].cards[0].reviewRound).toBe(1));
+		expect(warn).toHaveBeenCalledWith("[sidebar-review] Could not read OpenCode log for task-1: log unavailable");
+		expect(handOffTask).not.toHaveBeenCalled();
 		service.dispose();
 	});
 
 	it("leaves a handed-off task in Review when the other agent also hits its usage limit", async () => {
-		let clock = 1_000_000;
-		const { card, listeners, broadcastStateUpdated, warn, service, runInterval, setSessionSummary } =
-			await startUsageLimitTurn({
-				agentId: "opencode",
-				handOffCount: 2,
-				getRestoreSnapshot: async () => ({ snapshot: "Free usage limit reached", cols: 80, rows: 24 }),
-				now: () => clock,
-			});
+		const clock = 1_000_000;
+		const { card, listeners, broadcastStateUpdated, warn, service } = await startUsageLimitTurn({
+			agentId: "opencode",
+			handOffCount: 2,
+			getRestoreSnapshot: async () => ({ snapshot: "Free usage limit reached", cols: 80, rows: 24 }),
+			now: () => clock,
+		});
 		for (const listener of listeners) listener(summary("task-1", "awaiting_review"));
-		await vi.waitFor(() => expect(sendPromptToSession).toHaveBeenCalledTimes(1));
-		expect(workspaceState.board.columns[0].cards[0].quotaBlockedAt).toBeUndefined();
-		setSessionSummary(summary("task-1", "awaiting_review"));
-		clock += 300000;
-		runInterval();
 		await vi.waitFor(() =>
 			expect(warn).toHaveBeenCalledWith(
 				"[sidebar-review] Task task-1: both agents hit their usage limit; leaving it in Review",
 			),
 		);
 		expect(handOffTask).not.toHaveBeenCalled();
-		expect(sendPromptToSession).toHaveBeenCalledTimes(1);
+		expect(sendPromptToSession).not.toHaveBeenCalled();
 		expect(broadcastStateUpdated).toHaveBeenCalledTimes(1);
 		expect(workspaceState.board.columns[0].cards[0].quotaBlockedAt).toBe(clock);
 		expect(recordTaskHistoryEvent).toHaveBeenCalledWith("workspace-1", "task-1", {
@@ -891,13 +896,7 @@ describe("createSidebarReviewService", () => {
 			agentId: "opencode",
 			round: 0,
 		});
-		expect(recordTaskHistoryEvent).toHaveBeenCalledWith("workspace-1", "task-1", {
-			type: "retry",
-			agentId: "opencode",
-			round: 0,
-			detail: "continue sent (usage limit or no output for 5 min)",
-		});
-		expect(recordTaskHistoryEvent).toHaveBeenCalledTimes(2);
+		expect(recordTaskHistoryEvent).toHaveBeenCalledTimes(1);
 		expect(recordAgentScoreEvent).not.toHaveBeenCalled();
 		expect(retryQuotaBlockedTask).not.toHaveBeenCalled();
 		expect(warn).toHaveBeenCalledTimes(1);
@@ -1002,14 +1001,19 @@ describe("createSidebarReviewService", () => {
 		service.dispose();
 	});
 
-	it("does not recheck quota after a running task finishes its turn", async () => {
+	it("does not recheck quota after a silent running task finishes its turn", async () => {
+		const clock = 1_000_000;
 		const { service, listeners, runInterval } = await startUsageLimitTurn({
 			agentId: "codex",
-			now: () => 1_000_000,
-			getRestoreSnapshot: async () => ({ snapshot: "Free usage limit reached", cols: 80, rows: 24 }),
+			now: () => clock,
+			session: { ...summary("task-1", "running"), lastOutputAt: clock - 300001 },
+			getRestoreSnapshot: async () => ({ snapshot: "clean terminal", cols: 80, rows: 24 }),
 		});
 		runInterval();
 		await vi.waitFor(() => expect(sendPromptToSession).toHaveBeenCalledTimes(1));
+		expect(sendPromptToSession).toHaveBeenCalledWith(
+			expect.objectContaining({ prompt: "continue", sessionId: "task-1" }),
+		);
 		for (const listener of listeners) listener(summary("task-1", "awaiting_review"));
 		await vi.waitFor(() => expect(workspaceState.board.columns[0].cards[0].reviewRound).toBe(1));
 		expect(handOffTask).not.toHaveBeenCalled();
@@ -1022,7 +1026,7 @@ describe("createSidebarReviewService", () => {
 		const { service, runInterval, setSessionSummary } = await startUsageLimitTurn({
 			agentId: "codex",
 			now: () => clock,
-			getRestoreSnapshot: async () => ({ snapshot: "Free usage limit reached", cols: 80, rows: 24 }),
+			getRestoreSnapshot: async () => ({ snapshot: "clean terminal", cols: 80, rows: 24 }),
 		});
 		runInterval();
 		await vi.waitFor(() => expect(sendPromptToSession).toHaveBeenCalledTimes(1));
@@ -1037,7 +1041,7 @@ describe("createSidebarReviewService", () => {
 		service.dispose();
 	});
 
-	it("nudges a running task when its terminal shows a usage limit", async () => {
+	it("hands off a running task immediately when its terminal shows a usage limit", async () => {
 		const { service, runInterval } = await startUsageLimitTurn({
 			agentId: "codex",
 			now: () => 1_000_000,
@@ -1045,21 +1049,22 @@ describe("createSidebarReviewService", () => {
 			getRestoreSnapshot: async () => ({ snapshot: "Free usage limit reached", cols: 80, rows: 24 }),
 		});
 		runInterval();
-		await vi.waitFor(() => expect(sendPromptToSession).toHaveBeenCalledTimes(1));
-		expect(handOffTask).not.toHaveBeenCalled();
+		await vi.waitFor(() => expect(handOffTask).toHaveBeenCalledTimes(1));
+		expect(sendPromptToSession).not.toHaveBeenCalled();
 		service.dispose();
 	});
 
-	it("sends Enter for a running Antigravity quota nudge", async () => {
+	it("sends Enter for a silent running Antigravity task", async () => {
 		const { service, runInterval, writeInput } = await startUsageLimitTurn({
 			agentId: "opencode",
 			now: () => 1_000_000,
-			session: { ...summary("task-1", "running"), agentId: "antigravity", lastOutputAt: 999_999 },
-			getRestoreSnapshot: async () => ({ snapshot: "Free usage limit reached", cols: 80, rows: 24 }),
+			session: { ...summary("task-1", "running"), agentId: "antigravity", lastOutputAt: 699_999 },
+			getRestoreSnapshot: async () => ({ snapshot: "clean terminal", cols: 80, rows: 24 }),
 		});
 		runInterval();
 		await vi.waitFor(() => expect(writeInput).toHaveBeenCalledTimes(1));
 		expect(writeInput.mock.calls[0]?.[1].toString()).toBe("\r");
+		expect(handOffTask).not.toHaveBeenCalled();
 		expect(sendPromptToSession).not.toHaveBeenCalled();
 		service.dispose();
 	});
@@ -1215,20 +1220,19 @@ describe("createSidebarReviewService", () => {
 	});
 
 	it("continues the normal review path when handoff is refused", async () => {
-		let clock = 1_000_000;
 		handOffTask.mockResolvedValue({ ok: false, error: "unavailable" });
-		const { listeners, warn, service, runInterval, setSessionSummary } = await startUsageLimitTurn({
+		const { listeners, warn, service } = await startUsageLimitTurn({
 			agentId: "codex",
-			now: () => clock,
 			getRestoreSnapshot: async () => ({ snapshot: "Free usage limit reached", cols: 80, rows: 24 }),
 		});
 		const reviewSummary = summary("task-1", "awaiting_review");
+		runGit
+			.mockReset()
+			.mockResolvedValueOnce({ ok: true, stdout: " M file" })
+			.mockResolvedValueOnce({ ok: true, stdout: "0" });
 		for (const listener of listeners) listener(reviewSummary);
-		await vi.waitFor(() => expect(sendPromptToSession).toHaveBeenCalledTimes(1));
-		setSessionSummary(reviewSummary);
-		clock += 300000;
-		runInterval();
 		await vi.waitFor(() => expect(workspaceState.board.columns[0].cards[0].reviewRound).toBe(1));
+		expect(sendPromptToSession).not.toHaveBeenCalled();
 		expect(warn).toHaveBeenCalledWith("[sidebar-review] Could not hand off task task-1: unavailable");
 		service.dispose();
 	});
