@@ -13,6 +13,7 @@ import type {
 	RuntimeWorkspaceFileChange,
 } from "@/runtime/types";
 import type { CardSelection } from "@/types";
+import { useWindowEvent } from "@/utils/react-use";
 
 export interface DoneTaskDetailViewProps {
 	selection: CardSelection;
@@ -152,6 +153,16 @@ export function DoneTaskDetailView({
 	const [isTranscriptLoading, setIsTranscriptLoading] = useState(false);
 	const [transcriptTurns, setTranscriptTurns] = useState<RuntimeAgentTranscriptTurn[]>([]);
 	const [isTranscriptTruncated, setIsTranscriptTruncated] = useState(false);
+	const [expandedInstructionTurns, setExpandedInstructionTurns] = useState<Set<number>>(() => new Set());
+	const handleTranscriptKeyDown = useCallback(
+		(event: KeyboardEvent) => {
+			if (viewingSessionId && event.key === "Escape") {
+				setViewingSessionId(null);
+			}
+		},
+		[viewingSessionId],
+	);
+	useWindowEvent("keydown", viewingSessionId ? handleTranscriptKeyDown : null);
 
 	// Load history
 	useEffect(() => {
@@ -323,7 +334,7 @@ export function DoneTaskDetailView({
 					</Button>
 					<div className="flex items-center gap-2">
 						<span className="text-sm font-medium text-text-primary">Done Task</span>
-						<span className="rounded bg-surface-3 px-1.5 py-0.5 text-xs text-text-secondary">
+						<span className="rounded bg-surface-2 px-1.5 py-0.5 text-xs text-text-secondary">
 							Read-only history
 						</span>
 					</div>
@@ -345,7 +356,7 @@ export function DoneTaskDetailView({
 								<span className="text-xs font-semibold uppercase tracking-wider text-text-tertiary">
 									Prompt
 								</span>
-								<div className="mt-1.5 rounded-md border border-border bg-surface-1 p-3 text-sm text-text-secondary whitespace-pre-wrap break-words font-mono">
+								<div className="mt-1.5 p-3 text-sm text-text-secondary whitespace-pre-wrap break-words">
 									{card.prompt}
 								</div>
 							</div>
@@ -356,7 +367,7 @@ export function DoneTaskDetailView({
 				{/* Right: Top Timeline + Bottom Diff */}
 				<main className="flex flex-1 flex-col min-h-0 min-w-0 overflow-hidden">
 					{/* Right Top: Timeline */}
-					<div className="flex flex-1 flex-col border-b border-border min-h-0 overflow-y-auto p-4">
+					<div className="flex shrink-0 max-h-[40%] flex-col border-b border-border min-h-0 overflow-y-auto p-4">
 						<div className="mb-3 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-text-tertiary">
 							<History size={14} />
 							<span>Timeline</span>
@@ -484,77 +495,118 @@ export function DoneTaskDetailView({
 
 				{/* Transcript Slide-out Panel */}
 				{viewingSessionId && (
-					<aside className="absolute inset-y-0 right-0 z-20 flex w-[500px] flex-col border-l border-border bg-surface-1 shadow-2xl">
-						<div className="flex h-12 shrink-0 items-center justify-between border-b border-border px-4">
-							<div className="flex items-center gap-2">
-								<span className="font-semibold text-sm text-text-primary">Agent Transcript</span>
-								<span className="text-xs text-text-tertiary font-mono truncate max-w-[200px]">
-									{viewingSessionId}
-								</span>
+					<>
+						<button
+							type="button"
+							className="absolute inset-0 z-10 cursor-default bg-black/40"
+							aria-label="Close transcript"
+							onClick={() => setViewingSessionId(null)}
+						/>
+						<aside
+							role="dialog"
+							aria-modal="true"
+							aria-label="Agent Transcript"
+							className="absolute inset-y-0 right-0 z-20 flex w-[500px] flex-col border-l border-border bg-surface-1 shadow-2xl"
+						>
+							<div className="flex h-12 shrink-0 items-center justify-between border-b border-border px-4">
+								<div className="flex items-center gap-2">
+									<span className="font-semibold text-sm text-text-primary">Agent Transcript</span>
+									<span className="text-xs text-text-tertiary font-mono truncate max-w-[200px]">
+										{viewingSessionId}
+									</span>
+								</div>
+								<Button
+									variant="ghost"
+									size="sm"
+									icon={<X size={16} />}
+									onClick={() => setViewingSessionId(null)}
+									aria-label="Close"
+								/>
 							</div>
-							<Button
-								variant="ghost"
-								size="sm"
-								icon={<X size={16} />}
-								onClick={() => setViewingSessionId(null)}
-								aria-label="Close"
-							/>
-						</div>
 
-						<div className="flex flex-1 flex-col min-h-0 overflow-y-auto p-4">
-							{isTranscriptLoading ? (
-								<div className="flex flex-1 items-center justify-center p-8">
-									<Spinner size={20} />
-								</div>
-							) : transcriptResult && "unavailable" in transcriptResult ? (
-								<div className="flex flex-1 items-center justify-center p-8 text-sm text-text-tertiary">
-									Transcript not available ({transcriptResult.unavailable}).
-								</div>
-							) : (
-								<div className="space-y-4">
-									{isTranscriptTruncated && (
-										<div className="flex justify-center pb-2">
-											<Button variant="ghost" size="sm" onClick={handleLoadEarlierTurns}>
-												Load earlier
-											</Button>
-										</div>
-									)}
+							<div className="flex flex-1 flex-col min-h-0 overflow-y-auto p-4">
+								{isTranscriptLoading ? (
+									<div className="flex flex-1 items-center justify-center p-8">
+										<Spinner size={20} />
+									</div>
+								) : transcriptResult && "unavailable" in transcriptResult ? (
+									<div className="flex flex-1 items-center justify-center p-8 text-sm text-text-tertiary">
+										Transcript not available ({transcriptResult.unavailable}).
+									</div>
+								) : (
+									<div className="space-y-4">
+										{isTranscriptTruncated && (
+											<div className="flex justify-center pb-2">
+												<Button variant="ghost" size="sm" onClick={handleLoadEarlierTurns}>
+													Load earlier
+												</Button>
+											</div>
+										)}
 
-									{transcriptTurns.map((turn, index) => {
-										const roleBadgeColor =
-											turn.role === "user"
-												? "border-status-blue/30 bg-status-blue/10 text-status-blue"
-												: turn.role === "assistant"
-													? "border-status-green/30 bg-status-green/10 text-status-green"
-													: "border-status-purple/30 bg-status-purple/10 text-status-purple";
+										{transcriptTurns.map((turn, index) => {
+											const isInjectedInstructions =
+												turn.text.startsWith("# AGENTS.md instructions") ||
+												turn.text.includes("<INSTRUCTIONS>");
+											const isInstructionExpanded = expandedInstructionTurns.has(index);
+											const roleBadgeColor =
+												turn.role === "user"
+													? "border-status-blue/30 bg-status-blue/10 text-status-blue"
+													: turn.role === "assistant"
+														? "border-status-green/30 bg-status-green/10 text-status-green"
+														: "border-status-purple/30 bg-status-purple/10 text-status-purple";
 
-										return (
-											<div
-												key={`turn-${index}-${turn.at ?? index}`}
-												className="rounded-md border border-border bg-surface-2 p-3"
-											>
-												<div className="mb-1.5 flex items-center justify-between">
-													<span
-														className={`rounded px-1.5 py-0.5 text-xs font-medium uppercase tracking-wider border ${roleBadgeColor}`}
-													>
-														{turn.role}
-													</span>
-													{turn.at && (
-														<span className="text-xs text-text-tertiary font-mono">
-															{formatEventTime(turn.at)}
+											return (
+												<div
+													key={`turn-${index}-${turn.at ?? index}`}
+													className="rounded-md border border-border bg-surface-2 p-3"
+												>
+													<div className="mb-1.5 flex items-center justify-between">
+														<span
+															className={`rounded px-1.5 py-0.5 text-xs font-medium uppercase tracking-wider border ${roleBadgeColor}`}
+														>
+															{turn.role}
 														</span>
+														{turn.at && (
+															<span className="text-xs text-text-tertiary font-mono">
+																{formatEventTime(turn.at)}
+															</span>
+														)}
+													</div>
+													{isInjectedInstructions ? (
+														<>
+															<button
+																type="button"
+																className="text-xs text-accent hover:underline cursor-pointer"
+																onClick={() =>
+																	setExpandedInstructionTurns((current) => {
+																		const next = new Set(current);
+																		if (next.has(index)) next.delete(index);
+																		else next.add(index);
+																		return next;
+																	})
+																}
+															>
+																Injected instructions · {isInstructionExpanded ? "Show less" : "Show"}
+															</button>
+															{isInstructionExpanded && (
+																<div className="mt-2 text-xs text-text-primary whitespace-pre-wrap font-mono break-words leading-relaxed">
+																	{turn.text}
+																</div>
+															)}
+														</>
+													) : (
+														<div className="text-xs text-text-primary whitespace-pre-wrap font-mono break-words leading-relaxed">
+															{turn.text}
+														</div>
 													)}
 												</div>
-												<div className="text-xs text-text-primary whitespace-pre-wrap font-mono break-words leading-relaxed">
-													{turn.text}
-												</div>
-											</div>
-										);
-									})}
-								</div>
-							)}
-						</div>
-					</aside>
+											);
+										})}
+									</div>
+								)}
+							</div>
+						</aside>
+					</>
 				)}
 			</div>
 		</div>

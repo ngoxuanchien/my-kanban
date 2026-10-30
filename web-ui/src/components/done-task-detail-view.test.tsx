@@ -101,6 +101,14 @@ describe("DoneTaskDetailView", () => {
 
 		expect(container.textContent).toContain("Ship Done Card History");
 		expect(container.textContent).toContain("Implement read-only history view for Done cards");
+		const historyBadge = Array.from(container.querySelectorAll("span")).find(
+			(span) => span.textContent === "Read-only history",
+		);
+		expect(historyBadge?.className).toContain("bg-surface-2");
+		const promptLabel = Array.from(container.querySelectorAll("span")).find((span) => span.textContent === "Prompt");
+		const prompt = promptLabel?.parentElement?.querySelector("div.mt-1\\.5");
+		expect(prompt?.className).not.toContain("border");
+		expect(prompt?.className).not.toContain("font-mono");
 
 		const backButton = Array.from(container.querySelectorAll("button")).find((btn) =>
 			btn.textContent?.includes("Back"),
@@ -250,7 +258,8 @@ describe("DoneTaskDetailView", () => {
 		mockGetAgentTranscriptQuery.mockResolvedValue({
 			turns: [
 				{ role: "user", text: "Please fix bug", at: 1001 },
-				{ role: "assistant", text: "Fixed the bug", at: 1002 },
+				{ role: "user", text: "# AGENTS.md instructions\nSecret injected instructions", at: 1002 },
+				{ role: "assistant", text: "Fixed the bug", at: 1003 },
 			],
 			truncated: true,
 		});
@@ -276,12 +285,38 @@ describe("DoneTaskDetailView", () => {
 		expect(container.textContent).toContain("Please fix bug");
 		expect(container.textContent).toContain("Fixed the bug");
 		expect(container.textContent).toContain("Load earlier");
+		const transcriptDialog = container.querySelector(
+			'[role="dialog"][aria-modal="true"][aria-label="Agent Transcript"]',
+		);
+		expect(transcriptDialog).not.toBeNull();
+		expect(container.textContent).toContain("Injected instructions · Show");
+		expect(container.textContent).not.toContain("Secret injected instructions");
 
-		// Close transcript panel
-		const closeButton = container.querySelector('button[aria-label="Close"]') as HTMLButtonElement | null;
+		const showInstructionsButton = Array.from(transcriptDialog!.querySelectorAll("button")).find((btn) =>
+			btn.textContent?.includes("Injected instructions"),
+		);
 		await act(async () => {
-			closeButton?.click();
+			showInstructionsButton?.click();
 		});
+		expect(container.textContent).toContain("Secret injected instructions");
+
+		await act(async () => {
+			window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+		});
+		expect(container.querySelector('[role="dialog"]')).toBeNull();
+
+		const reopenSessionButton = Array.from(container.querySelectorAll("button")).find((btn) =>
+			btn.textContent?.includes("View agent session"),
+		);
+		await act(async () => {
+			reopenSessionButton?.click();
+		});
+		const backdrop = container.querySelector('button[aria-label="Close transcript"]');
+		expect(backdrop).not.toBeNull();
+		await act(async () => {
+			(backdrop as HTMLButtonElement).click();
+		});
+		expect(container.querySelector('[role="dialog"]')).toBeNull();
 
 		// Test unavailable message on next open
 		mockGetAgentTranscriptQuery.mockResolvedValue({ unavailable: "path not allowed" });
