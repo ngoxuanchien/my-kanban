@@ -5,7 +5,7 @@ Status: approved (user, 2026-10-30)
 Source: scan of open issues on https://github.com/cline/kanban/issues (fork is at 0.1.70, same as the reports).
 
 ## 1. Problem
-Four open upstream bugs exist unchanged in this fork and hit the sidebar-review workflow directly. **[assistant's scan, user approved fixing all four]**
+Five open upstream bugs (four fixed here) exist unchanged in this fork and hit the sidebar-review workflow directly. **[assistant's scan, user approved fixing all four]**
 
 | Issue | Defect in this fork |
 |---|---|
@@ -21,7 +21,7 @@ Four open upstream bugs exist unchanged in this fork and hit the sidebar-review 
 - G3 (#674b). Move to Done is saved on the server before any side effect. New tRPC mutation `workspace.moveTaskToDone({ taskId })` does only the board move under the workspace lock (`mutateWorkspaceState` + `trashTaskAndGetReadyLinkedTaskIds` from `src/core/task-board-mutations.ts`), broadcasts the state update, and returns `{ ok, moved, readyTaskIds, state }` (`state` is the saved `RuntimeWorkspaceStateResponse`). `performMoveTaskToTrash` calls it first and applies the returned state; only when `ok` is true does it start ready linked tasks (using the server's `readyTaskIds`), stop the session(s), and clean up the worktree. If the call fails, it shows an error toast and does nothing else. **[assistant's call; mirrors the CLI path in `src/workspace/complete-task-to-done.ts`]**
 - G4 (#623). The CLI drains stdout and stderr before `process.exit` in `run()` (`src/cli.ts:748`) and in the startup error path (`src/cli.ts:757`). Piping a >64 KiB `task list` gives complete, valid JSON every time. **[assistant's call]**
 - G5 (#128). `createLockOptions` always sets `onCompromised`: it calls the caller's handler when given, otherwise logs a warning and does not throw. **[upstream suggestion in #535]**
-- G6 (#619). Ignored paths named `.env` or starting with `.env.` (any segment) are never symlinked into task worktrees; `.env.example` stays allowed. Everything else (`node_modules`, `CLAUDE.local.md`, `contexte/`, `.mcp.json` …) is still symlinked, because this fork relies on that (see `.gitignore` "Local-only harness files"). **[assistant's call: denylist, not the allowlist upstream suggests]**
+- G6 (#619). **Dropped (user, 2026-10-30):** the user's projects need `.env` inside task worktrees for tests and dev servers, and agents can read the main checkout's `.env` anyway, so `.env` keeps being symlinked.
 
 ## 3. Non-goals
 - #129 polling intervals, #581 scrollback size, #648 large prompts, #574 OSC 52 clipboard, #644 Claude permission mode (tracked in `contexte/upstream-issues.md`, not fixed here).
@@ -38,4 +38,3 @@ Four open upstream bugs exist unchanged in this fork and hit the sidebar-review 
 - G2/G3: web-ui hook tests for the conflict path (stale board not re-sent; server board hydrated) and for Move to Done (no stop/cleanup when the mutation fails; stop/cleanup after it succeeds). Runtime test for `moveTaskToDone`.
 - G4: test that spawns the CLI entry (or a helper) writing >64 KiB to a pipe and gets all bytes.
 - G5: `test/runtime/locked-file-system.test.ts` — default options contain a non-throwing `onCompromised`; a caller handler is still called.
-- G6: `test/runtime/task-worktree.test.ts` — `.env`, `.env.local`, `web-ui/.env` are not symlinked; `.env.example`, `node_modules`, `CLAUDE.local.md` still are.

@@ -2,7 +2,7 @@
 
 Spec: `docs/superpowers/specs/2026-10-30-upstream-issue-fixes-design.md`
 
-Four independent Kanban tasks; no shared files, so they run in parallel.
+Three independent Kanban tasks; no shared files, so they run in parallel.
 
 ## Task 1: stalled terminal viewer cannot freeze the PTY (#665, G1)
 Files: `src/terminal/ws-server.ts`, `test/runtime/terminal/ws-server.test.ts`, `web-ui/src/terminal/persistent-terminal-manager.ts`, its test file.
@@ -24,8 +24,4 @@ Files: `src/cli.ts`, `src/fs/locked-file-system.ts`, `test/runtime/locked-file-s
 2. Failing test: default lock options have a non-throwing `onCompromised`; caller handler still used. Fix `createLockOptions`.
 3. Verify: typecheck, lint, test:fast.
 
-## Task 4: never symlink `.env` files into worktrees (#619, G6)
-Files: `src/workspace/task-worktree.ts`, `test/runtime/task-worktree.test.ts` (or `task-worktree-mirroring.test.ts`).
-1. Failing test: `.env`, `.env.local`, `web-ui/.env` not symlinked; `.env.example`, `node_modules`, `CLAUDE.local.md` still symlinked.
-2. Extend `shouldSkipSymlink`.
-3. Verify: typecheck, lint, test:fast.
+Task 4 (#619, `.env` symlinks) was dropped; see spec G6.
