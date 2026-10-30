@@ -55,6 +55,8 @@ Update this file whenever a file or folder is created or moved.
 | `docs/superpowers/plans/2026-10-30-upstream-issue-fixes.md` | Plan for the upstream issue fixes spec, split into 3 parallel Kanban tasks. |
 | `docs/superpowers/specs/2026-10-30-done-history-layout-design.md` | Spec: Done history drops its duplicate Back bar; left column, timeline/diff split and transcript drawer become resizable. |
 | `docs/superpowers/plans/2026-10-30-done-history-layout.md` | Plan for the Done history layout spec (1 Kanban task). |
+| `docs/superpowers/specs/2026-10-30-localhost-origin-design.md` | Spec: CORS/websocket Origin gate accepts both `localhost` and `127.0.0.1` in local mode (blank page on `localhost:3484`). |
+| `docs/superpowers/plans/2026-10-30-localhost-origin.md` | Plan for the localhost origin spec (1 Kanban task). |
 | `docs/agents/task-prompt-template.md` | Prompt template the planner fills in for every Kanban task. |
 | `.plan/` | Older internal plans, handoffs, investigations (`.plan/docs/`). |
 
