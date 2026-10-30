@@ -13,7 +13,13 @@ export interface InlineSuffixClampResult {
 export const DEFAULT_TASK_PROMPT_LABEL_MAX_CHARS = 100;
 
 export function normalizePromptForDisplay(prompt: string): string {
-	return prompt.replaceAll(/\s+/g, " ").trim();
+	return prompt
+		.replace(/^ {0,3}#{1,6}\s+/gmu, "")
+		.replace(/\*\*([\s\S]+?)\*\*/gu, "$1")
+		.replace(/(?<![\w])__([\s\S]+?)__(?![\w])/gu, "$1")
+		.replace(/`([^`\n]+)`/gu, "$1")
+		.replaceAll(/\s+/g, " ")
+		.trim();
 }
 
 function stripOuterXmlTag(text: string): string {

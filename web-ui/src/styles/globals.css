@@ -16,8 +16,8 @@
 
 	/* Text */
 	--color-text-primary: #E6EDF3;
-	--color-text-secondary: #8B949E;
-	--color-text-tertiary: #6E7681;
+	--color-text-secondary: #A8B3BD;
+	--color-text-tertiary: #939EA9;
 
 	/* Accent / brand */
 	--color-accent: #0084FF;
@@ -490,7 +490,8 @@ body.kb-dependency-link-mode {
 
 .kb-project-row-selected,
 .kb-project-row-selected:hover {
-	background: var(--color-accent);
+	/* Darkened accent so the selected row label and path reach WCAG AA (>= 4.5:1). */
+	background: color-mix(in srgb, var(--color-accent) 75%, #000000);
 	color: var(--color-accent-fg);
 }
 
@@ -541,7 +542,7 @@ body.kb-dependency-link-mode {
 	display: grid;
 	grid-template-columns: 2rem minmax(0, 1fr);
 	gap: 8px;
-	padding: 1px 2px 1px 0;
+	padding: 1px 8px;
 	line-height: 1.6;
 	font-size: 12px;
 	cursor: pointer;

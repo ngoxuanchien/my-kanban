@@ -66,14 +66,9 @@ vi.mock("@/utils/task-prompt", async () => {
 	return {
 		...actual,
 		truncateTaskPromptLabel: (prompt: string) => prompt.split("||")[0]?.trim() ?? "",
-		normalizePromptForDisplay: (value: string) => value.split("||")[0]?.trim() ?? value.trim(),
-		getTaskPromptDescription: (prompt: string, title: string) => {
-			const normalized = prompt.trim();
-			if (!normalized.startsWith(title)) {
-				return normalized;
-			}
-			return normalized.slice(title.length).replace(/^\|\|/, "").trim();
-		},
+		normalizePromptForDisplay: actual.normalizePromptForDisplay,
+		getTaskPromptDescription: (prompt: string, title: string) =>
+			actual.getTaskPromptDescription(prompt.replace("||", " "), title),
 	};
 });
 
@@ -362,6 +357,23 @@ describe("BoardCard", () => {
 		});
 
 		expect(container.textContent).toContain("~/.cline/worktrees/trash-task-1/kanban");
+	});
+
+	it("renders Done card titles without line-through and with secondary text", async () => {
+		await act(async () => {
+			root.render(
+				<TooltipProvider>
+					<BoardCard card={createCard()} index={0} columnId="trash" />
+				</TooltipProvider>,
+			);
+		});
+
+		const title = Array.from(container.querySelectorAll("p")).find(
+			(element) => element.textContent === "Review API changes",
+		);
+		expect(title).toBeDefined();
+		expect(title?.classList.contains("text-text-secondary")).toBe(true);
+		expect(title?.classList.contains("line-through")).toBe(false);
 	});
 
 	it("shows formatted agent override details with model name and reasoning effort", async () => {
@@ -792,6 +804,44 @@ describe("BoardCard", () => {
 
 		expect(container.textContent).toContain("Reviewing the final diff");
 		expect(container.textContent).not.toContain("Thinking...");
+	});
+
+	it("renders markdown headings in the card title without markers", async () => {
+		await act(async () => {
+			root.render(
+				<BoardCard card={createCard({ title: "## Goal", prompt: "## Goal" })} index={0} columnId="backlog" />,
+			);
+		});
+
+		const title = container.querySelector("p.kb-line-clamp-1");
+		expect(title?.textContent).toBe("Goal");
+		expect(container.textContent).not.toContain("##");
+	});
+
+	it("normalizes markdown in the agent activity line", async () => {
+		await act(async () => {
+			root.render(
+				<BoardCard
+					card={createCard()}
+					index={0}
+					columnId="in_progress"
+					sessionSummary={createSummary("awaiting_review", {
+						latestHookActivity: {
+							activityText: null,
+							toolName: null,
+							toolInputSummary: null,
+							finalMessage: "**Implemented** the `change`",
+							hookEventName: "assistant_delta",
+							notificationType: null,
+							source: "cline-sdk",
+						},
+					})}
+				/>,
+			);
+		});
+
+		expect(container.textContent).toContain("Implemented the change");
+		expect(container.textContent).not.toContain("**");
 	});
 
 	it("shows normal agent messages without the agent prefix", async () => {

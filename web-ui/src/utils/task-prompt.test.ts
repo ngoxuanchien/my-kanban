@@ -18,6 +18,26 @@ describe("normalizePromptForDisplay", () => {
 	it("collapses whitespace and trims", () => {
 		expect(normalizePromptForDisplay("  hello\n\tworld  ")).toBe("hello world");
 	});
+
+	it("strips leading markdown heading markers", () => {
+		expect(normalizePromptForDisplay("## Goal\nFix the flaky test")).toBe("Goal Fix the flaky test");
+		expect(normalizePromptForDisplay("# Title")).toBe("Title");
+	});
+
+	it("strips bold emphasis markers", () => {
+		expect(normalizePromptForDisplay("**Implemented** the change")).toBe("Implemented the change");
+		expect(normalizePromptForDisplay("__Done__ now")).toBe("Done now");
+	});
+
+	it("strips inline code backticks", () => {
+		expect(normalizePromptForDisplay("Run `npm test` before committing")).toBe("Run npm test before committing");
+	});
+
+	it("keeps underscores that are part of words", () => {
+		expect(normalizePromptForDisplay("check snake_case_name and foo__bar__baz")).toBe(
+			"check snake_case_name and foo__bar__baz",
+		);
+	});
 });
 
 describe("getTaskPromptDescription", () => {

@@ -547,7 +547,9 @@ export function TopBar({
 														? `−${Math.abs(agent.score)}`
 														: "0"}
 											</span>{" "}
-											<span className="text-text-secondary">({agent.tasks} task)</span>
+											<span className="text-text-secondary">
+												({agent.tasks} {agent.tasks === 1 ? "task" : "tasks"})
+											</span>
 										</span>
 									</Tooltip>
 								</span>

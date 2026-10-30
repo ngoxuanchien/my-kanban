@@ -490,7 +490,7 @@ export const ClineAgentChatPanel = React.forwardRef<ClineAgentChatPanelHandle, C
 								{cancelAutomaticActionLabel}
 							</Button>
 						) : null}
-						<Button variant="danger" fill disabled={isMoveToTrashLoading} onClick={onMoveToTrash}>
+						<Button variant="default" fill disabled={isMoveToTrashLoading} onClick={onMoveToTrash}>
 							{isMoveToTrashLoading ? <Spinner size={14} /> : "Move Card To Done"}
 						</Button>
 					</div>

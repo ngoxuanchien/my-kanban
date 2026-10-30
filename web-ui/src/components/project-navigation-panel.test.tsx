@@ -211,6 +211,17 @@ describe("ProjectNavigationPanel width persistence", () => {
 		expect(container.textContent).not.toContain("Report issue");
 	});
 
+	it("renders the project path at text-xs on selected rows", () => {
+		renderPanel();
+		const row = container.querySelector(".kb-project-row");
+		const pathElement = row?.querySelector(".font-mono");
+		expect(pathElement).toBeInstanceOf(HTMLDivElement);
+		expect(pathElement?.classList.contains("text-xs")).toBe(true);
+		expect(pathElement?.classList.contains("text-[10px]")).toBe(false);
+		expect(row?.classList.contains("kb-project-row-selected")).toBe(true);
+		expect(pathElement?.classList.contains("text-accent-fg/85")).toBe(true);
+	});
+
 	it("persists terminal tips dismissal", () => {
 		renderPanel({
 			activeSection: "agent",

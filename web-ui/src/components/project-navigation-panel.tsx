@@ -766,8 +766,8 @@ function ProjectRow({
 				</div>
 				<div
 					className={cn(
-						"font-mono text-[10px] whitespace-nowrap overflow-hidden text-ellipsis",
-						isCurrent ? "text-accent-fg/60" : "text-text-secondary",
+						"font-mono text-xs whitespace-nowrap overflow-hidden text-ellipsis",
+						isCurrent ? "text-accent-fg/85" : "text-text-secondary",
 					)}
 				>
 					{displayPath}

@@ -594,7 +594,7 @@ export function BoardCard({
 											<p
 												className={cn(
 													"kb-line-clamp-1 m-0 min-w-0 font-medium text-sm",
-													isTrashCard && "line-through text-text-tertiary",
+													isTrashCard && "text-text-secondary",
 												)}
 											>
 												{displayTitle}
@@ -620,7 +620,7 @@ export function BoardCard({
 										<p
 											className={cn(
 												"kb-line-clamp-1 m-0 font-medium text-sm",
-												isTrashCard && "line-through text-text-tertiary",
+												isTrashCard && "text-text-secondary",
 											)}
 										>
 											{displayTitle}
@@ -770,7 +770,7 @@ export function BoardCard({
 									/>
 									<div className="min-w-0 flex-1">
 										<p className="m-0 font-mono truncate" style={{ fontSize: 12 }}>
-											{sessionActivity.text}
+											{normalizePromptForDisplay(sessionActivity.text)}
 										</p>
 									</div>
 								</div>

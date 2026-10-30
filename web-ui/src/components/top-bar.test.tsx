@@ -141,7 +141,7 @@ describe("TopBar script shortcut onboarding", () => {
 						agentScores={[
 							{ agentId: "codex", score: 4, passes: 6, fails: 2, tasks: 6 },
 							{ agentId: "antigravity", score: 0, passes: 0, fails: 0, tasks: 1 },
-							{ agentId: "opencode", score: -3, passes: 1, fails: 4, tasks: 4 },
+							{ agentId: "opencode", score: -3, passes: 1, fails: 4, tasks: 11 },
 						]}
 						openTargetOptions={[]}
 						selectedOpenTargetId="vscode"
@@ -155,7 +155,7 @@ describe("TopBar script shortcut onboarding", () => {
 		});
 
 		const strip = container.querySelector('[data-testid="agent-score-strip"]');
-		expect(strip?.textContent).toBe("codex +4 (6 task) · antigravity 0 (1 task) · opencode −3 (4 task)");
+		expect(strip?.textContent).toBe("codex +4 (6 tasks) · antigravity 0 (1 task) · opencode −3 (11 tasks)");
 		expect(strip?.querySelector(".text-status-green")?.textContent).toBe("+4");
 		expect(
 			Array.from(strip?.querySelectorAll(".text-text-secondary") ?? []).some(
