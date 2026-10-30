@@ -387,7 +387,7 @@ class PersistentTerminal {
 			this.lastError = "Terminal stream failed.";
 			this.notifyLastError();
 		};
-		ioSocket.onclose = () => {
+		ioSocket.onclose = (event) => {
 			if (this.disposed || this.ioSocket !== ioSocket) {
 				return;
 			}
@@ -395,6 +395,10 @@ class PersistentTerminal {
 			this.outputTextDecoder = new TextDecoder();
 			this.connectionReady = false;
 			this.restoreCompleted = false;
+			if (event.code === 4000) {
+				this.ensureConnected();
+				return;
+			}
 			this.lastError = "Terminal stream closed. Close and reopen to reconnect.";
 			this.notifyLastError();
 		};
@@ -466,11 +470,15 @@ class PersistentTerminal {
 			this.lastError = "Terminal control connection failed.";
 			this.notifyLastError();
 		};
-		controlSocket.onclose = () => {
+		controlSocket.onclose = (event) => {
 			if (this.disposed || this.controlSocket !== controlSocket) {
 				return;
 			}
 			this.controlSocket = null;
+			if (event.code === 4000) {
+				this.ensureConnected();
+				return;
+			}
 			this.lastError = "Terminal control connection closed. Close and reopen to reconnect.";
 			this.notifyLastError();
 		};

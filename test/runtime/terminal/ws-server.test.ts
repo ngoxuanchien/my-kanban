@@ -481,4 +481,89 @@ describe("createTerminalWebSocketBridge", () => {
 		await closeSocket(ioSocketB.socket);
 		await closeSocket(controlSocketB.socket);
 	});
+
+	it("closes a stalled viewer and resumes the PTY while other viewers keep receiving output", async () => {
+		const ioSocketA = await openQueuedWebSocket(
+			`${runtimeUrl}/api/terminal/io?taskId=${TASK_ID}&workspaceId=${WORKSPACE_ID}&clientId=client-a`,
+		);
+		const controlSocketA = await openQueuedWebSocket(
+			`${runtimeUrl}/api/terminal/control?taskId=${TASK_ID}&workspaceId=${WORKSPACE_ID}&clientId=client-a`,
+		);
+		const ioSocketB = await openQueuedWebSocket(
+			`${runtimeUrl}/api/terminal/io?taskId=${TASK_ID}&workspaceId=${WORKSPACE_ID}&clientId=client-b`,
+		);
+		const controlSocketB = await openQueuedWebSocket(
+			`${runtimeUrl}/api/terminal/control?taskId=${TASK_ID}&workspaceId=${WORKSPACE_ID}&clientId=client-b`,
+		);
+		await waitForControlMessage(controlSocketA, (message) => message.type === "restore");
+		await waitForControlMessage(controlSocketB, (message) => message.type === "restore");
+		controlSocketA.socket.send(JSON.stringify({ type: "restore_complete" }));
+		controlSocketB.socket.send(JSON.stringify({ type: "restore_complete" }));
+		terminalManager.emitOutput(TASK_ID, "ready");
+		await waitForIoMessage(ioSocketA);
+		await waitForIoMessage(ioSocketB);
+
+		vi.useFakeTimers();
+		try {
+			const output = "x".repeat(120_000);
+			terminalManager.emitOutput(TASK_ID, output);
+			await vi.advanceTimersByTimeAsync(4);
+			const outputA = await waitForIoMessage(ioSocketA);
+			const outputB = await waitForIoMessage(ioSocketB);
+			expect(outputA.byteLength).toBe(120_000);
+			expect(outputB.byteLength).toBe(120_000);
+			expect(terminalManager.pauseOutput).toHaveBeenCalledTimes(1);
+			controlSocketB.socket.send(JSON.stringify({ type: "output_ack", bytes: outputB.byteLength }));
+
+			const ioClose = once(ioSocketA.socket, "close");
+			const controlClose = once(controlSocketA.socket, "close");
+			await vi.advanceTimersByTimeAsync(5_000);
+			vi.useRealTimers();
+			const [ioCode, ioReason] = await ioClose;
+			const [controlCode, controlReason] = await controlClose;
+			expect(ioCode).toBe(4000);
+			expect(ioReason.toString()).toBe("Terminal viewer stalled.");
+			expect(controlCode).toBe(4000);
+			expect(controlReason.toString()).toBe("Terminal viewer stalled.");
+			expect(terminalManager.resumeOutput).toHaveBeenCalledTimes(1);
+
+			terminalManager.emitOutput(TASK_ID, "still connected");
+			const nextOutput = await waitForIoMessage(ioSocketB);
+			expect(nextOutput).toEqual(Buffer.from("still connected"));
+			controlSocketB.socket.send(JSON.stringify({ type: "output_ack", bytes: nextOutput.byteLength }));
+		} finally {
+			vi.useRealTimers();
+		}
+		await closeSocket(ioSocketB.socket);
+		await closeSocket(controlSocketB.socket);
+	});
+
+	it("does not close a paused viewer that acknowledges before the stall timeout", async () => {
+		const ioSocket = await openQueuedWebSocket(
+			`${runtimeUrl}/api/terminal/io?taskId=${TASK_ID}&workspaceId=${WORKSPACE_ID}&clientId=client-a`,
+		);
+		const controlSocket = await openQueuedWebSocket(
+			`${runtimeUrl}/api/terminal/control?taskId=${TASK_ID}&workspaceId=${WORKSPACE_ID}&clientId=client-a`,
+		);
+		await waitForControlMessage(controlSocket, (message) => message.type === "restore");
+		controlSocket.socket.send(JSON.stringify({ type: "restore_complete" }));
+		terminalManager.emitOutput(TASK_ID, "ready");
+		await waitForIoMessage(ioSocket);
+
+		vi.useFakeTimers();
+		try {
+			terminalManager.emitOutput(TASK_ID, "x".repeat(120_000));
+			await vi.advanceTimersByTimeAsync(4);
+			const output = await waitForIoMessage(ioSocket);
+			controlSocket.socket.send(JSON.stringify({ type: "output_ack", bytes: output.byteLength }));
+			await vi.advanceTimersByTimeAsync(5_000);
+			expect(terminalManager.resumeOutput).toHaveBeenCalledTimes(1);
+			expect(ioSocket.socket.readyState).toBe(WebSocket.OPEN);
+			expect(controlSocket.socket.readyState).toBe(WebSocket.OPEN);
+		} finally {
+			vi.useRealTimers();
+		}
+		await closeSocket(ioSocket.socket);
+		await closeSocket(controlSocket.socket);
+	});
 });
