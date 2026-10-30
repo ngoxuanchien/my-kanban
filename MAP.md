@@ -57,6 +57,8 @@ Update this file whenever a file or folder is created or moved.
 | `docs/superpowers/plans/2026-10-30-done-history-layout.md` | Plan for the Done history layout spec (1 Kanban task). |
 | `docs/superpowers/specs/2026-10-30-localhost-origin-design.md` | Spec: CORS/websocket Origin gate accepts both `localhost` and `127.0.0.1` in local mode (blank page on `localhost:3484`). |
 | `docs/superpowers/plans/2026-10-30-localhost-origin.md` | Plan for the localhost origin spec (1 Kanban task). |
+| `docs/superpowers/specs/2026-10-30-opencode-log-quota-design.md` | Spec: detect OpenCode usage limit from its log file; hand off at once (no `continue`) on a clear quota phrase. |
+| `docs/superpowers/plans/2026-10-30-opencode-log-quota.md` | Plan for the OpenCode log quota spec (1 Kanban task). |
 | `docs/agents/task-prompt-template.md` | Prompt template the planner fills in for every Kanban task. |
 | `.plan/` | Older internal plans, handoffs, investigations (`.plan/docs/`). |
 
