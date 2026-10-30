@@ -186,13 +186,17 @@ function formatShellSpawnFailure(binary: string, error: unknown): string {
 function buildTerminalEnvironment(
 	...sources: Array<Record<string, string | undefined> | undefined>
 ): Record<string, string | undefined> {
-	return {
+	const env = {
 		...process.env,
 		...Object.assign({}, ...sources),
 		COLORTERM: "truecolor",
 		TERM: "xterm-256color",
 		TERM_PROGRAM: "kanban",
 	};
+	if (!env.LC_ALL && !env.LC_CTYPE && !env.LANG) {
+		env.LANG = "en_US.UTF-8";
+	}
+	return env;
 }
 
 function hasCodexInteractivePrompt(text: string): boolean {

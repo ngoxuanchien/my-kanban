@@ -24,6 +24,71 @@ function createSummary(overrides: Partial<RuntimeTaskSessionSummary> = {}): Runt
 }
 
 describe("TerminalSessionManager", () => {
+	it("defaults the PTY locale to UTF-8 only when no locale is configured", async () => {
+		vi.stubEnv("LANG", undefined);
+		vi.stubEnv("LC_ALL", undefined);
+		vi.stubEnv("LC_CTYPE", undefined);
+		const spawn = vi.spyOn(PtySession, "spawn").mockImplementation(
+			() =>
+				({
+					pid: 1234,
+					stop: vi.fn(),
+					write: vi.fn(),
+					wasInterrupted: () => false,
+				}) as unknown as PtySession,
+		);
+		try {
+			await new TerminalSessionManager().startShellSession({ taskId: "locale", cwd: "/tmp", binary: "sh" });
+			expect(spawn.mock.calls[0]?.[0].env).toMatchObject({ LANG: "en_US.UTF-8" });
+		} finally {
+			spawn.mockRestore();
+			vi.unstubAllEnvs();
+		}
+	});
+
+	it("keeps a locale supplied by the process or session request", async () => {
+		vi.stubEnv("LANG", "fr_FR.UTF-8");
+		vi.stubEnv("LC_ALL", undefined);
+		vi.stubEnv("LC_CTYPE", undefined);
+		const spawn = vi.spyOn(PtySession, "spawn").mockImplementation(
+			() =>
+				({
+					pid: 1234,
+					stop: vi.fn(),
+					write: vi.fn(),
+					wasInterrupted: () => false,
+				}) as unknown as PtySession,
+		);
+		try {
+			await new TerminalSessionManager().startShellSession({ taskId: "locale", cwd: "/tmp", binary: "sh" });
+			expect(spawn.mock.calls[0]?.[0].env).toMatchObject({ LANG: "fr_FR.UTF-8" });
+			await new TerminalSessionManager().startShellSession({
+				taskId: "request-locale",
+				cwd: "/tmp",
+				binary: "sh",
+				env: { LANG: "de_DE.UTF-8" },
+			});
+			expect(spawn.mock.calls[1]?.[0].env).toMatchObject({ LANG: "de_DE.UTF-8" });
+			vi.stubEnv("LANG", undefined);
+			vi.stubEnv("LC_ALL", "fr_FR.UTF-8");
+			await new TerminalSessionManager().startShellSession({ taskId: "lc-all", cwd: "/tmp", binary: "sh" });
+			expect(spawn.mock.calls[2]?.[0].env).toMatchObject({ LC_ALL: "fr_FR.UTF-8" });
+			expect(spawn.mock.calls[2]?.[0].env?.LANG).toBeUndefined();
+			vi.stubEnv("LC_ALL", undefined);
+			await new TerminalSessionManager().startShellSession({
+				taskId: "lc-ctype",
+				cwd: "/tmp",
+				binary: "sh",
+				env: { LC_CTYPE: "fr_FR.UTF-8" },
+			});
+			expect(spawn.mock.calls[3]?.[0].env).toMatchObject({ LC_CTYPE: "fr_FR.UTF-8" });
+			expect(spawn.mock.calls[3]?.[0].env?.LANG).toBeUndefined();
+		} finally {
+			spawn.mockRestore();
+			vi.unstubAllEnvs();
+		}
+	});
+
 	it("replaces a stopped awaiting-review session and ignores its late exit", async () => {
 		const spawnRequests: SpawnPtySessionRequest[] = [];
 		const stop = vi.fn();
