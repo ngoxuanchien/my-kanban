@@ -59,6 +59,8 @@ Update this file whenever a file or folder is created or moved.
 | `docs/superpowers/plans/2026-10-30-localhost-origin.md` | Plan for the localhost origin spec (1 Kanban task). |
 | `docs/superpowers/specs/2026-10-30-opencode-log-quota-design.md` | Spec: detect OpenCode usage limit from its log file; hand off at once (no `continue`) on a clear quota phrase. |
 | `docs/superpowers/plans/2026-10-30-opencode-log-quota.md` | Plan for the OpenCode log quota spec (1 Kanban task). |
+| `docs/superpowers/specs/2026-10-30-handoff-reason-self-trigger-design.md` | Spec: usage-limit handoff reason must not quote the quota phrase (it re-triggered screen detection on the next agent). |
+| `docs/superpowers/plans/2026-10-30-handoff-reason-self-trigger.md` | Plan for the handoff reason spec (1 Kanban task). |
 | `docs/agents/task-prompt-template.md` | Prompt template the planner fills in for every Kanban task. |
 | `.plan/` | Older internal plans, handoffs, investigations (`.plan/docs/`). |
 
