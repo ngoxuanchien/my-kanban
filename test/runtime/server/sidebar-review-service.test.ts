@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ClineTaskSessionService } from "../../../src/cline-sdk/cline-task-session-service";
 import type { RuntimeConfigState } from "../../../src/config/runtime-config";
 import type { RuntimeBoardCard, RuntimeTaskSessionSummary } from "../../../src/core/api-contract";
+import type { AntigravityLog } from "../../../src/server/antigravity-log-usage-limit";
 import { detectUsageLimit } from "../../../src/server/usage-limit-detector";
 import type { SendPromptToSessionResult } from "../../../src/terminal/send-prompt-to-session";
 import type { TerminalSessionManager } from "../../../src/terminal/session-manager";
@@ -100,7 +101,7 @@ vi.mock("../../../src/workspace/git-utils", () => ({ runGit }));
 import { createSidebarReviewService } from "../../../src/server/sidebar-review-service";
 
 async function startUsageLimitTurn(options: {
-	agentId: "claude" | "codex" | "opencode";
+	agentId: "claude" | "codex" | "opencode" | "antigravity";
 	handedOff?: boolean;
 	handOffCount?: number;
 	getRestoreSnapshot?: () => Promise<{ snapshot: string; cols: number; rows: number } | null>;
@@ -113,6 +114,7 @@ async function startUsageLimitTurn(options: {
 	setInterval?: typeof setInterval;
 	clearInterval?: typeof clearInterval;
 	readOpenCodeLog?: () => Promise<string | null>;
+	readAntigravityLogs?: () => Promise<AntigravityLog[]>;
 	session?: RuntimeTaskSessionSummary;
 }) {
 	const card = workspaceState.board.columns[0].cards[0];
@@ -152,6 +154,7 @@ async function startUsageLimitTurn(options: {
 		handOffTask,
 		retryQuotaBlockedTask,
 		readOpenCodeLog: options.readOpenCodeLog ?? (async () => null),
+		readAntigravityLogs: options.readAntigravityLogs ?? (async () => []),
 		now: options.now,
 		setInterval: (callback: Parameters<typeof setInterval>[0], delay: Parameters<typeof setInterval>[1]) => {
 			intervalCallback = callback as () => void;
@@ -1038,12 +1041,50 @@ describe("createSidebarReviewService", () => {
 		const { service, runInterval } = await startUsageLimitTurn({
 			agentId: "codex",
 			now: () => 1_000_000,
-			session: { ...summary("task-1", "running"), lastOutputAt: 999_999 },
+			session: { ...summary("task-1", "running"), lastOutputAt: 969_999 },
 			getRestoreSnapshot: async () => ({ snapshot: "Free usage limit reached", cols: 80, rows: 24 }),
 		});
 		runInterval();
 		await vi.waitFor(() => expect(handOffTask).toHaveBeenCalledTimes(1));
 		expect(sendPromptToSession).not.toHaveBeenCalled();
+		service.dispose();
+	});
+
+	it("ignores a running task screen quota while output is recent", async () => {
+		const readOpenCodeLog = vi.fn(async () => null);
+		const readAntigravityLogs = vi.fn(async () => []);
+		const { service, runInterval } = await startUsageLimitTurn({
+			agentId: "codex",
+			now: () => 1_000_000,
+			session: { ...summary("task-1", "running"), lastOutputAt: 971_000 },
+			getRestoreSnapshot: async () => ({ snapshot: "Free usage limit reached", cols: 80, rows: 24 }),
+			readOpenCodeLog,
+			readAntigravityLogs,
+		});
+		runInterval();
+		await new Promise((resolve) => setTimeout(resolve, 10));
+		expect(handOffTask).not.toHaveBeenCalled();
+		expect(sendPromptToSession).not.toHaveBeenCalled();
+		expect(readOpenCodeLog).not.toHaveBeenCalled();
+		expect(readAntigravityLogs).not.toHaveBeenCalled();
+		service.dispose();
+	});
+
+	it("hands off an Antigravity task when its matching log has a quota error", async () => {
+		const { service, runInterval } = await startUsageLimitTurn({
+			agentId: "antigravity",
+			getRestoreSnapshot: async () => ({ snapshot: "clean terminal", cols: 80, rows: 24 }),
+			readAntigravityLogs: async () => [
+				{
+					fileName: "cli-20261030_153449.log",
+					text: "I1030 15:34:49.929249 server.go:307] Creating CLI server backend: product=antigravity workspaceDirs=[/worktree/task-1 /worktree/task-1]\nE1030 15:34:55.121136 errorreport.go:224] RESOURCE_EXHAUSTED: Individual quota reached.",
+				},
+			],
+		});
+		runInterval();
+		await vi.waitFor(() =>
+			expect(handOffTask).toHaveBeenCalledWith("task-1", "The previous agent hit its usage limit."),
+		);
 		service.dispose();
 	});
 

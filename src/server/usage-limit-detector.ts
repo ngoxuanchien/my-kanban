@@ -3,6 +3,7 @@ export const USAGE_LIMIT_PHRASES: readonly string[] = [
 	"hit your usage limit",
 	"exhausted your quota",
 	"out of quota until",
+	"Individual quota reached",
 ];
 
 export function detectUsageLimit(screenText: string): string | null {
@@ -10,7 +11,7 @@ export function detectUsageLimit(screenText: string): string | null {
 	const recentText = screenText
 		.replace(new RegExp(`${escapeChar}(?:\\[[0-?]*[ -/]*[@-~]|\\][^\\u0007]*(?:\\u0007|${escapeChar}\\\\))`, "g"), "")
 		.split("\n")
-		.slice(-40)
+		.slice(-10)
 		.join(" ")
 		.replace(/\s+/g, " ")
 		.toLowerCase();

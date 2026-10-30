@@ -37,6 +37,14 @@ describe("detectUsageLimit", () => {
 		).toBe(null);
 	});
 
+	it("ignores a phrase more than 10 lines above the bottom", () => {
+		expect(
+			detectUsageLimit(
+				["Free usage limit reached", ...Array.from({ length: 10 }, () => "still running")].join("\n"),
+			),
+		).toBe(null);
+	});
+
 	it("returns null for plain text", () => {
 		expect(detectUsageLimit("Task finished successfully")).toBeNull();
 	});

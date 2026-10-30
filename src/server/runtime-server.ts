@@ -50,6 +50,7 @@ import { createHooksApi } from "../trpc/hooks-api";
 import { createProjectsApi } from "../trpc/projects-api";
 import { type CreateRuntimeApiDependencies, createRuntimeApi } from "../trpc/runtime-api";
 import { createWorkspaceApi } from "../trpc/workspace-api";
+import { readAntigravityLogs } from "./antigravity-log-usage-limit";
 import { getWebUiDir, normalizeRequestPath, readAsset } from "./assets";
 import { handleHttpRequest, handleSocketUpgrade } from "./middleware";
 import { readOpenCodeLogTail } from "./opencode-log-usage-limit";
@@ -207,6 +208,7 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 					},
 					warn: deps.warn,
 					readOpenCodeLog: readOpenCodeLogTail,
+					readAntigravityLogs,
 				});
 				await instance.start();
 				return instance;

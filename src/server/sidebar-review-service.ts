@@ -10,6 +10,10 @@ import { sendPromptToSession } from "../terminal/send-prompt-to-session";
 import type { TerminalSessionManager } from "../terminal/session-manager";
 import { runGit } from "../workspace/git-utils";
 import { getTaskWorkspacePathInfo } from "../workspace/task-worktree";
+import {
+	findAntigravityLogUsageLimit,
+	readAntigravityLogs as readAntigravityLogsDefault,
+} from "./antigravity-log-usage-limit";
 import { findOpenCodeLogUsageLimit, readOpenCodeLogTail } from "./opencode-log-usage-limit";
 import { createSidebarReviewQueue } from "./sidebar-review-queue";
 import { detectUsageLimit } from "./usage-limit-detector";
@@ -31,6 +35,7 @@ export interface CreateSidebarReviewServiceDependencies {
 	broadcastStateUpdated: () => Promise<void> | void;
 	warn: (message: string) => void;
 	readOpenCodeLog?: () => Promise<string | null>;
+	readAntigravityLogs?: typeof readAntigravityLogsDefault;
 	now?: () => number;
 	setInterval?: typeof setInterval;
 	clearInterval?: typeof clearInterval;
@@ -44,6 +49,7 @@ export interface SidebarReviewService {
 
 const reviewQueue = createSidebarReviewQueue;
 const QUOTA_NUDGE_WAIT_MS = 300000;
+const SCREEN_QUOTA_QUIET_MS = 30000;
 
 interface QuotaNudge {
 	sentAt: number;
@@ -75,29 +81,45 @@ export function createSidebarReviewService(deps: CreateSidebarReviewServiceDepen
 	const processingTaskIds = new Set<string>();
 	const now = deps.now ?? Date.now;
 	const readOpenCodeLog = deps.readOpenCodeLog ?? readOpenCodeLogTail;
+	const readAntigravityLogs = deps.readAntigravityLogs ?? readAntigravityLogsDefault;
 	const findUsageLimit = async (
 		summary: RuntimeTaskSessionSummary,
 		card: RuntimeBoardCard,
 		screenText: string,
 	): Promise<string | null> => {
-		const screenPhrase = detectUsageLimit(screenText);
+		const isRunning = summary.state === "running";
+		const idleSince = summary.lastOutputAt ?? summary.startedAt;
+		const screenPhrase =
+			!isRunning || (idleSince !== null && now() - idleSince >= SCREEN_QUOTA_QUIET_MS)
+				? detectUsageLimit(screenText)
+				: null;
 		if (screenPhrase) return screenPhrase;
+		let logSource = "usage";
 		try {
 			const selectedAgentId =
 				card.agentId == null && summary.agentId == null
 					? (await deps.loadRuntimeConfig()).selectedAgentId
 					: undefined;
-			if (resolveEffectiveTaskAgentId(card.agentId, summary.agentId, selectedAgentId) !== "opencode") return null;
-			const logText = await readOpenCodeLog();
-			if (!logText) return null;
+			const agentId = resolveEffectiveTaskAgentId(card.agentId, summary.agentId, selectedAgentId);
+			if (agentId !== "opencode" && agentId !== "antigravity") return null;
+			logSource = agentId === "opencode" ? "OpenCode" : "Antigravity";
 			const { path: worktreePath } = await getTaskWorkspacePathInfo({
 				cwd: deps.workspacePath,
 				taskId: summary.taskId,
 				baseRef: card.baseRef,
 			});
-			return findOpenCodeLogUsageLimit(logText, { worktreePath, sinceMs: summary.startedAt ?? 0 });
+			if (agentId === "opencode") {
+				const logText = await readOpenCodeLog();
+				return logText
+					? findOpenCodeLogUsageLimit(logText, { worktreePath, sinceMs: summary.startedAt ?? 0 })
+					: null;
+			}
+			return findAntigravityLogUsageLimit(await readAntigravityLogs(), {
+				worktreePath,
+				sinceMs: summary.startedAt ?? 0,
+			});
 		} catch (error) {
-			deps.warn(`[sidebar-review] Could not read OpenCode log for ${summary.taskId}: ${errorMessage(error)}`);
+			deps.warn(`[sidebar-review] Could not read ${logSource} log for ${summary.taskId}: ${errorMessage(error)}`);
 			return null;
 		}
 	};
