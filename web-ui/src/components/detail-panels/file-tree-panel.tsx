@@ -24,6 +24,9 @@ function FileTreeRow({
 	const isDirectory = node.type === "directory";
 	const isSelected = !isDirectory && node.path === selectedPath;
 	const fileStats = !isDirectory ? diffStatsByPath[node.path] : undefined;
+	const suffixStart = !isDirectory ? node.name.indexOf(".", 1) : -1;
+	const stem = suffixStart === -1 ? node.name : node.name.slice(0, suffixStart);
+	const suffix = suffixStart === -1 ? "" : node.name.slice(suffixStart);
 	const rowClassName = `kb-file-tree-row${isDirectory ? " kb-file-tree-row-directory" : ""}${isSelected ? " kb-file-tree-row-selected" : ""}`;
 	const addedStatClassName = isSelected ? "text-accent-fg" : "text-status-green";
 	const removedStatClassName = isSelected ? "text-accent-fg" : "text-status-red";
@@ -33,6 +36,7 @@ function FileTreeRow({
 			<button
 				type="button"
 				className={rowClassName}
+				title={node.path}
 				style={{ paddingLeft: depth * 12 + 8 }}
 				onClick={() => {
 					if (!isDirectory) {
@@ -41,9 +45,12 @@ function FileTreeRow({
 				}}
 			>
 				{isDirectory ? <Folder size={14} /> : <FileText size={14} />}
-				<span className="truncate">{node.name}</span>
+				<span className="flex min-w-0">
+					<span className="truncate">{stem}</span>
+					{suffix ? <span className="shrink-0">{suffix}</span> : null}
+				</span>
 				{fileStats ? (
-					<span className="font-mono" style={{ marginLeft: "auto", fontSize: 10, display: "flex", gap: 4 }}>
+					<span className="ml-auto flex shrink-0 gap-1 font-mono text-[11px]">
 						{fileStats.added > 0 ? <span className={addedStatClassName}>+{fileStats.added}</span> : null}
 						{fileStats.removed > 0 ? <span className={removedStatClassName}>-{fileStats.removed}</span> : null}
 					</span>
