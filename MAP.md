@@ -45,6 +45,8 @@ Update this file whenever a file or folder is created or moved.
 | `docs/superpowers/specs/2026-10-29-antigravity-agent-design.md` | Spec: Antigravity (`agy`) as a third task agent; handoff chain over codex/opencode/antigravity, up to 9 review rounds. |
 | `docs/superpowers/plans/2026-10-29-antigravity-agent.md` | Plan for the Antigravity agent spec, split into 2 chained Kanban tasks. |
 | `docs/superpowers/plans/2026-10-28-memory-orchestrator.md` | Plan for the spec above, split into Kanban tasks. |
+| `docs/superpowers/specs/2026-10-30-sidebar-default-task-agent-design.md` | Spec: sidebar always passes `--agent-id` from the handoff cycle (codex/opencode/antigravity) unless the user names an agent. |
+| `docs/superpowers/plans/2026-10-30-sidebar-default-task-agent.md` | Plan for the sidebar default task agent spec (1 Kanban task). |
 | `docs/agents/task-prompt-template.md` | Prompt template the planner fills in for every Kanban task. |
 | `.plan/` | Older internal plans, handoffs, investigations (`.plan/docs/`). |
 
