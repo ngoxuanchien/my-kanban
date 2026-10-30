@@ -3,7 +3,6 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { TopBar } from "@/components/top-bar";
-import { TooltipProvider } from "@/components/ui/tooltip";
 
 function findButtonByText(container: HTMLElement, text: string): HTMLButtonElement | null {
 	return (Array.from(container.querySelectorAll("button")).find((button) => button.textContent?.trim() === text) ??
@@ -133,50 +132,10 @@ describe("TopBar script shortcut onboarding", () => {
 		expect(onOpenSettings).toHaveBeenCalledTimes(1);
 	});
 
-	it("shows agent scores with signed colors and pass/fail tooltip", async () => {
-		await act(async () => {
-			root.render(
-				<TooltipProvider>
-					<TopBar
-						agentScores={[
-							{ agentId: "codex", score: 4, passes: 6, fails: 2, tasks: 6 },
-							{ agentId: "antigravity", score: 0, passes: 0, fails: 0, tasks: 1 },
-							{ agentId: "opencode", score: -3, passes: 1, fails: 4, tasks: 11 },
-						]}
-						openTargetOptions={[]}
-						selectedOpenTargetId="vscode"
-						onSelectOpenTarget={() => {}}
-						onOpenWorkspace={() => {}}
-						canOpenWorkspace={false}
-						isOpeningWorkspace={false}
-					/>
-				</TooltipProvider>,
-			);
-		});
-
-		const strip = container.querySelector('[data-testid="agent-score-strip"]');
-		expect(strip?.textContent).toBe("codex +4 (6 tasks) · antigravity 0 (1 task) · opencode −3 (11 tasks)");
-		expect(strip?.querySelector(".text-status-green")?.textContent).toBe("+4");
-		expect(
-			Array.from(strip?.querySelectorAll(".text-text-secondary") ?? []).some(
-				(element) => element.textContent === "0",
-			),
-		).toBe(true);
-		expect(strip?.querySelector(".text-status-red")?.textContent).toBe("−3");
-
-		const firstAgent = strip?.querySelector("[data-state]") ?? strip?.firstElementChild?.querySelector("span");
-		await act(async () => {
-			firstAgent?.dispatchEvent(new MouseEvent("pointermove", { bubbles: true }));
-			await new Promise((resolve) => setTimeout(resolve, 450));
-		});
-		expect(document.body.textContent).toContain("6 pass · 2 fail · 6 task");
-	});
-
-	it.each([undefined, []])("hides the agent score strip when scores are empty", async (agentScores) => {
+	it("does not render the agent score strip", async () => {
 		await act(async () => {
 			root.render(
 				<TopBar
-					agentScores={agentScores}
 					openTargetOptions={[]}
 					selectedOpenTargetId="vscode"
 					onSelectOpenTarget={() => {}}

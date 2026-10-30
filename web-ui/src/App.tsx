@@ -6,6 +6,7 @@ import type { ReactElement } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { AddProjectDialog } from "@/components/add-project-dialog";
+import { AgentScoreBar } from "@/components/agent-score-bar";
 import { notifyError, showAppToast } from "@/components/app-toaster";
 import { CardDetailView } from "@/components/card-detail-view";
 import { ClearTrashDialog } from "@/components/clear-trash-dialog";
@@ -842,7 +843,6 @@ export default function App(): ReactElement {
 						onToggleSidebar={!selectedCard ? handleToggleSidebar : undefined}
 						onBack={selectedCard ? handleBack : undefined}
 						workspacePath={navbarWorkspacePath}
-						agentScores={streamedWorkspaceState?.agentScores}
 						isWorkspacePathLoading={shouldShowProjectLoadingState}
 						workspaceHint={navbarWorkspaceHint}
 						runtimeHint={navbarRuntimeHint}
@@ -1097,6 +1097,7 @@ export default function App(): ReactElement {
 							</div>
 						) : null}
 					</div>
+					<AgentScoreBar agentScores={streamedWorkspaceState?.agentScores} />
 				</div>
 				<RuntimeSettingsDialog
 					open={isSettingsOpen}
