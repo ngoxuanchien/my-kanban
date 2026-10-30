@@ -5,6 +5,7 @@ import {
 	getKanbanRuntimeOrigin,
 	getKanbanRuntimePort,
 	isKanbanRemoteHost,
+	isKanbanRuntimeHttps,
 } from "../core/runtime-endpoint";
 
 export type CorsDecision =
@@ -15,7 +16,7 @@ export type CorsDecision =
 export interface CorsGateInput {
 	method: string | undefined;
 	originHeader: string | undefined;
-	allowedOrigin: string;
+	allowedOrigins: ReadonlySet<string>;
 }
 
 const isDev = process.env.NODE_ENV === "development";
@@ -30,7 +31,7 @@ export function evaluateCors(input: CorsGateInput): CorsDecision {
 
 	const isDevServer = isDev && (origin === "http://localhost:4173" || origin === "http://127.0.0.1:4173");
 
-	if (origin !== input.allowedOrigin && !isDevServer) {
+	if (!input.allowedOrigins.has(origin) && !isDevServer) {
 		return { kind: "reject", origin };
 	}
 
@@ -83,6 +84,16 @@ export function getAllowedHostHeaders(): ReadonlySet<string> {
 	return allowed;
 }
 
+export function getAllowedOrigins(): ReadonlySet<string> {
+	if (isKanbanRemoteHost()) {
+		return new Set([getKanbanRuntimeOrigin()]);
+	}
+
+	const scheme = isKanbanRuntimeHttps() ? "https" : "http";
+	const port = getKanbanRuntimePort();
+	return new Set([`${scheme}://localhost:${port}`, `${scheme}://127.0.0.1:${port}`]);
+}
+
 const ALLOWED_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"].join(", ");
 const ALLOWED_HEADERS = ["Authorization", "Content-Type", "X-Kanban-Workspace-Id"].join(", ");
 const PREFLIGHT_MAX_AGE_SECONDS = "600";
@@ -120,7 +131,7 @@ export function handleHttpRequest(req: IncomingMessage, res: ServerResponse): { 
 	const corsDecision = evaluateCors({
 		method: req.method,
 		originHeader: req.headers.origin,
-		allowedOrigin: getKanbanRuntimeOrigin(),
+		allowedOrigins: getAllowedOrigins(),
 	});
 
 	switch (corsDecision.kind) {
@@ -157,7 +168,7 @@ export function handleSocketUpgrade(request: IncomingMessage, socket: Duplex): {
 	const corsDecision = evaluateCors({
 		method: request.method,
 		originHeader: request.headers.origin,
-		allowedOrigin: getKanbanRuntimeOrigin(),
+		allowedOrigins: getAllowedOrigins(),
 	});
 	if (corsDecision.kind === "reject") {
 		return rejectSocket(socket);

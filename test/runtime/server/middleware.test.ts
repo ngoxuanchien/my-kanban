@@ -1,13 +1,30 @@
-import type { IncomingMessage } from "node:http";
+import type { IncomingMessage, ServerResponse } from "node:http";
 import { PassThrough } from "node:stream";
 import { describe, expect, it } from "vitest";
-import { evaluateCors, evaluateHost, handleSocketUpgrade } from "../../../src/server/middleware";
+import {
+	getKanbanRuntimeHost,
+	getKanbanRuntimePort,
+	isKanbanRuntimeHttps,
+	setKanbanRuntimeHost,
+} from "../../../src/core/runtime-endpoint";
+import { evaluateCors, evaluateHost, handleHttpRequest, handleSocketUpgrade } from "../../../src/server/middleware";
 
 const ALLOWED_ORIGIN = "http://127.0.0.1:3484";
+const ALLOWED_ORIGINS = new Set([ALLOWED_ORIGIN, "http://localhost:3484"]);
 const ALLOWED_HOSTS = new Set(["localhost:3484", "127.0.0.1:3484"]);
 
 function makeFakeRequest(headers: Partial<IncomingMessage["headers"]>, method = "GET"): IncomingMessage {
 	return { method, headers } as IncomingMessage;
+}
+
+function makeFakeResponse() {
+	const headers = new Map<string, string>();
+	const response = {
+		setHeader: (name: string, value: string) => headers.set(name, value),
+		writeHead: () => response,
+		end: () => undefined,
+	} as unknown as ServerResponse;
+	return { headers, response };
 }
 
 describe("evaluateCors", () => {
@@ -15,7 +32,7 @@ describe("evaluateCors", () => {
 		const decision = evaluateCors({
 			method: "GET",
 			originHeader: undefined,
-			allowedOrigin: ALLOWED_ORIGIN,
+			allowedOrigins: ALLOWED_ORIGINS,
 		});
 		expect(decision).toEqual({ kind: "allow", origin: null });
 	});
@@ -24,7 +41,7 @@ describe("evaluateCors", () => {
 		const decision = evaluateCors({
 			method: "GET",
 			originHeader: "",
-			allowedOrigin: ALLOWED_ORIGIN,
+			allowedOrigins: ALLOWED_ORIGINS,
 		});
 		expect(decision).toEqual({ kind: "allow", origin: null });
 	});
@@ -33,16 +50,25 @@ describe("evaluateCors", () => {
 		const decision = evaluateCors({
 			method: "POST",
 			originHeader: ALLOWED_ORIGIN,
-			allowedOrigin: ALLOWED_ORIGIN,
+			allowedOrigins: ALLOWED_ORIGINS,
 		});
 		expect(decision).toEqual({ kind: "allow", origin: ALLOWED_ORIGIN });
+	});
+
+	it("allows the localhost loopback origin", () => {
+		const decision = evaluateCors({
+			method: "GET",
+			originHeader: "http://localhost:3484",
+			allowedOrigins: ALLOWED_ORIGINS,
+		});
+		expect(decision).toEqual({ kind: "allow", origin: "http://localhost:3484" });
 	});
 
 	it("rejects requests from a different origin", () => {
 		const decision = evaluateCors({
 			method: "POST",
 			originHeader: "http://evil.example.com",
-			allowedOrigin: ALLOWED_ORIGIN,
+			allowedOrigins: ALLOWED_ORIGINS,
 		});
 		expect(decision).toEqual({ kind: "reject", origin: "http://evil.example.com" });
 	});
@@ -51,7 +77,7 @@ describe("evaluateCors", () => {
 		const decision = evaluateCors({
 			method: "GET",
 			originHeader: "http://127.0.0.1:9999",
-			allowedOrigin: ALLOWED_ORIGIN,
+			allowedOrigins: ALLOWED_ORIGINS,
 		});
 		expect(decision).toEqual({ kind: "reject", origin: "http://127.0.0.1:9999" });
 	});
@@ -60,7 +86,7 @@ describe("evaluateCors", () => {
 		const decision = evaluateCors({
 			method: "GET",
 			originHeader: "https://127.0.0.1:3484",
-			allowedOrigin: ALLOWED_ORIGIN,
+			allowedOrigins: ALLOWED_ORIGINS,
 		});
 		expect(decision).toEqual({ kind: "reject", origin: "https://127.0.0.1:3484" });
 	});
@@ -69,7 +95,7 @@ describe("evaluateCors", () => {
 		const decision = evaluateCors({
 			method: "OPTIONS",
 			originHeader: ALLOWED_ORIGIN,
-			allowedOrigin: ALLOWED_ORIGIN,
+			allowedOrigins: ALLOWED_ORIGINS,
 		});
 		expect(decision).toEqual({ kind: "preflight", origin: ALLOWED_ORIGIN });
 	});
@@ -78,7 +104,7 @@ describe("evaluateCors", () => {
 		const decision = evaluateCors({
 			method: "OPTIONS",
 			originHeader: "http://evil.example.com",
-			allowedOrigin: ALLOWED_ORIGIN,
+			allowedOrigins: ALLOWED_ORIGINS,
 		});
 		expect(decision).toEqual({ kind: "reject", origin: "http://evil.example.com" });
 	});
@@ -87,7 +113,7 @@ describe("evaluateCors", () => {
 		const decision = evaluateCors({
 			method: "OPTIONS",
 			originHeader: undefined,
-			allowedOrigin: ALLOWED_ORIGIN,
+			allowedOrigins: ALLOWED_ORIGINS,
 		});
 		expect(decision).toEqual({ kind: "allow", origin: null });
 	});
@@ -130,12 +156,21 @@ describe("evaluateHost", () => {
 });
 
 describe("handleSocketUpgrade", () => {
-	it("passes through upgrades whose Host and Origin are both allowed", () => {
-		const socket = new PassThrough();
-		const request = makeFakeRequest({ host: "127.0.0.1:3484", origin: ALLOWED_ORIGIN });
-		const result = handleSocketUpgrade(request, socket);
-		expect(result).toEqual({ end: false });
-		expect(socket.destroyed).toBe(false);
+	it("allows both loopback origins in local mode", () => {
+		const originalHost = getKanbanRuntimeHost();
+		setKanbanRuntimeHost("127.0.0.1");
+		try {
+			const scheme = isKanbanRuntimeHttps() ? "https" : "http";
+			const port = getKanbanRuntimePort();
+			for (const host of ["localhost", "127.0.0.1"]) {
+				const socket = new PassThrough();
+				const request = makeFakeRequest({ host: `${host}:${port}`, origin: `${scheme}://${host}:${port}` });
+				expect(handleSocketUpgrade(request, socket)).toEqual({ end: false });
+				expect(socket.destroyed).toBe(false);
+			}
+		} finally {
+			setKanbanRuntimeHost(originalHost);
+		}
 	});
 
 	it("rejects upgrades from a disallowed origin with a 403 status line", () => {
@@ -165,5 +200,57 @@ describe("handleSocketUpgrade", () => {
 		const result = handleSocketUpgrade(request, socket);
 		expect(result).toEqual({ end: true });
 		expect(socket.destroyed).toBe(true);
+	});
+
+	it("rejects localhost origins in remote mode", () => {
+		const originalHost = getKanbanRuntimeHost();
+		setKanbanRuntimeHost("192.0.2.1");
+		try {
+			const socket = new PassThrough();
+			const port = getKanbanRuntimePort();
+			const scheme = isKanbanRuntimeHttps() ? "https" : "http";
+			const request = makeFakeRequest({
+				host: `192.0.2.1:${port}`,
+				origin: `${scheme}://localhost:${port}`,
+			});
+			expect(handleSocketUpgrade(request, socket)).toEqual({ end: true });
+			expect(socket.destroyed).toBe(true);
+		} finally {
+			setKanbanRuntimeHost(originalHost);
+		}
+	});
+});
+
+describe("handleHttpRequest", () => {
+	it("allows both loopback origins in local mode", () => {
+		const originalHost = getKanbanRuntimeHost();
+		setKanbanRuntimeHost("127.0.0.1");
+		try {
+			const scheme = isKanbanRuntimeHttps() ? "https" : "http";
+			const port = getKanbanRuntimePort();
+			for (const host of ["localhost", "127.0.0.1"]) {
+				const { headers, response } = makeFakeResponse();
+				const origin = `${scheme}://${host}:${port}`;
+				const request = makeFakeRequest({ host: `${host}:${port}`, origin });
+				expect(handleHttpRequest(request, response)).toEqual({ end: false });
+				expect(headers.get("Access-Control-Allow-Origin")).toBe(origin);
+			}
+		} finally {
+			setKanbanRuntimeHost(originalHost);
+		}
+	});
+
+	it("rejects localhost origins in remote mode", () => {
+		const originalHost = getKanbanRuntimeHost();
+		setKanbanRuntimeHost("192.0.2.1");
+		try {
+			const { response } = makeFakeResponse();
+			const port = getKanbanRuntimePort();
+			const scheme = isKanbanRuntimeHttps() ? "https" : "http";
+			const request = makeFakeRequest({ host: `192.0.2.1:${port}`, origin: `${scheme}://localhost:${port}` });
+			expect(handleHttpRequest(request, response)).toEqual({ end: true });
+		} finally {
+			setKanbanRuntimeHost(originalHost);
+		}
 	});
 });
