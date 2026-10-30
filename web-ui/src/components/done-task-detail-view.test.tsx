@@ -88,15 +88,14 @@ describe("DoneTaskDetailView", () => {
 		container.remove();
 	});
 
-	it("renders task title and prompt read-only with a back button", async () => {
+	it("renders task title and prompt read-only without a duplicate header", async () => {
 		mockGetTaskHistoryQuery.mockResolvedValue({ events: [] });
 		mockGetCommitChangesQuery.mockResolvedValue({ notFound: true, commit: "none" });
 
-		const onBack = vi.fn();
 		const selection = createSelection(createCard());
 
 		await act(async () => {
-			root.render(<DoneTaskDetailView selection={selection} currentProjectId="project-1" onBack={onBack} />);
+			root.render(<DoneTaskDetailView selection={selection} currentProjectId="project-1" />);
 		});
 
 		expect(container.textContent).toContain("Ship Done Card History");
@@ -110,15 +109,14 @@ describe("DoneTaskDetailView", () => {
 		expect(prompt?.className).not.toContain("border");
 		expect(prompt?.className).not.toContain("font-mono");
 
-		const backButton = Array.from(container.querySelectorAll("button")).find((btn) =>
-			btn.textContent?.includes("Back"),
+		expect(container.querySelector("header")).toBeNull();
+		expect(Array.from(container.querySelectorAll("button")).some((btn) => btn.textContent?.includes("Back"))).toBe(
+			false,
 		);
-		expect(backButton).toBeDefined();
-
-		await act(async () => {
-			backButton?.click();
-		});
-		expect(onBack).toHaveBeenCalledTimes(1);
+		expect(container.querySelector('[role="separator"][aria-label="Resize task and history panels"]')).not.toBeNull();
+		expect(
+			container.querySelector('[role="separator"][aria-label="Resize timeline and diff panels"]'),
+		).not.toBeNull();
 	});
 
 	it("does not call startTaskSession or mutate board on open", async () => {
@@ -126,7 +124,7 @@ describe("DoneTaskDetailView", () => {
 
 		const selection = createSelection(createCard());
 		await act(async () => {
-			root.render(<DoneTaskDetailView selection={selection} currentProjectId="project-1" onBack={vi.fn()} />);
+			root.render(<DoneTaskDetailView selection={selection} currentProjectId="project-1" />);
 		});
 
 		expect(mockStartTaskSessionMutate).not.toHaveBeenCalled();
@@ -156,7 +154,7 @@ describe("DoneTaskDetailView", () => {
 
 		const selection = createSelection(createCard());
 		await act(async () => {
-			root.render(<DoneTaskDetailView selection={selection} currentProjectId="project-1" onBack={vi.fn()} />);
+			root.render(<DoneTaskDetailView selection={selection} currentProjectId="project-1" />);
 		});
 
 		// Check labels
@@ -196,7 +194,7 @@ describe("DoneTaskDetailView", () => {
 
 		const selection = createSelection(createCard());
 		await act(async () => {
-			root.render(<DoneTaskDetailView selection={selection} currentProjectId="project-1" onBack={vi.fn()} />);
+			root.render(<DoneTaskDetailView selection={selection} currentProjectId="project-1" />);
 		});
 
 		const showAllButton = Array.from(container.querySelectorAll("button")).find((btn) =>
@@ -223,7 +221,7 @@ describe("DoneTaskDetailView", () => {
 		const selection = createSelection(createCard());
 
 		await act(async () => {
-			root.render(<DoneTaskDetailView selection={selection} currentProjectId="project-1" onBack={vi.fn()} />);
+			root.render(<DoneTaskDetailView selection={selection} currentProjectId="project-1" />);
 		});
 		expect(container.textContent).toContain("No history recorded for this task.");
 		expect(container.textContent).toContain("No commit recorded for this task.");
@@ -236,9 +234,7 @@ describe("DoneTaskDetailView", () => {
 		const selectionWithCommit = createSelection(createCard({ id: "done-task-2" }));
 
 		await act(async () => {
-			root.render(
-				<DoneTaskDetailView selection={selectionWithCommit} currentProjectId="project-1" onBack={vi.fn()} />,
-			);
+			root.render(<DoneTaskDetailView selection={selectionWithCommit} currentProjectId="project-1" />);
 		});
 		expect(container.textContent).toContain("Commit deadbeef not found on this repository.");
 	});
@@ -266,7 +262,7 @@ describe("DoneTaskDetailView", () => {
 
 		const selection = createSelection(createCard());
 		await act(async () => {
-			root.render(<DoneTaskDetailView selection={selection} currentProjectId="project-1" onBack={vi.fn()} />);
+			root.render(<DoneTaskDetailView selection={selection} currentProjectId="project-1" />);
 		});
 
 		const viewSessionButton = Array.from(container.querySelectorAll("button")).find((btn) =>
@@ -289,6 +285,9 @@ describe("DoneTaskDetailView", () => {
 			'[role="dialog"][aria-modal="true"][aria-label="Agent Transcript"]',
 		);
 		expect(transcriptDialog).not.toBeNull();
+		expect(
+			transcriptDialog?.querySelector('[role="separator"][aria-label="Resize transcript panel"]'),
+		).not.toBeNull();
 		expect(container.textContent).toContain("Injected instructions · Show");
 		expect(container.textContent).not.toContain("Secret injected instructions");
 

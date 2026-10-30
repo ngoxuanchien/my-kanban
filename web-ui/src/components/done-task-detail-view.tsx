@@ -1,10 +1,14 @@
 import { RUNTIME_AGENT_CATALOG } from "@runtime-agent-catalog";
-import { ArrowLeft, Clock, History, X } from "lucide-react";
+import { Clock, History, X } from "lucide-react";
+import type { MouseEvent as ReactMouseEvent } from "react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { type DiffLineComment, DiffViewerPanel } from "@/components/detail-panels/diff-viewer-panel";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
+import { ResizeHandle } from "@/resize/resize-handle";
+import { useDoneTaskHistoryLayout } from "@/resize/use-done-task-history-layout";
+import { useResizeDrag } from "@/resize/use-resize-drag";
 import { getRuntimeTrpcClient } from "@/runtime/trpc-client";
 import type {
 	RuntimeAgentTranscriptResponse,
@@ -13,12 +17,11 @@ import type {
 	RuntimeWorkspaceFileChange,
 } from "@/runtime/types";
 import type { CardSelection } from "@/types";
-import { useWindowEvent } from "@/utils/react-use";
+import { useMeasure, useWindowEvent } from "@/utils/react-use";
 
 export interface DoneTaskDetailViewProps {
 	selection: CardSelection;
 	currentProjectId: string | null;
-	onBack: () => void;
 }
 
 type RuntimeAgentTranscriptTurn = Extract<RuntimeAgentTranscriptResponse, { turns: unknown[] }>["turns"][number];
@@ -132,11 +135,7 @@ function getEventDisplayInfo(event: RuntimeTaskHistoryEvent): {
 	}
 }
 
-export function DoneTaskDetailView({
-	selection,
-	currentProjectId,
-	onBack,
-}: DoneTaskDetailViewProps): React.ReactElement {
+export function DoneTaskDetailView({ selection, currentProjectId }: DoneTaskDetailViewProps): React.ReactElement {
 	const { card } = selection;
 	const [historyEvents, setHistoryEvents] = useState<RuntimeTaskHistoryEvent[] | null>(null);
 	const [isHistoryLoading, setIsHistoryLoading] = useState(true);
@@ -154,6 +153,51 @@ export function DoneTaskDetailView({
 	const [transcriptTurns, setTranscriptTurns] = useState<RuntimeAgentTranscriptTurn[]>([]);
 	const [isTranscriptTruncated, setIsTranscriptTruncated] = useState(false);
 	const [expandedInstructionTurns, setExpandedInstructionTurns] = useState<Set<number>>(() => new Set());
+	const [layoutRef, layoutRect] = useMeasure<HTMLDivElement>();
+	const { startDrag: startResizeDrag } = useResizeDrag();
+	const {
+		timelineRatio,
+		displayTaskPanelWidth,
+		displayTimelineHeight,
+		displayTranscriptWidth,
+		setTaskPanelWidth,
+		setTimelineRatio,
+		setTranscriptWidth,
+	} = useDoneTaskHistoryLayout({ containerWidth: layoutRect.width, containerHeight: layoutRect.height });
+	const layoutHeight = Math.max(layoutRect.height, 1);
+	const handleTaskPanelResize = useCallback(
+		(event: ReactMouseEvent<HTMLDivElement>) => {
+			const startX = event.clientX;
+			startResizeDrag(event, {
+				axis: "x",
+				cursor: "ew-resize",
+				onMove: (pointerX) => setTaskPanelWidth(displayTaskPanelWidth + pointerX - startX),
+			});
+		},
+		[displayTaskPanelWidth, setTaskPanelWidth, startResizeDrag],
+	);
+	const handleTimelineResize = useCallback(
+		(event: ReactMouseEvent<HTMLDivElement>) => {
+			const startY = event.clientY;
+			startResizeDrag(event, {
+				axis: "y",
+				cursor: "ns-resize",
+				onMove: (pointerY) => setTimelineRatio(timelineRatio + (pointerY - startY) / layoutHeight),
+			});
+		},
+		[layoutHeight, setTimelineRatio, startResizeDrag, timelineRatio],
+	);
+	const handleTranscriptResize = useCallback(
+		(event: ReactMouseEvent<HTMLDivElement>) => {
+			const startX = event.clientX;
+			startResizeDrag(event, {
+				axis: "x",
+				cursor: "ew-resize",
+				onMove: (pointerX) => setTranscriptWidth(displayTranscriptWidth + startX - pointerX),
+			});
+		},
+		[displayTranscriptWidth, setTranscriptWidth, startResizeDrag],
+	);
 	const handleTranscriptKeyDown = useCallback(
 		(event: KeyboardEvent) => {
 			if (viewingSessionId && event.key === "Escape") {
@@ -326,28 +370,21 @@ export function DoneTaskDetailView({
 
 	return (
 		<div className="relative flex h-full w-full flex-col bg-surface-0 text-text-primary overflow-hidden">
-			{/* Top Bar */}
-			<header className="flex h-12 shrink-0 items-center justify-between border-b border-border bg-surface-1 px-4">
-				<div className="flex items-center gap-3">
-					<Button variant="ghost" size="sm" onClick={onBack} icon={<ArrowLeft size={16} />} aria-label="Back">
-						Back
-					</Button>
-					<div className="flex items-center gap-2">
-						<span className="text-sm font-medium text-text-primary">Done Task</span>
-						<span className="rounded bg-surface-2 px-1.5 py-0.5 text-xs text-text-secondary">
-							Read-only history
-						</span>
-					</div>
-				</div>
-			</header>
-
 			{/* Main Content: Left Column + Right Column */}
-			<div className="relative flex flex-1 min-h-0 overflow-hidden">
+			<div ref={layoutRef} className="relative flex flex-1 min-h-0 overflow-hidden">
 				{/* Left: Task Title & Prompt */}
-				<aside className="flex w-80 shrink-0 flex-col border-r border-border bg-surface-0 overflow-y-auto p-4">
+				<aside
+					className="flex shrink-0 flex-col bg-surface-0 overflow-y-auto p-4"
+					style={{ width: displayTaskPanelWidth }}
+				>
 					<div className="space-y-4">
 						<div>
-							<span className="text-xs font-semibold uppercase tracking-wider text-text-tertiary">Task</span>
+							<div className="flex items-center justify-between gap-2">
+								<span className="text-xs font-semibold uppercase tracking-wider text-text-tertiary">Task</span>
+								<span className="shrink-0 rounded bg-surface-2 px-1.5 py-0.5 text-xs text-text-secondary">
+									Read-only history
+								</span>
+							</div>
 							<h1 className="mt-1 text-base font-semibold text-text-primary break-words">{card.title}</h1>
 						</div>
 
@@ -363,11 +400,19 @@ export function DoneTaskDetailView({
 						)}
 					</div>
 				</aside>
+				<ResizeHandle
+					orientation="vertical"
+					ariaLabel="Resize task and history panels"
+					onMouseDown={handleTaskPanelResize}
+				/>
 
 				{/* Right: Top Timeline + Bottom Diff */}
 				<main className="flex flex-1 flex-col min-h-0 min-w-0 overflow-hidden">
 					{/* Right Top: Timeline */}
-					<div className="flex shrink-0 max-h-[40%] flex-col border-b border-border min-h-0 overflow-y-auto p-4">
+					<div
+						className="flex shrink-0 flex-col min-h-0 overflow-y-auto p-4"
+						style={{ height: displayTimelineHeight }}
+					>
 						<div className="mb-3 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-text-tertiary">
 							<History size={14} />
 							<span>Timeline</span>
@@ -461,6 +506,11 @@ export function DoneTaskDetailView({
 							</div>
 						)}
 					</div>
+					<ResizeHandle
+						orientation="horizontal"
+						ariaLabel="Resize timeline and diff panels"
+						onMouseDown={handleTimelineResize}
+					/>
 
 					{/* Right Bottom: Commit Diff */}
 					<div className="flex flex-1 flex-col min-h-0 bg-surface-0">
@@ -506,104 +556,113 @@ export function DoneTaskDetailView({
 							role="dialog"
 							aria-modal="true"
 							aria-label="Agent Transcript"
-							className="absolute inset-y-0 right-0 z-20 flex w-[500px] flex-col border-l border-border bg-surface-1 shadow-2xl"
+							className="absolute inset-y-0 right-0 z-20 flex flex-row border-l border-border bg-surface-1 shadow-2xl"
+							style={{ width: displayTranscriptWidth }}
 						>
-							<div className="flex h-12 shrink-0 items-center justify-between border-b border-border px-4">
-								<div className="flex items-center gap-2">
-									<span className="font-semibold text-sm text-text-primary">Agent Transcript</span>
-									<span className="text-xs text-text-tertiary font-mono truncate max-w-[200px]">
-										{viewingSessionId}
-									</span>
+							<ResizeHandle
+								orientation="vertical"
+								ariaLabel="Resize transcript panel"
+								onMouseDown={handleTranscriptResize}
+							/>
+							<div className="flex min-w-0 flex-1 flex-col">
+								<div className="flex h-12 shrink-0 items-center justify-between border-b border-border px-4">
+									<div className="flex items-center gap-2">
+										<span className="font-semibold text-sm text-text-primary">Agent Transcript</span>
+										<span className="text-xs text-text-tertiary font-mono truncate max-w-[200px]">
+											{viewingSessionId}
+										</span>
+									</div>
+									<Button
+										variant="ghost"
+										size="sm"
+										icon={<X size={16} />}
+										onClick={() => setViewingSessionId(null)}
+										aria-label="Close"
+									/>
 								</div>
-								<Button
-									variant="ghost"
-									size="sm"
-									icon={<X size={16} />}
-									onClick={() => setViewingSessionId(null)}
-									aria-label="Close"
-								/>
-							</div>
 
-							<div className="flex flex-1 flex-col min-h-0 overflow-y-auto p-4">
-								{isTranscriptLoading ? (
-									<div className="flex flex-1 items-center justify-center p-8">
-										<Spinner size={20} />
-									</div>
-								) : transcriptResult && "unavailable" in transcriptResult ? (
-									<div className="flex flex-1 items-center justify-center p-8 text-sm text-text-tertiary">
-										Transcript not available ({transcriptResult.unavailable}).
-									</div>
-								) : (
-									<div className="space-y-4">
-										{isTranscriptTruncated && (
-											<div className="flex justify-center pb-2">
-												<Button variant="ghost" size="sm" onClick={handleLoadEarlierTurns}>
-													Load earlier
-												</Button>
-											</div>
-										)}
+								<div className="flex flex-1 flex-col min-h-0 overflow-y-auto p-4">
+									{isTranscriptLoading ? (
+										<div className="flex flex-1 items-center justify-center p-8">
+											<Spinner size={20} />
+										</div>
+									) : transcriptResult && "unavailable" in transcriptResult ? (
+										<div className="flex flex-1 items-center justify-center p-8 text-sm text-text-tertiary">
+											Transcript not available ({transcriptResult.unavailable}).
+										</div>
+									) : (
+										<div className="space-y-4">
+											{isTranscriptTruncated && (
+												<div className="flex justify-center pb-2">
+													<Button variant="ghost" size="sm" onClick={handleLoadEarlierTurns}>
+														Load earlier
+													</Button>
+												</div>
+											)}
 
-										{transcriptTurns.map((turn, index) => {
-											const isInjectedInstructions =
-												turn.text.startsWith("# AGENTS.md instructions") ||
-												turn.text.includes("<INSTRUCTIONS>");
-											const isInstructionExpanded = expandedInstructionTurns.has(index);
-											const roleBadgeColor =
-												turn.role === "user"
-													? "border-status-blue/30 bg-status-blue/10 text-status-blue"
-													: turn.role === "assistant"
-														? "border-status-green/30 bg-status-green/10 text-status-green"
-														: "border-status-purple/30 bg-status-purple/10 text-status-purple";
+											{transcriptTurns.map((turn, index) => {
+												const isInjectedInstructions =
+													turn.text.startsWith("# AGENTS.md instructions") ||
+													turn.text.includes("<INSTRUCTIONS>");
+												const isInstructionExpanded = expandedInstructionTurns.has(index);
+												const roleBadgeColor =
+													turn.role === "user"
+														? "border-status-blue/30 bg-status-blue/10 text-status-blue"
+														: turn.role === "assistant"
+															? "border-status-green/30 bg-status-green/10 text-status-green"
+															: "border-status-purple/30 bg-status-purple/10 text-status-purple";
 
-											return (
-												<div
-													key={`turn-${index}-${turn.at ?? index}`}
-													className="rounded-md border border-border bg-surface-2 p-3"
-												>
-													<div className="mb-1.5 flex items-center justify-between">
-														<span
-															className={`rounded px-1.5 py-0.5 text-xs font-medium uppercase tracking-wider border ${roleBadgeColor}`}
-														>
-															{turn.role}
-														</span>
-														{turn.at && (
-															<span className="text-xs text-text-tertiary font-mono">
-																{formatEventTime(turn.at)}
+												return (
+													<div
+														key={`turn-${index}-${turn.at ?? index}`}
+														className="rounded-md border border-border bg-surface-2 p-3"
+													>
+														<div className="mb-1.5 flex items-center justify-between">
+															<span
+																className={`rounded px-1.5 py-0.5 text-xs font-medium uppercase tracking-wider border ${roleBadgeColor}`}
+															>
+																{turn.role}
 															</span>
+															{turn.at && (
+																<span className="text-xs text-text-tertiary font-mono">
+																	{formatEventTime(turn.at)}
+																</span>
+															)}
+														</div>
+														{isInjectedInstructions ? (
+															<>
+																<button
+																	type="button"
+																	className="text-xs text-accent hover:underline cursor-pointer"
+																	onClick={() =>
+																		setExpandedInstructionTurns((current) => {
+																			const next = new Set(current);
+																			if (next.has(index)) next.delete(index);
+																			else next.add(index);
+																			return next;
+																		})
+																	}
+																>
+																	Injected instructions ·{" "}
+																	{isInstructionExpanded ? "Show less" : "Show"}
+																</button>
+																{isInstructionExpanded && (
+																	<div className="mt-2 text-xs text-text-primary whitespace-pre-wrap font-mono break-words leading-relaxed">
+																		{turn.text}
+																	</div>
+																)}
+															</>
+														) : (
+															<div className="text-xs text-text-primary whitespace-pre-wrap font-mono break-words leading-relaxed">
+																{turn.text}
+															</div>
 														)}
 													</div>
-													{isInjectedInstructions ? (
-														<>
-															<button
-																type="button"
-																className="text-xs text-accent hover:underline cursor-pointer"
-																onClick={() =>
-																	setExpandedInstructionTurns((current) => {
-																		const next = new Set(current);
-																		if (next.has(index)) next.delete(index);
-																		else next.add(index);
-																		return next;
-																	})
-																}
-															>
-																Injected instructions · {isInstructionExpanded ? "Show less" : "Show"}
-															</button>
-															{isInstructionExpanded && (
-																<div className="mt-2 text-xs text-text-primary whitespace-pre-wrap font-mono break-words leading-relaxed">
-																	{turn.text}
-																</div>
-															)}
-														</>
-													) : (
-														<div className="text-xs text-text-primary whitespace-pre-wrap font-mono break-words leading-relaxed">
-															{turn.text}
-														</div>
-													)}
-												</div>
-											);
-										})}
-									</div>
-								)}
+												);
+											})}
+										</div>
+									)}
+								</div>
 							</div>
 						</aside>
 					</>

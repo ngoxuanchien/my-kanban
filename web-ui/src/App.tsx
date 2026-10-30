@@ -1020,11 +1020,7 @@ export default function App(): ReactElement {
 						{selectedCard && detailSession ? (
 							<div className="absolute inset-0 flex min-h-0 min-w-0">
 								{selectedCard.column.id === "trash" ? (
-									<DoneTaskDetailView
-										selection={selectedCard}
-										currentProjectId={currentProjectId}
-										onBack={handleBack}
-									/>
+									<DoneTaskDetailView selection={selectedCard} currentProjectId={currentProjectId} />
 								) : (
 									<CardDetailView
 										selection={selectedCard}
