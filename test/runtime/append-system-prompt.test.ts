@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { RUNTIME_LAUNCH_SUPPORTED_AGENT_IDS } from "../../src/core/agent-catalog";
+import { HAND_OFF_CYCLE } from "../../src/core/hand-off-cap";
 import {
 	renderAppendSystemPrompt,
 	resolveAppendSystemPromptCommandPrefix,
@@ -74,6 +75,15 @@ describe("renderAppendSystemPrompt", () => {
 			expect(section).toContain("When true, the sidebar agent reviews the task when it reaches Review");
 		}
 		expect(updateSection).toContain("Use `default` to clear the override.");
+	});
+
+	it("defaults task creation to the handoff agent cycle", () => {
+		const rendered = renderAppendSystemPrompt("kanban");
+		const workflowNotes = rendered.slice(rendered.indexOf("# Workflow Notes"), rendered.indexOf("# Reviewing tasks"));
+
+		expect(workflowNotes).toContain("--agent-id");
+		expect(workflowNotes).toContain(HAND_OFF_CYCLE.join(", "));
+		expect(workflowNotes).toContain("only when the user asks for it");
 	});
 
 	it("renders Kanban sidebar guidance and command reference", () => {

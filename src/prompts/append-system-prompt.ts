@@ -4,6 +4,7 @@ import packageJson from "../../package.json" with { type: "json" };
 
 import { RUNTIME_LAUNCH_SUPPORTED_AGENT_IDS } from "../core/agent-catalog";
 import type { RuntimeAgentId } from "../core/api-contract";
+import { HAND_OFF_CYCLE } from "../core/hand-off-cap";
 import { isHomeAgentSessionId } from "../core/home-agent-session";
 import { resolveKanbanCommandParts } from "../core/kanban-command";
 import { buildShellCommandLine } from "../core/shell";
@@ -332,6 +333,7 @@ Command:
 
 - Prefer \`task list\` first when task IDs or dependency IDs are needed.
 - To create multiple linked tasks, create tasks first, then call \`task link\` for each dependency edge.
+- When creating a task and the user did not name an agent, always pass \`--agent-id\`. Rotate through ${HAND_OFF_CYCLE.join(", ")} in that order, starting after the agent of the most recently created task in \`task list\` (start with ${HAND_OFF_CYCLE[0]} if none uses one of them). Use any other agent, such as claude or cline, only when the user asks for it, because only these agents can be handed off when a task gets stuck.
 
 # Reviewing tasks
 
