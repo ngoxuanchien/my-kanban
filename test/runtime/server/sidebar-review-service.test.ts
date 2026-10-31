@@ -318,10 +318,29 @@ describe("createSidebarReviewService", () => {
 			retryQuotaBlockedTask,
 		});
 		await service.start();
-		for (const listener of listeners) listener({ ...summary("task-1", "failed"), agentId: "opencode", exitCode: 1 });
+		for (const listener of listeners)
+			listener({ ...summary("task-1", "failed"), agentId: "antigravity", exitCode: 1 });
 		await vi.waitFor(() =>
 			expect(handOffTask).toHaveBeenCalledWith("task-1", "The previous agent stopped with an error (exit code 1)."),
 		);
+		service.dispose();
+	});
+
+	it("ignores a stopped OpenCode session crashing after handoff to Antigravity", async () => {
+		const { listeners, service } = await startUsageLimitTurn({
+			agentId: "antigravity",
+			handOffCount: 1,
+			reviewRound: 4,
+			columnId: "in_progress",
+			session: { ...summary("task-1", "running"), agentId: "opencode" },
+		});
+
+		for (const listener of listeners) {
+			listener({ ...summary("task-1", "failed"), agentId: "opencode", exitCode: 1 });
+		}
+		await new Promise((resolve) => setTimeout(resolve, 0));
+
+		expect(handOffTask).not.toHaveBeenCalled();
 		service.dispose();
 	});
 

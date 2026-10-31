@@ -521,6 +521,9 @@ export function createSidebarReviewService(deps: CreateSidebarReviewServiceDepen
 				return;
 			}
 			if (crashed) {
+				if (summary.agentId != null && summary.agentId !== found.card.agentId) {
+					return;
+				}
 				if (getHandOffCount(found.card) < MAX_HAND_OFFS && isHandOffAgentId(found.card.agentId)) {
 					const reason = `The previous agent stopped with an error (exit code ${summary.exitCode ?? "unknown"}).`;
 					const result = await deps.handOffTask(summary.taskId, reason);
