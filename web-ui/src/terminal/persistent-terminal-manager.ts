@@ -190,7 +190,11 @@ class PersistentTerminal {
 		});
 		this.terminal.loadAddon(this.fitAddon);
 		this.terminal.loadAddon(new ClipboardAddon());
-		this.terminal.loadAddon(new WebLinksAddon());
+		this.terminal.loadAddon(
+			new WebLinksAddon((_event, uri) => {
+				window.open(uri, "_blank", "noopener,noreferrer");
+			}),
+		);
 		this.terminal.loadAddon(this.unicode11Addon);
 		this.terminal.unicode.activeVersion = "11";
 		this.terminal.open(this.hostElement);

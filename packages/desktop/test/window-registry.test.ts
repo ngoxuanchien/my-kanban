@@ -152,13 +152,13 @@ vi.mock("electron", () => {
 
 	return {
 		BrowserWindow: MockBrowserWindow,
-		shell: { openExternal: vi.fn() },
+		shell: { openExternal: vi.fn().mockResolvedValue(undefined) },
 		screen: screenMock,
 	};
 });
 
 
-import { BrowserWindow } from "electron";
+import { BrowserWindow, shell } from "electron";
 import { WindowRegistry } from "../src/window-registry.js";
 
 interface MockWindow {
@@ -179,6 +179,7 @@ const DEFAULT_OPTIONS = {
 beforeEach(() => {
 	const Mock = BrowserWindow as unknown as { resetMock(): void };
 	Mock.resetMock();
+	vi.clearAllMocks();
 });
 
 function withDarwin<T>(fn: () => T): T {
@@ -332,10 +333,11 @@ describe("WindowRegistry will-navigate origin guard", () => {
 		return window as unknown as MockWindow;
 	}
 
-	it("allows same-origin navigation", () => {
+	it("allows same-origin navigation without opening it externally", () => {
 		const window = makeLoadedWindow(`${RUNTIME_ORIGIN}/project-a`);
 		const prevented = window.simulateWillNavigate(`${RUNTIME_ORIGIN}/project-b/task-1`);
 		expect(prevented).toBe(false);
+		expect(shell.openExternal).not.toHaveBeenCalled();
 	});
 
 	it("allows same-origin navigation when only the path/query differs", () => {
@@ -346,10 +348,12 @@ describe("WindowRegistry will-navigate origin guard", () => {
 		expect(prevented).toBe(false);
 	});
 
-	it("blocks cross-origin HTTP navigation", () => {
+	it("opens cross-origin HTTPS navigation externally", () => {
 		const window = makeLoadedWindow(`${RUNTIME_ORIGIN}/project-a`);
-		const prevented = window.simulateWillNavigate("http://evil.example.com/pwn");
+		const url = "https://evil.example.com/pwn";
+		const prevented = window.simulateWillNavigate(url);
 		expect(prevented).toBe(true);
+		expect(shell.openExternal).toHaveBeenCalledWith(url);
 	});
 
 	it("blocks cross-origin navigation even to the same host on a different port", () => {
@@ -361,7 +365,7 @@ describe("WindowRegistry will-navigate origin guard", () => {
 		expect(prevented).toBe(true);
 	});
 
-	it("blocks navigation to non-http schemes", () => {
+	it("blocks navigation to non-http schemes without opening them externally", () => {
 		const window = makeLoadedWindow(`${RUNTIME_ORIGIN}/project-a`);
 		for (const url of [
 			"file:///etc/passwd",
@@ -370,6 +374,7 @@ describe("WindowRegistry will-navigate origin guard", () => {
 		]) {
 			expect(window.simulateWillNavigate(url)).toBe(true);
 		}
+		expect(shell.openExternal).not.toHaveBeenCalled();
 	});
 
 	it("blocks navigation when the target URL is malformed", () => {
