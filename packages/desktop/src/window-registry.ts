@@ -1,5 +1,6 @@
-import { BrowserWindow, screen, shell } from "electron";
+import { BrowserWindow, screen } from "electron";
 
+import { openExternalSafe } from "./open-external.js";
 import {
 	type PersistedWindowState,
 	clampBoundsToDisplays,
@@ -8,7 +9,6 @@ import {
 	loadAllWindowStates,
 	saveAllWindowStates,
 } from "./window-state.js";
-
 
 export interface WindowEntry {
 	window: BrowserWindow;
@@ -33,15 +33,6 @@ const DEFAULT_HEIGHT = 900;
 const MIN_WIDTH = 800;
 const MIN_HEIGHT = 600;
 const DEFAULT_BACKGROUND_COLOR = "#1F2428";
-
-function openExternalSafe(url: string): void {
-	shell.openExternal(url).catch((err: unknown) => {
-		console.warn(
-			"[desktop] shell.openExternal failed:",
-			err instanceof Error ? err.message : err,
-		);
-	});
-}
 
 export class WindowRegistry {
 	private readonly windows = new Map<number, WindowEntry>();
