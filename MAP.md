@@ -63,6 +63,8 @@ Update this file whenever a file or folder is created or moved.
 | `docs/superpowers/plans/2026-10-30-handoff-reason-self-trigger.md` | Plan for the handoff reason spec (1 Kanban task). |
 | `docs/superpowers/specs/2026-10-30-quota-detection-false-positives-design.md` | Spec: screen quota phrase counts only after 30 s of silence and in the last 10 lines; Antigravity quota read from its per-session log. |
 | `docs/superpowers/plans/2026-10-30-quota-detection-false-positives.md` | Plan for the quota false-positive spec (1 Kanban task, after f6c0b). |
+| `docs/superpowers/specs/2026-10-31-external-links-design.md` | Spec: desktop app opens terminal links and cross-origin links in the system browser instead of blocking them. |
+| `docs/superpowers/plans/2026-10-31-external-links.md` | Plan for the external links spec (1 Kanban task). |
 | `docs/agents/task-prompt-template.md` | Prompt template the planner fills in for every Kanban task. |
 | `.plan/` | Older internal plans, handoffs, investigations (`.plan/docs/`). |
 
