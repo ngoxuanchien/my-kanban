@@ -988,6 +988,18 @@ export const runtimeOpenFileResponseSchema = z.object({
 });
 export type RuntimeOpenFileResponse = z.infer<typeof runtimeOpenFileResponseSchema>;
 
+export const runtimeOpenFileInEditorRequestSchema = z.object({
+	path: z.string(),
+	line: z.number().int().positive().optional(),
+	column: z.number().int().positive().optional(),
+});
+export type RuntimeOpenFileInEditorRequest = z.infer<typeof runtimeOpenFileInEditorRequestSchema>;
+
+export const runtimeOpenFileInEditorResponseSchema = z.object({
+	ok: z.boolean(),
+});
+export type RuntimeOpenFileInEditorResponse = z.infer<typeof runtimeOpenFileInEditorResponseSchema>;
+
 export const runtimeDebugResetAllStateResponseSchema = z.object({
 	ok: z.boolean(),
 	clearedPaths: z.array(z.string()),

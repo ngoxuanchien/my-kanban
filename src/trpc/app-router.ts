@@ -57,6 +57,8 @@ import type {
 	RuntimeGitSyncResponse,
 	RuntimeHookIngestRequest,
 	RuntimeHookIngestResponse,
+	RuntimeOpenFileInEditorRequest,
+	RuntimeOpenFileInEditorResponse,
 	RuntimeOpenFileRequest,
 	RuntimeOpenFileResponse,
 	RuntimeProjectAddRequest,
@@ -160,6 +162,8 @@ import {
 	runtimeGitSyncResponseSchema,
 	runtimeHookIngestRequestSchema,
 	runtimeHookIngestResponseSchema,
+	runtimeOpenFileInEditorRequestSchema,
+	runtimeOpenFileInEditorResponseSchema,
 	runtimeOpenFileRequestSchema,
 	runtimeOpenFileResponseSchema,
 	runtimeProjectAddRequestSchema,
@@ -347,6 +351,10 @@ export interface RuntimeTrpcContext {
 		) => Promise<RuntimeAgentTranscriptResponse>;
 		resetAllState: (scope: RuntimeTrpcWorkspaceScope | null) => Promise<RuntimeDebugResetAllStateResponse>;
 		openFile: (input: RuntimeOpenFileRequest) => Promise<RuntimeOpenFileResponse>;
+		openFileInEditor: (
+			scope: RuntimeTrpcWorkspaceScope,
+			input: RuntimeOpenFileInEditorRequest,
+		) => Promise<RuntimeOpenFileInEditorResponse>;
 		getUpdateStatus: (scope: RuntimeTrpcWorkspaceScope | null) => Promise<RuntimeUpdateStatusResponse>;
 		runUpdateNow: (scope: RuntimeTrpcWorkspaceScope | null) => Promise<RuntimeRunUpdateResponse>;
 	};
@@ -705,6 +713,12 @@ export const runtimeAppRouter = t.router({
 			.output(runtimeCommandRunResponseSchema)
 			.mutation(async ({ ctx, input }) => {
 				return await ctx.runtimeApi.runCommand(ctx.workspaceScope, input);
+			}),
+		openFileInEditor: workspaceProcedure
+			.input(runtimeOpenFileInEditorRequestSchema)
+			.output(runtimeOpenFileInEditorResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.runtimeApi.openFileInEditor(ctx.workspaceScope, input);
 			}),
 		resetAllState: t.procedure.output(runtimeDebugResetAllStateResponseSchema).mutation(async ({ ctx }) => {
 			return await ctx.runtimeApi.resetAllState(ctx.workspaceScope);

@@ -4,6 +4,7 @@ import { Unicode11Addon } from "@xterm/addon-unicode11";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { WebglAddon } from "@xterm/addon-webgl";
 import { Terminal } from "@xterm/xterm";
+import { showAppToast } from "@/components/app-toaster";
 import { getTerminalThemeColors, type ThemeTerminalColors } from "@/hooks/use-theme";
 import { estimateTaskSessionGeometry } from "@/runtime/task-session-geometry";
 import { getRuntimeTrpcClient } from "@/runtime/trpc-client";
@@ -184,6 +185,16 @@ class PersistentTerminal {
 				isMacPlatform,
 				terminalBackgroundColor: this.appearance.terminalBackgroundColor,
 				themeColors: this.appearance.themeColors ?? getTerminalThemeColors(),
+				onFileLink: (link) => {
+					void getRuntimeTrpcClient(this.workspaceId)
+						.runtime.openFileInEditor.mutate(link)
+						.catch((error: unknown) => {
+							showAppToast({
+								intent: "danger",
+								message: error instanceof Error ? error.message : String(error),
+							});
+						});
+				},
 			}),
 			cols: initialGeometry.cols,
 			rows: initialGeometry.rows,

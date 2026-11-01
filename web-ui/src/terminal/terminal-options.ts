@@ -7,6 +7,30 @@ interface CreateKanbanTerminalOptionsInput {
 	isMacPlatform: boolean;
 	terminalBackgroundColor: string;
 	themeColors: ThemeTerminalColors;
+	onFileLink?: (link: { path: string; line?: number; column?: number }) => void;
+}
+
+export function parseTerminalFileLink(uri: string): { path: string; line?: number; column?: number } | null {
+	if (!uri.startsWith("file://")) return null;
+	const rawPath = uri.slice("file://".length);
+	const lineFragment = rawPath.match(/#L(\d+)$/);
+	const lineColumn = rawPath.match(/:(\d+)(?::(\d+))?$/);
+	const match = lineFragment ?? lineColumn;
+	const path = match ? rawPath.slice(0, match.index) : rawPath;
+	try {
+		const decodedPath = decodeURIComponent(path);
+		if (!decodedPath.startsWith("/")) return null;
+		if (lineFragment) return { path: decodedPath, line: Number(lineFragment[1]) };
+		if (lineColumn)
+			return {
+				path: decodedPath,
+				line: Number(lineColumn[1]),
+				...(lineColumn[2] ? { column: Number(lineColumn[2]) } : {}),
+			};
+		return { path: decodedPath };
+	} catch {
+		return null;
+	}
 }
 
 const TERMINAL_WORD_SEPARATOR = " ()[]{}',\"`";
@@ -30,13 +54,18 @@ export function createKanbanTerminalOptions({
 	isMacPlatform,
 	terminalBackgroundColor,
 	themeColors,
+	onFileLink,
 }: CreateKanbanTerminalOptionsInput): ITerminalOptions {
 	return {
 		allowProposedApi: true,
 		allowTransparency: false,
 		linkHandler: {
-			allowNonHttpProtocols: false,
-			activate: (_event, uri) => openTerminalLink(uri),
+			allowNonHttpProtocols: true,
+			activate: (_event, uri) => {
+				const fileLink = parseTerminalFileLink(uri);
+				if (fileLink) onFileLink?.(fileLink);
+				else openTerminalLink(uri);
+			},
 		} satisfies ILinkHandler,
 		convertEol: false,
 		cursorBlink: false,

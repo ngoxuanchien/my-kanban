@@ -22,6 +22,8 @@ import type {
 	RuntimeCommandRunResponse,
 	RuntimeCommitChangesRequest,
 	RuntimeCommitChangesResponse,
+	RuntimeOpenFileInEditorRequest,
+	RuntimeOpenFileInEditorResponse,
 	RuntimeRunUpdateResponse,
 	RuntimeTaskHandOffResponse,
 	RuntimeTaskHistoryRequest,
@@ -55,11 +57,12 @@ import { resolveEffectiveTaskAgentId } from "../core/effective-task-agent";
 import { isHomeAgentSessionId } from "../core/home-agent-session";
 import { resolveTaskTitle } from "../core/task-title.js";
 import { openInBrowser } from "../server/browser";
+import { EditorFileLinkError, resolveEditorFileUrl } from "../server/editor-link";
 import { handOffTask as handOffTaskInWorkspace } from "../server/hand-off-task";
 import { recordAgentScoreEvent } from "../state/agent-scores";
 import { readAgentTranscript } from "../state/agent-transcripts";
 import { loadTaskHistory, recordTaskHistoryEvent } from "../state/task-history";
-import { loadWorkspaceBoardById } from "../state/workspace-state";
+import { getTaskWorktreesHomePath, loadWorkspaceBoardById } from "../state/workspace-state";
 import { buildRuntimeConfigResponse, resolveAgentCommand } from "../terminal/agent-registry";
 import { sendPromptToSession } from "../terminal/send-prompt-to-session";
 import type { TerminalSessionManager } from "../terminal/session-manager";
@@ -898,6 +901,21 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 					code: "INTERNAL_SERVER_ERROR",
 					message,
 				});
+			}
+		},
+		openFileInEditor: async (
+			workspaceScope,
+			input: RuntimeOpenFileInEditorRequest,
+		): Promise<RuntimeOpenFileInEditorResponse> => {
+			try {
+				const url = await resolveEditorFileUrl(input, [workspaceScope.workspacePath, getTaskWorktreesHomePath()]);
+				openInBrowser(url);
+				return { ok: true };
+			} catch (error) {
+				if (error instanceof EditorFileLinkError) {
+					throw new TRPCError({ code: error.code, message: error.message });
+				}
+				throw error;
 			}
 		},
 		getTaskHistory: async (workspaceScope, input: RuntimeTaskHistoryRequest): Promise<RuntimeTaskHistoryResponse> => {
