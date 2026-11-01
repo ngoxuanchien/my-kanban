@@ -815,6 +815,83 @@ describe("prepareAgentLaunch hook strategies", () => {
 		expect(launch.args).not.toContain("auto");
 	});
 
+	it("launches a claude task session with the per-task model", async () => {
+		setupTempHome();
+		const launch = await prepareAgentLaunch({
+			taskId: "task-claude-model",
+			agentId: "claude",
+			binary: "claude",
+			args: [],
+			cwd: "/tmp",
+			prompt: "",
+			claudeModel: "haiku",
+		});
+
+		expect(launch.args.filter((arg) => arg === "--model")).toHaveLength(1);
+		expect(launch.args[launch.args.indexOf("--model") + 1]).toBe("haiku");
+	});
+
+	it("keeps a user supplied claude --model without duplicating it", async () => {
+		setupTempHome();
+		const launch = await prepareAgentLaunch({
+			taskId: "task-claude-model-explicit",
+			agentId: "claude",
+			binary: "claude",
+			args: ["--model", "opus"],
+			cwd: "/tmp",
+			prompt: "",
+			claudeModel: "haiku",
+		});
+
+		expect(launch.args.filter((arg) => arg === "--model")).toHaveLength(1);
+		expect(launch.args[launch.args.indexOf("--model") + 1]).toBe("opus");
+	});
+
+	it("keeps a user supplied custom claude --model instead of the task model", async () => {
+		setupTempHome();
+		const launch = await prepareAgentLaunch({
+			taskId: "task-claude-model-custom",
+			agentId: "claude",
+			binary: "claude",
+			args: ["--model", "custom-x"],
+			cwd: "/tmp",
+			prompt: "",
+			claudeModel: "haiku",
+		});
+
+		expect(launch.args.filter((arg) => arg === "--model")).toHaveLength(1);
+		expect(launch.args[launch.args.indexOf("--model") + 1]).toBe("custom-x");
+	});
+
+	it("does not add a claude --model when the task card has no model", async () => {
+		setupTempHome();
+		const launch = await prepareAgentLaunch({
+			taskId: "task-claude-no-model",
+			agentId: "claude",
+			binary: "claude",
+			args: [],
+			cwd: "/tmp",
+			prompt: "",
+		});
+
+		expect(launch.args).not.toContain("--model");
+	});
+
+	it("does not add a claude --model for home agent sessions", async () => {
+		setupTempHome();
+		const launch = await prepareAgentLaunch({
+			taskId: "__home_agent__:workspace-1:claude",
+			agentId: "claude",
+			binary: "claude",
+			args: [],
+			cwd: "/tmp",
+			prompt: "",
+			claudeModel: "haiku",
+		});
+
+		expect(launch.args).not.toContain("--model");
+	});
+
 	it("starts Claude plan mode without bypass flags and keeps auto mode reachable", async () => {
 		setupTempHome();
 		const launch = await prepareAgentLaunch({

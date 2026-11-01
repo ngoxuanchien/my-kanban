@@ -211,6 +211,7 @@ function createRuntimeConfigState(): RuntimeConfigState {
 		openPrPromptTemplate: "pr",
 		commitPromptTemplateDefault: "commit",
 		openPrPromptTemplateDefault: "pr",
+		claudeDefaultModel: "opus",
 		globalConfigPath: "/tmp/global-config.json",
 		projectConfigPath: "/tmp/project-config.json",
 	};
@@ -439,6 +440,25 @@ describe("createRuntimeApi startTaskSession", () => {
 
 	it("reuses an existing worktree path before falling back to ensure", async () => {
 		taskWorktreeMocks.resolveTaskCwd.mockResolvedValue("/tmp/existing-worktree");
+		workspaceStateMocks.loadWorkspaceBoardById.mockResolvedValue({
+			columns: [
+				{
+					id: "todo",
+					title: "Todo",
+					cards: [
+						{
+							id: "task-1",
+							prompt: "Continue",
+							startInPlanMode: false,
+							baseRef: "main",
+							createdAt: 1,
+							updatedAt: 1,
+						},
+					],
+				},
+			],
+			dependencies: [],
+		});
 
 		const terminalManager = {
 			startTaskSession: vi.fn(async () => createSummary()),
@@ -478,7 +498,68 @@ describe("createRuntimeApi startTaskSession", () => {
 		expect(terminalManager.startTaskSession).toHaveBeenCalledWith(
 			expect.objectContaining({
 				cwd: "/tmp/existing-worktree",
+				claudeModel: "opus",
 			}),
+		);
+	});
+
+	it.each([
+		{ agentId: "claude" as const, expectedModel: "haiku" },
+		{ agentId: "codex" as const, expectedModel: undefined },
+	])("uses a card's Claude model only for Claude sessions ($agentId)", async ({ agentId, expectedModel }) => {
+		taskWorktreeMocks.resolveTaskCwd.mockResolvedValue("/tmp/existing-worktree");
+		workspaceStateMocks.loadWorkspaceBoardById.mockResolvedValue({
+			columns: [
+				{
+					id: "todo",
+					title: "Todo",
+					cards: [
+						{
+							id: "task-1",
+							prompt: "Continue",
+							startInPlanMode: false,
+							baseRef: "main",
+							createdAt: 1,
+							updatedAt: 1,
+							agentId,
+							claudeModel: "haiku",
+						},
+					],
+				},
+			],
+			dependencies: [],
+		});
+		agentRegistryMocks.resolveAgentCommand.mockReturnValue({
+			agentId,
+			label: agentId === "claude" ? "Claude Code" : "OpenAI Codex",
+			command: agentId,
+			binary: agentId,
+			args: [],
+		});
+
+		const terminalManager = {
+			startTaskSession: vi.fn(async () => createSummary({ agentId })),
+			applyTurnCheckpoint: vi.fn(),
+		};
+		const clineTaskSessionService = createClineTaskSessionServiceMock();
+		const api = createTestRuntimeApi({
+			getActiveWorkspaceId: vi.fn(() => "workspace-1"),
+			loadScopedRuntimeConfig: vi.fn(async () => createRuntimeConfigState()),
+			setActiveRuntimeConfig: vi.fn(),
+			getScopedTerminalManager: vi.fn(async () => terminalManager as never),
+			getScopedClineTaskSessionService: vi.fn(async () => clineTaskSessionService as never),
+			resolveInteractiveShellCommand: vi.fn(),
+			runCommand: vi.fn(),
+		});
+
+		const response = await api.startTaskSession(
+			{ workspaceId: "workspace-1", workspacePath: "/tmp/repo" },
+			{ taskId: "task-1", baseRef: "main", prompt: "Continue task", agentId },
+		);
+
+		expect(response.ok).toBe(true);
+		expect(terminalManager.startTaskSession).toHaveBeenCalledWith(
+			expect.objectContaining({ agentId, claudeModel: expectedModel }),
 		);
 	});
 
@@ -1096,9 +1177,9 @@ describe("createRuntimeApi startTaskSession", () => {
 	});
 
 	it("starts home agent sessions in the workspace root without resolving a task worktree", async () => {
-		const homeTaskId = "__home_agent__:workspace-1:codex";
+		const homeTaskId = "__home_agent__:workspace-1:claude";
 		const terminalManager = {
-			startTaskSession: vi.fn(async () => createSummary({ taskId: homeTaskId })),
+			startTaskSession: vi.fn(async () => createSummary({ taskId: homeTaskId, agentId: "claude" })),
 			applyTurnCheckpoint: vi.fn(),
 		};
 		const clineTaskSessionService = createClineTaskSessionServiceMock();
@@ -1130,6 +1211,7 @@ describe("createRuntimeApi startTaskSession", () => {
 			expect.objectContaining({
 				taskId: homeTaskId,
 				cwd: "/tmp/repo",
+				claudeModel: undefined,
 			}),
 		);
 		expect(turnCheckpointMocks.captureTaskTurnCheckpoint).not.toHaveBeenCalled();

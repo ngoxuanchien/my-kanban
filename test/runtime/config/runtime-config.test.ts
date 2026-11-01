@@ -513,4 +513,50 @@ describe.sequential("runtime-config auto agent selection", () => {
 			cleanupHome();
 		}
 	});
+
+	it("defaults the claude default model to opus when the config has none", async () => {
+		const { path: tempHome, cleanup: cleanupHome } = createTempDir("kanban-home-runtime-config-claude-default-");
+		const { path: tempProject, cleanup: cleanupProject } = createTempDir(
+			"kanban-project-runtime-config-claude-default-",
+		);
+
+		try {
+			await withTemporaryEnv({ home: tempHome }, async () => {
+				const state = await loadRuntimeConfig(tempProject);
+				expect(state.claudeDefaultModel).toBe("opus");
+			});
+		} finally {
+			cleanupProject();
+			cleanupHome();
+		}
+	});
+
+	it("persists the claude default model and reloads it", async () => {
+		const { path: tempHome, cleanup: cleanupHome } = createTempDir("kanban-home-runtime-config-claude-persist-");
+		const { path: tempProject, cleanup: cleanupProject } = createTempDir(
+			"kanban-project-runtime-config-claude-persist-",
+		);
+
+		try {
+			await withTemporaryEnv({ home: tempHome }, async () => {
+				const updated = await updateRuntimeConfig(tempProject, {
+					claudeDefaultModel: "haiku",
+				});
+				expect(updated.claudeDefaultModel).toBe("haiku");
+
+				const globalPayload = JSON.parse(
+					readFileSync(join(tempHome, ".cline", "kanban", "config.json"), "utf8"),
+				) as {
+					claudeDefaultModel?: string;
+				};
+				expect(globalPayload.claudeDefaultModel).toBe("haiku");
+
+				const reloaded = await loadRuntimeConfig(tempProject);
+				expect(reloaded.claudeDefaultModel).toBe("haiku");
+			});
+		} finally {
+			cleanupProject();
+			cleanupHome();
+		}
+	});
 });

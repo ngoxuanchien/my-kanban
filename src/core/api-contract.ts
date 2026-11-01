@@ -1,5 +1,8 @@
 import { z } from "zod";
+import { type RuntimeClaudeModel, runtimeClaudeModelSchema } from "./claude-model";
 import { resolveTaskTitle } from "./task-title.js";
+
+export type { RuntimeClaudeModel };
 
 export const runtimeWorkspaceFileStatusSchema = z.enum([
 	"modified",
@@ -197,6 +200,7 @@ export const runtimeBoardCardSchema = z
 		quotaBlockedAt: z.number().optional(),
 		images: z.array(runtimeTaskImageSchema).optional(),
 		agentId: runtimeAgentIdSchema.optional(),
+		claudeModel: runtimeClaudeModelSchema.optional(),
 		clineSettings: runtimeTaskClineSettingsSchema.optional(),
 		clineProviderId: z.string().optional(),
 		clineModelId: z.string().optional(),
@@ -354,6 +358,7 @@ export const runtimeTaskSessionSummarySchema = z.object({
 	state: runtimeTaskSessionStateSchema,
 	mode: runtimeTaskSessionModeSchema.nullable().optional(),
 	agentId: runtimeAgentIdSchema.nullable(),
+	claudeModel: z.string().nullable().optional(),
 	workspacePath: z.string().nullable(),
 	pid: z.number().nullable(),
 	startedAt: z.number().nullable(),
@@ -1058,6 +1063,7 @@ export const runtimeConfigResponseSchema = z.object({
 	openPrPromptTemplate: z.string(),
 	commitPromptTemplateDefault: z.string(),
 	openPrPromptTemplateDefault: z.string(),
+	claudeDefaultModel: runtimeClaudeModelSchema.default("opus"),
 });
 export type RuntimeConfigResponse = z.infer<typeof runtimeConfigResponseSchema>;
 
@@ -1069,6 +1075,7 @@ export const runtimeConfigSaveRequestSchema = z.object({
 	readyForReviewNotificationsEnabled: z.boolean().optional(),
 	commitPromptTemplate: z.string().optional(),
 	openPrPromptTemplate: z.string().optional(),
+	claudeDefaultModel: runtimeClaudeModelSchema.optional(),
 });
 export type RuntimeConfigSaveRequest = z.infer<typeof runtimeConfigSaveRequestSchema>;
 
@@ -1088,6 +1095,7 @@ export const runtimeTaskSessionStartRequestSchema = z.object({
 	rows: z.number().int().positive().optional(),
 	agentId: runtimeAgentIdSchema.optional(),
 	clineSettings: runtimeTaskClineSettingsSchema.optional(),
+	claudeModel: runtimeClaudeModelSchema.optional(),
 });
 export type RuntimeTaskSessionStartRequest = z.infer<typeof runtimeTaskSessionStartRequestSchema>;
 

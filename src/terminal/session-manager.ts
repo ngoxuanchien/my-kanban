@@ -2,6 +2,7 @@
 // It owns process lifecycle, terminal protocol filtering, and summary updates
 // for command-driven agents such as Claude Code, Codex, Gemini, and shell sessions.
 import type {
+	RuntimeClaudeModel,
 	RuntimeTaskHookActivity,
 	RuntimeTaskImage,
 	RuntimeTaskSessionReviewReason,
@@ -9,6 +10,7 @@ import type {
 	RuntimeTaskSessionSummary,
 	RuntimeTaskTurnCheckpoint,
 } from "../core/api-contract";
+import { isRuntimeClaudeModel, readCliModelOption } from "../core/claude-model";
 import {
 	type AgentAdapterLaunchInput,
 	type AgentOutputTransitionDetector,
@@ -93,6 +95,7 @@ export interface StartTaskSessionRequest {
 	rows?: number;
 	env?: Record<string, string | undefined>;
 	workspaceId?: string;
+	claudeModel?: RuntimeClaudeModel;
 }
 
 export interface StartShellSessionRequest {
@@ -334,6 +337,7 @@ export class TerminalSessionManager implements TerminalSessionService {
 			agentId: request.agentId,
 			binary: request.binary,
 			args: request.args,
+			claudeModel: request.claudeModel,
 			autonomousModeEnabled: request.autonomousModeEnabled,
 			cwd: request.cwd,
 			prompt: request.prompt,
@@ -346,6 +350,10 @@ export class TerminalSessionManager implements TerminalSessionService {
 		});
 
 		const env = buildTerminalEnvironment(request.env, launch.env);
+
+		const launchedClaudeModel = request.agentId === "claude" ? readCliModelOption(launch.args) : null;
+		const claudeModel =
+			launchedClaudeModel !== null && isRuntimeClaudeModel(launchedClaudeModel) ? launchedClaudeModel : null;
 
 		// Adapters can wrap the configured agent binary when they need extra runtime wiring
 		// (for example, Codex uses a wrapper script to watch session logs for hook transitions).
@@ -508,6 +516,7 @@ export class TerminalSessionManager implements TerminalSessionService {
 				latestHookActivity: null,
 				latestTurnCheckpoint: null,
 				previousTurnCheckpoint: null,
+				claudeModel: null,
 			});
 			this.emitSummary(summary);
 			throw new Error(formatSpawnFailure(commandBinary, error));
@@ -554,6 +563,7 @@ export class TerminalSessionManager implements TerminalSessionService {
 			warningMessage: null,
 			latestTurnCheckpoint: null,
 			previousTurnCheckpoint: null,
+			claudeModel: request.agentId === "claude" ? claudeModel : null,
 		});
 		this.emitSummary(entry.summary);
 

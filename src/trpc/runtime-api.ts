@@ -53,6 +53,7 @@ import {
 	parseTaskSessionStartRequest,
 	parseTaskSessionStopRequest,
 } from "../core/api-validation";
+import { type RuntimeClaudeModel, resolveEffectiveClaudeModel } from "../core/claude-model";
 import { resolveEffectiveTaskAgentId } from "../core/effective-task-agent";
 import { isHomeAgentSessionId } from "../core/home-agent-session";
 import { resolveTaskTitle } from "../core/task-title.js";
@@ -405,11 +406,21 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 						error: "No runnable agent command is configured. Open Settings, install a supported CLI, and select it.",
 					};
 				}
+				let resolvedClaudeModel: RuntimeClaudeModel | undefined;
+				if (!isHomeAgentSessionId(body.taskId) && resolved.agentId === "claude") {
+					const board = await loadWorkspaceBoardById(workspaceScope.workspaceId);
+					const card = board ? findBoardCard(board, body.taskId) : null;
+					resolvedClaudeModel = resolveEffectiveClaudeModel(
+						card?.claudeModel,
+						scopedRuntimeConfig.claudeDefaultModel,
+					);
+				}
 				const summary = await terminalManager.startTaskSession({
 					taskId: body.taskId,
 					agentId: resolved.agentId,
 					binary: resolved.binary,
 					args: resolved.args,
+					claudeModel: resolved.agentId === "claude" ? resolvedClaudeModel : undefined,
 					autonomousModeEnabled: scopedRuntimeConfig.agentAutonomousModeEnabled,
 					cwd: taskCwd,
 					prompt: body.prompt,

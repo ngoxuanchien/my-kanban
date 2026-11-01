@@ -5,10 +5,12 @@ import { pathToFileURL } from "node:url";
 
 import type {
 	RuntimeAgentId,
+	RuntimeClaudeModel,
 	RuntimeHookEvent,
 	RuntimeTaskImage,
 	RuntimeTaskSessionSummary,
 } from "../core/api-contract";
+import { isHomeAgentSessionId } from "../core/home-agent-session";
 import { buildKanbanCommandParts } from "../core/kanban-command";
 import { quoteShellArg } from "../core/shell";
 import { lockedFileSystem } from "../fs/locked-file-system";
@@ -34,6 +36,7 @@ export interface AgentAdapterLaunchInput {
 	resumeFromTrash?: boolean;
 	env?: Record<string, string | undefined>;
 	workspaceId?: string;
+	claudeModel?: RuntimeClaudeModel;
 }
 
 export type AgentOutputTransitionDetector = (
@@ -428,6 +431,9 @@ const claudeAdapter: AgentSessionAdapter = {
 		}
 		if (input.resumeFromTrash && !hasCliOption(args, "--continue")) {
 			args.push("--continue");
+		}
+		if (input.claudeModel !== undefined && !isHomeAgentSessionId(input.taskId) && !hasCliOption(args, "--model")) {
+			args.push("--model", input.claudeModel);
 		}
 		if (input.startInPlanMode) {
 			const withoutImmediateBypass = args.filter((arg) => arg !== "--dangerously-skip-permissions");

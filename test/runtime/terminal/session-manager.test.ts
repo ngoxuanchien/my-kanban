@@ -24,6 +24,74 @@ function createSummary(overrides: Partial<RuntimeTaskSessionSummary> = {}): Runt
 }
 
 describe("TerminalSessionManager", () => {
+	it("records the Claude model that was actually launched", async () => {
+		const spawnRequests: SpawnPtySessionRequest[] = [];
+		const spawn = vi.spyOn(PtySession, "spawn").mockImplementation((request) => {
+			spawnRequests.push(request);
+			return {
+				pid: spawnRequests.length,
+				stop: vi.fn(),
+				write: vi.fn(),
+				wasInterrupted: () => false,
+			} as unknown as PtySession;
+		});
+		try {
+			const manager = new TerminalSessionManager();
+			await manager.startTaskSession({
+				taskId: "claude-default-model",
+				agentId: "claude",
+				binary: "claude",
+				args: [],
+				claudeModel: "opus",
+				cwd: "/tmp/worktree",
+				prompt: "",
+			});
+			expect(spawnRequests[0]?.args).toContain("--model");
+			expect(spawnRequests[0]?.args).toContain("opus");
+			expect(manager.getSummary("claude-default-model")?.claudeModel).toBe("opus");
+
+			await manager.startTaskSession({
+				taskId: "claude-custom-model",
+				agentId: "claude",
+				binary: "claude",
+				args: ["--model", "custom-x"],
+				claudeModel: "haiku",
+				cwd: "/tmp/worktree",
+				prompt: "",
+			});
+			const customModelArgs = spawnRequests[1]?.args;
+			expect(Array.isArray(customModelArgs) ? customModelArgs.filter((arg) => arg === "--model") : []).toHaveLength(
+				1,
+			);
+			expect(manager.getSummary("claude-custom-model")?.claudeModel).toBeNull();
+
+			await manager.startTaskSession({
+				taskId: "claude-explicit-model",
+				agentId: "claude",
+				binary: "claude",
+				args: ["--model=sonnet"],
+				cwd: "/tmp/worktree",
+				prompt: "",
+			});
+			expect(manager.getSummary("claude-explicit-model")?.claudeModel).toBe("sonnet");
+
+			await manager.startTaskSession({
+				taskId: "__home_agent__:workspace-1:claude",
+				agentId: "claude",
+				binary: "claude",
+				args: [],
+				claudeModel: "opus",
+				cwd: "/tmp/worktree",
+				prompt: "",
+			});
+			const homeArgs = spawnRequests[3]?.args;
+			expect(homeArgs).not.toContain("--model");
+			expect(manager.getSummary("__home_agent__:workspace-1:claude")?.claudeModel).toBeNull();
+		} finally {
+			spawn.mockRestore();
+		}
+	});
+
 	it("defaults the PTY locale to UTF-8 only when no locale is configured", async () => {
 		vi.stubEnv("LANG", undefined);
 		vi.stubEnv("LC_ALL", undefined);
