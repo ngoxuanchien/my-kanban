@@ -514,6 +514,82 @@ describe("TaskAgentModelPicker – auto-reset invalid model selection", () => {
 	});
 });
 
+describe("TaskAgentModelPicker – Claude model", () => {
+	it("shows Claude model options and reports explicit and default choices", async () => {
+		const onClaudeModelChange = vi.fn();
+		const { TaskAgentModelPicker } = await import("@/components/task-agent-model-picker");
+
+		await act(async () =>
+			root.render(
+				<TaskAgentModelPicker
+					agentId="claude"
+					onAgentIdChange={() => {}}
+					claudeDefaultModel="opus"
+					onClaudeModelChange={onClaudeModelChange}
+					agentOptions={[
+						{ value: "", label: "Default" },
+						{ value: "claude", label: "Claude Code" },
+					]}
+					clineProviderOptions={[]}
+					clineModelOptions={[]}
+					isLoadingProviders={false}
+					isLoadingModels={false}
+				/>,
+			),
+		);
+
+		const trigger = Array.from(container.querySelectorAll("button")).find((button) =>
+			button.textContent?.includes("Override Agent Settings"),
+		);
+		await act(async () => trigger?.click());
+
+		const select = container.querySelector<HTMLSelectElement>('select[aria-label="Claude model"]');
+		expect(select).not.toBeNull();
+		expect(Array.from(select!.options).map((option) => option.textContent)).toEqual([
+			"Default (opus)",
+			"haiku",
+			"sonnet",
+			"opus",
+		]);
+
+		await act(async () => {
+			select!.value = "haiku";
+			select!.dispatchEvent(new Event("change", { bubbles: true }));
+		});
+		expect(onClaudeModelChange).toHaveBeenLastCalledWith("haiku");
+
+		await act(async () => {
+			select!.value = "";
+			select!.dispatchEvent(new Event("change", { bubbles: true }));
+		});
+		expect(onClaudeModelChange).toHaveBeenLastCalledWith(undefined);
+	});
+
+	it("does not show a Claude model select for another agent", async () => {
+		const { TaskAgentModelPicker } = await import("@/components/task-agent-model-picker");
+		await act(async () =>
+			root.render(
+				<TaskAgentModelPicker
+					agentId="codex"
+					onAgentIdChange={() => {}}
+					claudeDefaultModel="opus"
+					onClaudeModelChange={() => {}}
+					agentOptions={[{ value: "codex", label: "Codex" }]}
+					clineProviderOptions={[]}
+					clineModelOptions={[]}
+					isLoadingProviders={false}
+					isLoadingModels={false}
+				/>,
+			),
+		);
+		const trigger = Array.from(container.querySelectorAll("button")).find((button) =>
+			button.textContent?.includes("Override Agent Settings"),
+		);
+		await act(async () => trigger?.click());
+		expect(container.querySelector('select[aria-label="Claude model"]')).toBeNull();
+	});
+});
+
 describe("TaskAgentModelPicker – inherited default reasoning effort", () => {
 	it("shows reasoning metadata for an inherited default model and opens reasoning choices immediately", async () => {
 		const { TaskAgentModelPicker } = await import("@/components/task-agent-model-picker");

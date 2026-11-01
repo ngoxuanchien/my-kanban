@@ -62,6 +62,7 @@ function createSummary(taskId: string, agentId: RuntimeTaskSessionSummary["agent
 function createRuntimeConfig(overrides: Partial<RuntimeConfigResponse> = {}): RuntimeConfigResponse {
 	return {
 		selectedAgentId: "codex",
+		claudeDefaultModel: "opus",
 		selectedShortcutLabel: null,
 		agentAutonomousModeEnabled: true,
 		effectiveCommand: "codex --dangerously-bypass-approvals-and-sandbox",

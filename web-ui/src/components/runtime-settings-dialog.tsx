@@ -45,6 +45,7 @@ import { useLayoutCustomizations } from "@/resize/layout-customizations";
 import { openFileOnHost } from "@/runtime/runtime-config-query";
 import type {
 	RuntimeAgentId,
+	RuntimeClaudeModel,
 	RuntimeClineMcpServerAuthStatus,
 	RuntimeConfigResponse,
 	RuntimeProjectShortcut,
@@ -367,6 +368,7 @@ export function RuntimeSettingsDialog({
 	const { config, isLoading, isSaving, save, refresh } = useRuntimeConfig(open, workspaceId, initialConfig);
 	const { resetLayoutCustomizations } = useLayoutCustomizations();
 	const [selectedAgentId, setSelectedAgentId] = useState<RuntimeAgentId>("claude");
+	const [claudeDefaultModel, setClaudeDefaultModel] = useState<RuntimeClaudeModel>("opus");
 	const [agentAutonomousModeEnabled, setAgentAutonomousModeEnabled] = useState(true);
 	const [readyForReviewNotificationsEnabled, setReadyForReviewNotificationsEnabled] = useState(true);
 	const [initialThemeId, setInitialThemeId] = useState<ThemeId>(readStoredThemeId);
@@ -441,6 +443,7 @@ export function RuntimeSettingsDialog({
 	const fallbackAgentId = firstInstalledAgentId ?? displayedAgents[0]?.id ?? "claude";
 	const initialSelectedAgentId = configuredAgentId ?? fallbackAgentId;
 	const initialAgentAutonomousModeEnabled = config?.agentAutonomousModeEnabled ?? true;
+	const initialClaudeDefaultModel = config?.claudeDefaultModel ?? "opus";
 	const initialReadyForReviewNotificationsEnabled = config?.readyForReviewNotificationsEnabled ?? true;
 	const initialShortcuts = config?.shortcuts ?? [];
 	const initialCommitPromptTemplate = config?.commitPromptTemplate ?? "";
@@ -462,6 +465,9 @@ export function RuntimeSettingsDialog({
 			return false;
 		}
 		if (selectedAgentId !== initialSelectedAgentId) {
+			return true;
+		}
+		if (claudeDefaultModel !== initialClaudeDefaultModel) {
 			return true;
 		}
 		if (agentAutonomousModeEnabled !== initialAgentAutonomousModeEnabled) {
@@ -500,6 +506,7 @@ export function RuntimeSettingsDialog({
 		config,
 		draftThemeId,
 		initialAgentAutonomousModeEnabled,
+		initialClaudeDefaultModel,
 		initialCommitPromptTemplate,
 		initialOpenPrPromptTemplate,
 		initialReadyForReviewNotificationsEnabled,
@@ -509,6 +516,7 @@ export function RuntimeSettingsDialog({
 		openPrPromptTemplate,
 		readyForReviewNotificationsEnabled,
 		selectedAgentId,
+		claudeDefaultModel,
 		shortcuts,
 	]);
 
@@ -517,6 +525,7 @@ export function RuntimeSettingsDialog({
 			return;
 		}
 		setSelectedAgentId(configuredAgentId ?? fallbackAgentId);
+		setClaudeDefaultModel(config?.claudeDefaultModel ?? "opus");
 		setAgentAutonomousModeEnabled(config?.agentAutonomousModeEnabled ?? true);
 		setReadyForReviewNotificationsEnabled(config?.readyForReviewNotificationsEnabled ?? true);
 		setShortcuts(config?.shortcuts ?? []);
@@ -525,6 +534,7 @@ export function RuntimeSettingsDialog({
 		setSaveError(null);
 	}, [
 		config?.agentAutonomousModeEnabled,
+		config?.claudeDefaultModel,
 		config?.commitPromptTemplate,
 		config?.openPrPromptTemplate,
 		config?.readyForReviewNotificationsEnabled,
@@ -699,6 +709,7 @@ export function RuntimeSettingsDialog({
 		}
 		const saved = await save({
 			selectedAgentId,
+			claudeDefaultModel,
 			agentAutonomousModeEnabled,
 			readyForReviewNotificationsEnabled,
 			shortcuts,
@@ -812,6 +823,24 @@ export function RuntimeSettingsDialog({
 						<p className="text-text-secondary text-[13px] ml-6 mt-0 mb-0">
 							Allows agents to use tools without stopping for permission. Use at your own risk.
 						</p>
+						<label
+							htmlFor="runtime-settings-claude-default-model"
+							className="flex flex-col gap-1 mt-3 text-[13px] text-text-primary"
+						>
+							<span>Default Claude model</span>
+							<NativeSelect
+								aria-label="Default Claude model"
+								id="runtime-settings-claude-default-model"
+								size="sm"
+								value={claudeDefaultModel}
+								disabled={controlsDisabled}
+								onChange={(event) => setClaudeDefaultModel(event.currentTarget.value as RuntimeClaudeModel)}
+							>
+								<option value="haiku">haiku</option>
+								<option value="sonnet">sonnet</option>
+								<option value="opus">opus</option>
+							</NativeSelect>
+						</label>
 					</div>
 
 					{/* ---- Cline ---- */}

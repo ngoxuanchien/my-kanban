@@ -309,6 +309,8 @@ export default function App(): ReactElement {
 		setNewTaskAgentId,
 		newTaskClineSettings,
 		setNewTaskClineSettings,
+		newTaskClaudeModel,
+		setNewTaskClaudeModel,
 		editingTaskId,
 		editTaskPrompt,
 		setEditTaskPrompt,
@@ -329,6 +331,8 @@ export default function App(): ReactElement {
 		setEditTaskAgentId,
 		editTaskClineSettings,
 		setEditTaskClineSettings,
+		editTaskClaudeModel,
+		setEditTaskClaudeModel,
 		handleOpenCreateTask,
 		handleCancelCreateTask,
 		handleOpenEditTask,
@@ -795,6 +799,9 @@ export default function App(): ReactElement {
 			onAgentIdChange={setEditTaskAgentId}
 			clineSettings={editTaskClineSettings}
 			onClineSettingsChange={setEditTaskClineSettings}
+			claudeModel={editTaskClaudeModel}
+			claudeDefaultModel={runtimeProjectConfig?.claudeDefaultModel ?? "opus"}
+			onClaudeModelChange={setEditTaskClaudeModel}
 			defaultAgentId={runtimeProjectConfig?.selectedAgentId ?? null}
 			defaultProviderId={defaultTaskClineProviderId}
 			defaultModelId={runtimeProjectConfig?.clineProviderSettings?.modelId ?? null}
@@ -1151,6 +1158,9 @@ export default function App(): ReactElement {
 					onAgentIdChange={setNewTaskAgentId}
 					clineSettings={newTaskClineSettings}
 					onClineSettingsChange={setNewTaskClineSettings}
+					claudeModel={newTaskClaudeModel}
+					claudeDefaultModel={runtimeProjectConfig?.claudeDefaultModel ?? "opus"}
+					onClaudeModelChange={setNewTaskClaudeModel}
 					defaultAgentId={runtimeProjectConfig?.selectedAgentId ?? null}
 					defaultProviderId={defaultTaskClineProviderId}
 					defaultModelId={runtimeProjectConfig?.clineProviderSettings?.modelId ?? null}

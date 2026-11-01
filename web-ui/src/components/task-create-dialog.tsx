@@ -26,7 +26,12 @@ import { TaskPromptComposer } from "@/components/task-prompt-composer";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogBody, DialogFooter, DialogHeader } from "@/components/ui/dialog";
 import { NativeSelect } from "@/components/ui/native-select";
-import type { RuntimeAgentId, RuntimeClineReasoningEffort, RuntimeTaskClineSettings } from "@/runtime/types";
+import type {
+	RuntimeAgentId,
+	RuntimeClaudeModel,
+	RuntimeClineReasoningEffort,
+	RuntimeTaskClineSettings,
+} from "@/runtime/types";
 import { LocalStorageKey } from "@/storage/local-storage-store";
 import type { TaskAutoReviewMode, TaskImage } from "@/types";
 import { isMacPlatform, pasteShortcutLabel } from "@/utils/platform";
@@ -128,6 +133,9 @@ export function TaskCreateDialog({
 	defaultProviderId,
 	defaultModelId,
 	defaultReasoningEffort,
+	claudeModel,
+	claudeDefaultModel,
+	onClaudeModelChange,
 }: {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
@@ -165,6 +173,9 @@ export function TaskCreateDialog({
 	defaultModelId?: string | null;
 	/** Default Cline reasoning effort from runtimeConfig.clineProviderSettings.reasoningEffort */
 	defaultReasoningEffort?: RuntimeClineReasoningEffort | null;
+	claudeModel?: RuntimeClaudeModel;
+	claudeDefaultModel?: RuntimeClaudeModel;
+	onClaudeModelChange?: (model: RuntimeClaudeModel | undefined) => void;
 }): ReactElement {
 	const [mode, setMode] = useState<"single" | "multi">("single");
 	const [createMore, setCreateMore] = useState(false);
@@ -606,6 +617,9 @@ export function TaskCreateDialog({
 							onAgentIdChange={onAgentIdChange}
 							clineSettings={clineSettings}
 							onClineSettingsChange={onClineSettingsChange}
+							claudeModel={claudeModel}
+							claudeDefaultModel={claudeDefaultModel}
+							onClaudeModelChange={onClaudeModelChange}
 							agentOptions={agentOptions}
 							clineProviderOptions={clineProviderOptions}
 							clineModelOptions={clineModelOptions}

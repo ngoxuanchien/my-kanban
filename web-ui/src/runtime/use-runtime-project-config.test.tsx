@@ -27,6 +27,7 @@ function createRuntimeConfigResponse(
 ): RuntimeConfigResponse {
 	return {
 		selectedAgentId,
+		claudeDefaultModel: "opus",
 		selectedShortcutLabel: shortcuts[0]?.label ?? null,
 		agentAutonomousModeEnabled: true,
 		effectiveCommand: selectedAgentId,

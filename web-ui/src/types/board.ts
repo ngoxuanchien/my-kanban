@@ -1,6 +1,7 @@
 import type {
 	RuntimeAgentId,
 	RuntimeBoardColumnId,
+	RuntimeClaudeModel,
 	RuntimeTaskAutoReviewMode,
 	RuntimeTaskClineSettings,
 	RuntimeTaskImage,
@@ -50,6 +51,7 @@ export interface BoardCard {
 	quotaBlockedAt?: number;
 	images?: TaskImage[];
 	agentId?: RuntimeAgentId;
+	claudeModel?: RuntimeClaudeModel;
 	clineSettings?: RuntimeTaskClineSettings;
 	baseRef: string;
 	createdAt: number;

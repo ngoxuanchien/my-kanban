@@ -3,7 +3,12 @@ import { createShortTaskId } from "@runtime-task-id";
 import * as runtimeTaskState from "@runtime-task-state";
 
 import { createInitialBoardData } from "@/data/board-data";
-import type { RuntimeAgentId, RuntimeClineReasoningEffort, RuntimeTaskClineSettings } from "@/runtime/types";
+import type {
+	RuntimeAgentId,
+	RuntimeClaudeModel,
+	RuntimeClineReasoningEffort,
+	RuntimeTaskClineSettings,
+} from "@/runtime/types";
 import { isAllowedCrossColumnCardMove, type ProgrammaticCardMoveInFlight } from "@/state/drag-rules";
 import {
 	type BoardCard,
@@ -27,6 +32,7 @@ export interface TaskDraft {
 	agentReviewEnabled?: boolean;
 	images?: TaskImage[];
 	agentId?: RuntimeAgentId;
+	claudeModel?: RuntimeClaudeModel;
 	clineSettings?: RuntimeTaskClineSettings;
 	baseRef: string;
 }
@@ -165,6 +171,7 @@ function normalizeCard(rawCard: unknown): BoardCard | null {
 		images?: unknown;
 		baseRef?: unknown;
 		agentId?: unknown;
+		claudeModel?: unknown;
 		clineSettings?: unknown;
 		clineProviderId?: unknown;
 		clineModelId?: unknown;
@@ -219,6 +226,9 @@ function normalizeCard(rawCard: unknown): BoardCard | null {
 		images: normalizeTaskImages(card.images),
 		baseRef,
 		...(typeof card.agentId === "string" && card.agentId ? { agentId: card.agentId as RuntimeAgentId } : {}),
+		...(card.claudeModel === "haiku" || card.claudeModel === "sonnet" || card.claudeModel === "opus"
+			? { claudeModel: card.claudeModel }
+			: {}),
 		...(clineSettings !== undefined ? { clineSettings } : {}),
 		createdAt: typeof card.createdAt === "number" ? card.createdAt : now,
 		updatedAt: typeof card.updatedAt === "number" ? card.updatedAt : now,
@@ -375,6 +385,7 @@ export function addTaskToColumnWithResult(
 	const task: BoardCard = {
 		...result.task,
 		agentReviewEnabled: draft.agentReviewEnabled === true,
+		...(draft.claudeModel !== undefined ? { claudeModel: draft.claudeModel } : {}),
 	};
 	return {
 		board: {
@@ -578,6 +589,7 @@ export function updateTask(board: BoardData, taskId: string, draft: TaskDraft): 
 							? draft.images.map((image) => ({ ...image }))
 							: undefined,
 				agentId: draft.agentId,
+				claudeModel: draft.claudeModel,
 				clineSettings: draft.clineSettings,
 				baseRef,
 				updatedAt: Date.now(),
@@ -609,6 +621,7 @@ export function updateTaskTitle(
 		autoReviewMode: selection.card.autoReviewMode,
 		images: selection.card.images,
 		agentId: selection.card.agentId,
+		claudeModel: selection.card.claudeModel,
 		clineSettings: selection.card.clineSettings,
 		baseRef: selection.card.baseRef,
 	});
@@ -640,6 +653,7 @@ export function applyTaskDetailClineSettingsSelection(
 		autoReviewMode: selection.card.autoReviewMode,
 		images: selection.card.images,
 		agentId: settings.agentId,
+		claudeModel: selection.card.claudeModel,
 		clineSettings: settings.clineSettings ?? undefined,
 		baseRef: selection.card.baseRef,
 	});
@@ -698,6 +712,7 @@ export function disableTaskAutoReview(board: BoardData, taskId: string): { board
 		autoReviewMode: DEFAULT_TASK_AUTO_REVIEW_MODE,
 		images: selection.card.images,
 		agentId: selection.card.agentId,
+		claudeModel: selection.card.claudeModel,
 		clineSettings: selection.card.clineSettings,
 		baseRef: selection.card.baseRef,
 	});

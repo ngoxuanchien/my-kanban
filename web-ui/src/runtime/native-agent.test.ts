@@ -16,6 +16,7 @@ function createRuntimeConfigResponse(
 ): RuntimeConfigResponse {
 	const nextConfig: RuntimeConfigResponse = {
 		selectedAgentId,
+		claudeDefaultModel: "opus",
 		selectedShortcutLabel: null,
 		agentAutonomousModeEnabled: true,
 		effectiveCommand: selectedAgentId === "cline" ? null : selectedAgentId,

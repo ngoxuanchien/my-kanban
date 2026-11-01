@@ -209,6 +209,7 @@ const savedClineOauthConfig = {
 		oauthAccountId: "acc-1",
 		oauthExpiresAt: 1_800_000_000_000,
 	},
+	claudeDefaultModel: "opus",
 } as unknown as RuntimeConfigResponse;
 
 describe("RuntimeSettingsDialog", () => {
@@ -228,6 +229,31 @@ describe("RuntimeSettingsDialog", () => {
 		container = document.createElement("div");
 		document.body.appendChild(container);
 		root = createRoot(container);
+	});
+
+	it("saves the selected default Claude model", async () => {
+		await act(async () => {
+			root.render(
+				<RuntimeSettingsDialog
+					open={true}
+					workspaceId="workspace-1"
+					initialConfig={savedClineOauthConfig}
+					onOpenChange={() => {}}
+				/>,
+			);
+		});
+
+		const select = document.querySelector<HTMLSelectElement>('select[aria-label="Default Claude model"]');
+		expect(select).not.toBeNull();
+		expect(Array.from(select!.options).map((option) => option.textContent)).toEqual(["haiku", "sonnet", "opus"]);
+		await act(async () => {
+			select!.value = "haiku";
+			select!.dispatchEvent(new Event("change", { bubbles: true }));
+		});
+		const saveButton = findButtonByText(document.body, "Save");
+		await act(async () => saveButton?.click());
+
+		expect(saveRuntimeConfigMock).toHaveBeenCalledWith(expect.objectContaining({ claudeDefaultModel: "haiku" }));
 	});
 
 	afterEach(() => {

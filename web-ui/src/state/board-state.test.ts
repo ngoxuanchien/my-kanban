@@ -4,6 +4,7 @@ import { createInitialBoardData } from "@/data/board-data";
 import {
 	addTaskDependency,
 	addTaskToColumn,
+	addTaskToColumnWithResult,
 	applyDragResult,
 	applyTaskDetailClineSettingsChange,
 	applyTaskDetailClineSettingsSelection,
@@ -13,6 +14,7 @@ import {
 	moveTaskToColumn,
 	normalizeBoardData,
 	trashTaskAndGetReadyLinkedTaskIds,
+	updateTask,
 	updateTaskTitle,
 } from "@/state/board-state";
 import type { ProgrammaticCardMoveInFlight } from "@/state/drag-rules";
@@ -64,6 +66,59 @@ describe("board dependency state", () => {
 		});
 
 		expect(normalized?.columns[0]?.cards[0]?.handOffCount).toBe(0);
+	});
+
+	it("keeps only allowed Claude models when normalizing cards", () => {
+		for (const [claudeModel, expected] of [
+			["opus", "opus"],
+			["gpt", undefined],
+		] as const) {
+			const board = normalizeBoardData({
+				columns: [
+					{
+						id: "backlog",
+						cards: [{ id: "task-1", prompt: "Task", baseRef: "main", claudeModel }],
+					},
+					{ id: "in_progress", cards: [] },
+					{ id: "review", cards: [] },
+					{ id: "trash", cards: [] },
+				],
+				dependencies: [],
+			});
+
+			expect(board?.columns[0]?.cards[0]?.claudeModel).toBe(expected);
+		}
+	});
+
+	it("adds the selected Claude model to the new card", () => {
+		const result = addTaskToColumnWithResult(createInitialBoardData(), "backlog", {
+			prompt: "Task with Claude model",
+			baseRef: "main",
+			claudeModel: "haiku",
+		});
+
+		expect(result.task.claudeModel).toBe("haiku");
+		expect(result.board.columns[0]?.cards[0]?.claudeModel).toBe("haiku");
+	});
+
+	it("updates and clears the Claude model on an existing card", () => {
+		const created = addTaskToColumnWithResult(createInitialBoardData(), "backlog", {
+			prompt: "Task with Claude model",
+			baseRef: "main",
+		});
+		const updated = updateTask(created.board, created.task.id, {
+			prompt: created.task.prompt,
+			baseRef: "main",
+			claudeModel: "sonnet",
+		});
+		const cleared = updateTask(updated.board, created.task.id, {
+			prompt: created.task.prompt,
+			baseRef: "main",
+			claudeModel: undefined,
+		});
+
+		expect(updated.board.columns[0]?.cards[0]?.claudeModel).toBe("sonnet");
+		expect(cleared.board.columns[0]?.cards[0]?.claudeModel).toBeUndefined();
 	});
 
 	it("creates tasks when randomUUID is unavailable", () => {

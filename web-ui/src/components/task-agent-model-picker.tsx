@@ -16,6 +16,7 @@ import { NativeSelect } from "@/components/ui/native-select";
 import { fetchClineProviderCatalog, fetchClineProviderModels } from "@/runtime/runtime-config-query";
 import type {
 	RuntimeAgentId,
+	RuntimeClaudeModel,
 	RuntimeClineProviderCatalogItem,
 	RuntimeClineProviderModel,
 	RuntimeClineReasoningEffort,
@@ -240,6 +241,9 @@ export function TaskAgentModelPicker({
 	defaultAgentId,
 	defaultProviderId,
 	defaultReasoningEffort,
+	claudeModel,
+	claudeDefaultModel = "opus",
+	onClaudeModelChange,
 	providerDefaultModels,
 }: {
 	agentId: RuntimeAgentId | undefined;
@@ -260,6 +264,9 @@ export function TaskAgentModelPicker({
 	defaultProviderId?: string | null;
 	/** The global default reasoning effort from runtimeConfig.clineProviderSettings.reasoningEffort */
 	defaultReasoningEffort?: RuntimeClineReasoningEffort | null;
+	claudeModel?: RuntimeClaudeModel;
+	claudeDefaultModel?: RuntimeClaudeModel;
+	onClaudeModelChange?: (model: RuntimeClaudeModel | undefined) => void;
 	/** Map of provider ID → its default model ID (from the provider catalog). */
 	providerDefaultModels?: Record<string, string>;
 }): ReactElement {
@@ -278,6 +285,7 @@ export function TaskAgentModelPicker({
 	// (either explicitly overridden to cline, or defaulting to cline)
 	const effectiveAgentId = agentId ?? defaultAgentId ?? null;
 	const showClineProviderPicker = effectiveAgentId === "cline";
+	const showClaudeModelPicker = effectiveAgentId === "claude" && onClaudeModelChange !== undefined;
 
 	// Show the Cline model picker when a provider is effectively selected
 	// (either explicitly overridden, or the global default provider is set)
@@ -486,6 +494,29 @@ export function TaskAgentModelPicker({
 								))}
 							</NativeSelect>
 						</div>
+						{showClaudeModelPicker ? (
+							<div className="w-full sm:w-1/2 min-w-0">
+								<span className="text-[11px] text-text-secondary block mb-1">Claude model</span>
+								<NativeSelect
+									size="sm"
+									fill
+									aria-label="Claude model"
+									value={claudeModel ?? ""}
+									onChange={(event) =>
+										onClaudeModelChange(
+											event.currentTarget.value
+												? (event.currentTarget.value as RuntimeClaudeModel)
+												: undefined,
+										)
+									}
+								>
+									<option value="">Default ({claudeDefaultModel})</option>
+									<option value="haiku">haiku</option>
+									<option value="sonnet">sonnet</option>
+									<option value="opus">opus</option>
+								</NativeSelect>
+							</div>
+						) : null}
 						{showClineProviderPicker ? (
 							<div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
 								<div className="min-w-0">

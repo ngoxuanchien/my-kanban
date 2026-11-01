@@ -9,7 +9,12 @@ import { TaskAgentModelPicker, useTaskAgentModelPicker } from "@/components/task
 import { TaskPromptComposer } from "@/components/task-prompt-composer";
 import { Button } from "@/components/ui/button";
 import { NativeSelect } from "@/components/ui/native-select";
-import type { RuntimeAgentId, RuntimeClineReasoningEffort, RuntimeTaskClineSettings } from "@/runtime/types";
+import type {
+	RuntimeAgentId,
+	RuntimeClaudeModel,
+	RuntimeClineReasoningEffort,
+	RuntimeTaskClineSettings,
+} from "@/runtime/types";
 import type { TaskAutoReviewMode, TaskImage } from "@/types";
 import { pasteShortcutLabel } from "@/utils/platform";
 import { useDocumentEvent, useMeasure } from "@/utils/react-use";
@@ -77,6 +82,9 @@ export function TaskInlineCreateCard({
 	defaultProviderId,
 	defaultModelId,
 	defaultReasoningEffort,
+	claudeModel,
+	claudeDefaultModel,
+	onClaudeModelChange,
 }: {
 	title?: string;
 	onTitleChange?: (value: string) => void;
@@ -115,6 +123,9 @@ export function TaskInlineCreateCard({
 	defaultModelId?: string | null;
 	/** Default Cline reasoning effort from runtimeConfig.clineProviderSettings.reasoningEffort */
 	defaultReasoningEffort?: RuntimeClineReasoningEffort | null;
+	claudeModel?: RuntimeClaudeModel;
+	claudeDefaultModel?: RuntimeClaudeModel;
+	onClaudeModelChange?: (model: RuntimeClaudeModel | undefined) => void;
 }): ReactElement {
 	const promptId = `${idPrefix}-prompt-input`;
 	const planModeId = `${idPrefix}-plan-mode-toggle`;
@@ -339,6 +350,9 @@ export function TaskInlineCreateCard({
 						onAgentIdChange={onAgentIdChange}
 						clineSettings={clineSettings}
 						onClineSettingsChange={onClineSettingsChange}
+						claudeModel={claudeModel}
+						claudeDefaultModel={claudeDefaultModel}
+						onClaudeModelChange={onClaudeModelChange}
 						agentOptions={agentOptions}
 						clineProviderOptions={clineProviderOptions}
 						clineModelOptions={clineModelOptions}

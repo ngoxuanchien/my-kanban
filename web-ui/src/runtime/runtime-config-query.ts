@@ -4,6 +4,7 @@
 import { getRuntimeTrpcClient } from "@/runtime/trpc-client";
 import type {
 	RuntimeAgentId,
+	RuntimeClaudeModel,
 	RuntimeClineAccountBalanceResponse,
 	RuntimeClineAccountOrganizationsResponse,
 	RuntimeClineAccountProfileResponse,
@@ -42,6 +43,7 @@ export async function saveRuntimeConfig(
 	workspaceId: string | null,
 	nextConfig: {
 		selectedAgentId?: RuntimeAgentId;
+		claudeDefaultModel?: RuntimeClaudeModel;
 		selectedShortcutLabel?: string | null;
 		agentAutonomousModeEnabled?: boolean;
 		shortcuts?: RuntimeProjectShortcut[];
