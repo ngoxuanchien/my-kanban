@@ -100,6 +100,7 @@ Update this file whenever a file or folder is created or moved.
 | `contexte/antigravity-agent.md` | Antigravity CLI hook spike findings and adapter behavior. |
 | `contexte/agent-transcripts.md` | Transcript formats, normalized readers, and session capture limits. |
 | `contexte/upstream-issues.md` | Which open cline/kanban issues affect this fork, what was fixed, and what was left. |
+| `contexte/claude-model-per-task.md` | Claude model per task: what landed, review lessons for its 3 tasks. |
 | `contexte/kanban-cli-oom.md` | Kanban CLI V8 OOM crash: `2>&1 | head` closes the merged pipe, unhandled EPIPE recurses; proposed fix; how to recover argv from Claude transcripts. |
 
 ## livrables/
