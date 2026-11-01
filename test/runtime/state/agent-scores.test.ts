@@ -50,6 +50,17 @@ function initGitRepository(path: string): void {
 }
 
 describe("agent scores", () => {
+	it("merges legacy claude events into opus without counting a task twice", () => {
+		expect(
+			summarizeAgentScoreEvents([
+				{ type: "assigned", agentId: "claude", taskId: "t1", at: 1 },
+				{ type: "pass", agentId: "claude", taskId: "t1", at: 2 },
+				{ type: "assigned", agentId: "opus", taskId: "t1", at: 3 },
+				{ type: "pass", agentId: "opus", taskId: "t2", at: 4 },
+			]),
+		).toEqual([{ agentId: "opus", score: 2, passes: 2, fails: 0, tasks: 1 }]);
+	});
+
 	it("summarizes derived agent score totals from raw events", () => {
 		expect(
 			summarizeAgentScoreEvents([

@@ -154,6 +154,77 @@ describe("task create agent review default", () => {
 	});
 });
 
+describe("task command Claude model option", () => {
+	beforeEach(() => {
+		cliMocks.workspaceState.board.columns[0]?.cards.splice(0);
+		cliMocks.client.runtime.getConfig.query.mockResolvedValue({
+			selectedAgentId: "claude",
+			claudeDefaultModel: "opus",
+		} as never);
+		cliMocks.client.workspace.getState.query.mockImplementation(async () => cliMocks.workspaceState as never);
+		process.exitCode = 0;
+	});
+
+	async function run(
+		args: string[],
+	): Promise<{ ok: boolean; task?: Record<string, unknown>; tasks?: Array<Record<string, unknown>>; error?: string }> {
+		let output = "";
+		const write = vi.spyOn(process.stdout, "write").mockImplementation(((chunk: string | Uint8Array) => {
+			output += chunk.toString();
+			return true;
+		}) as typeof process.stdout.write);
+		const program = new Command();
+		registerTaskCommand(program);
+		await program.parseAsync(["node", "kanban", "task", ...args]);
+		write.mockRestore();
+		return JSON.parse(output) as {
+			ok: boolean;
+			task?: Record<string, unknown>;
+			tasks?: Array<Record<string, unknown>>;
+			error?: string;
+		};
+	}
+
+	it("creates and lists a Claude task model", async () => {
+		const created = await run(["create", "--prompt", "Ship it", "--agent-id", "claude", "--model", "sonnet"]);
+		expect(created.task?.claudeModel).toBe("sonnet");
+		const listed = await run(["list"]);
+		expect(listed.tasks?.[0]?.claudeModel).toBe("sonnet");
+	});
+
+	it("accepts model with selected Claude agent and rejects other agents or aliases", async () => {
+		const selectedAgent = await run(["create", "--prompt", "Ship it", "--model", "haiku"]);
+		expect(selectedAgent.task?.claudeModel).toBe("haiku");
+		const otherAgent = await run(["create", "--prompt", "Ship it", "--agent-id", "codex", "--model", "haiku"]);
+		expect(otherAgent).toMatchObject({ ok: false, error: expect.stringContaining("--model") });
+		const invalidModel = await run(["create", "--prompt", "Ship it", "--model", "gpt"]);
+		expect(invalidModel).toMatchObject({ ok: false, error: expect.stringContaining("--model") });
+	});
+
+	it("clears the model on update and preserves it when changing agents", async () => {
+		const card = {
+			id: "task-1",
+			title: "Task",
+			prompt: "Ship it",
+			claudeModel: "haiku",
+			agentId: "claude",
+			baseRef: "main",
+			startInPlanMode: false,
+			createdAt: 1,
+			updatedAt: 1,
+		};
+		(cliMocks.workspaceState.board.columns[0]?.cards as unknown as Record<string, unknown>[]).push(card);
+		const cleared = await run(["update", "--task-id", "task-1", "--model", "default"]);
+		expect(cleared.task).not.toHaveProperty("claudeModel");
+		(cliMocks.workspaceState.board.columns[0]?.cards as unknown as Record<string, unknown>[]).push({
+			...card,
+			id: "task-2",
+		});
+		const changedAgent = await run(["update", "--task-id", "task-2", "--agent-id", "codex"]);
+		expect(changedAgent.task?.claudeModel).toBe("haiku");
+	});
+});
+
 describe("task review scoring commands", () => {
 	const reviewCard = {
 		id: "task-1",
@@ -169,6 +240,7 @@ describe("task review scoring commands", () => {
 	};
 
 	beforeEach(() => {
+		for (const column of cliMocks.workspaceState.board.columns) column.cards.splice(0);
 		scoreMocks.recordAgentScoreEvent.mockReset();
 		scoreMocks.recordAgentScoreEvent.mockResolvedValue(true);
 		historyMocks.recordTaskHistoryEvent.mockClear();
@@ -185,7 +257,10 @@ describe("task review scoring commands", () => {
 			},
 			sessions: {},
 		} as never);
-		cliMocks.client.runtime.getConfig.query.mockResolvedValue({ selectedAgentId: "claude" });
+		cliMocks.client.runtime.getConfig.query.mockResolvedValue({
+			selectedAgentId: "claude",
+			claudeDefaultModel: "opus",
+		} as never);
 		completionMocks.completeTaskToDone.mockResolvedValue({
 			previousColumnId: "review",
 			alreadyInTrash: false,
@@ -253,7 +328,7 @@ describe("task review scoring commands", () => {
 		await execute(["review-failed", "--task-id", "task-1"]);
 		expect(scoreMocks.recordAgentScoreEvent).toHaveBeenCalledWith("workspace-1", {
 			type: "fail",
-			agentId: "claude",
+			agentId: "opus",
 			taskId: "task-1",
 			round: 2,
 		});
@@ -282,7 +357,7 @@ describe("task review scoring commands", () => {
 		await execute(["done", "--task-id", "task-1", "--review-passed"]);
 		expect(scoreMocks.recordAgentScoreEvent).toHaveBeenCalledWith("workspace-1", {
 			type: "pass",
-			agentId: "claude",
+			agentId: "opus",
 			taskId: "task-1",
 			round: 2,
 		});
@@ -291,6 +366,28 @@ describe("task review scoring commands", () => {
 			agentId: "claude",
 			round: 2,
 			commit: undefined,
+		});
+	});
+
+	it("scores a Claude review with the session launch model", async () => {
+		const card = { ...reviewCard, agentId: "claude", claudeModel: "sonnet" };
+		cliMocks.client.workspace.getState.query.mockResolvedValue({
+			repoPath: "/tmp/repo",
+			board: {
+				columns: ["backlog", "in_progress", "review", "trash"].map((id) => ({
+					id,
+					title: id,
+					cards: id === "review" ? [card] : [],
+				})),
+			},
+			sessions: { "task-1": { agentId: "claude", claudeModel: "haiku" } },
+		} as never);
+		await execute(["done", "--task-id", "task-1", "--review-passed"]);
+		expect(scoreMocks.recordAgentScoreEvent).toHaveBeenCalledWith("workspace-1", {
+			type: "pass",
+			agentId: "haiku",
+			taskId: "task-1",
+			round: 2,
 		});
 	});
 

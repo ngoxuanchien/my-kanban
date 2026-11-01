@@ -204,7 +204,7 @@ Command:
 Purpose: create a new task in \`backlog\`, with optional plan mode and auto-review behavior.
 
 Command:
-\`${kanbanCommand} task create [--title "<text>"] --prompt "<text>" [--project-path <path>] [--base-ref <branch>] [--start-in-plan-mode <true|false>] [--auto-review-enabled <true|false>] [--auto-review-mode commit|pr] [--agent-id <${RUNTIME_AGENT_IDS_TEXT}>] [--agent-review-enabled <true|false>]\`
+\`${kanbanCommand} task create [--title "<text>"] --prompt "<text>" [--project-path <path>] [--base-ref <branch>] [--start-in-plan-mode <true|false>] [--auto-review-enabled <true|false>] [--auto-review-mode commit|pr] [--agent-id <${RUNTIME_AGENT_IDS_TEXT}>] [--model <haiku|sonnet|opus>] [--agent-review-enabled <true|false>]\`
 
 Parameters:
 - \`--title "<text>"\` optional task title. If omitted, Kanban derives one from the prompt.
@@ -215,6 +215,7 @@ Parameters:
 - \`--auto-review-enabled <true|false>\` optional. Default false. Enables automatic action once task reaches review.
 - \`--auto-review-mode commit|pr\` optional auto-review action. Default \`commit\`.
 - \`--agent-id <${RUNTIME_AGENT_IDS_TEXT}>\` optional runtime agent for this task.
+- \`--model <haiku|sonnet|opus>\` optional Claude model. Use it only when the user names a Claude model.
 - \`--agent-review-enabled <true|false>\` optional. Default false. When true, the sidebar agent reviews the task when it reaches Review, with up to 3 fix rounds before \`task handoff\`.
 
 ## task update
@@ -222,7 +223,7 @@ Parameters:
 Purpose: update an existing task, including prompt, base ref, plan mode, and auto-review behavior.
 
 Command:
-\`${kanbanCommand} task update --task-id <task_id> [--title "<text>"] [--prompt "<text>"] [--project-path <path>] [--base-ref <branch>] [--start-in-plan-mode <true|false>] [--auto-review-enabled <true|false>] [--auto-review-mode commit|pr] [--agent-id <${RUNTIME_AGENT_IDS_TEXT}|default>] [--agent-review-enabled <true|false>]\`
+\`${kanbanCommand} task update --task-id <task_id> [--title "<text>"] [--prompt "<text>"] [--project-path <path>] [--base-ref <branch>] [--start-in-plan-mode <true|false>] [--auto-review-enabled <true|false>] [--auto-review-mode commit|pr] [--agent-id <${RUNTIME_AGENT_IDS_TEXT}|default>] [--model <haiku|sonnet|opus|default>] [--agent-review-enabled <true|false>]\`
 
 Parameters:
 - \`--task-id <task_id>\` required task ID.
@@ -234,6 +235,7 @@ Parameters:
 - \`--auto-review-enabled <true|false>\` optional replacement of auto-review toggle. Set false to cancel pending automatic review actions.
 - \`--auto-review-mode commit|pr\` optional replacement auto-review action.
 - \`--agent-id <${RUNTIME_AGENT_IDS_TEXT}|default>\` optional replacement runtime agent. Use \`default\` to clear the override.
+- \`--model <haiku|sonnet|opus|default>\` optional Claude model. Use \`default\` to clear the override; use a model only when the user names one.
 - \`--agent-review-enabled <true|false>\` optional replacement of agent review behavior. When true, the sidebar agent reviews the task when it reaches Review, with up to 3 fix rounds before \`task handoff\`.
 
 Notes:
@@ -333,7 +335,7 @@ Command:
 
 - Prefer \`task list\` first when task IDs or dependency IDs are needed.
 - To create multiple linked tasks, create tasks first, then call \`task link\` for each dependency edge.
-- When creating a task and the user did not name an agent, always pass \`--agent-id\`. Rotate through ${HAND_OFF_CYCLE.join(", ")} in that order, starting after the agent of the most recently created task in \`task list\` (start with ${HAND_OFF_CYCLE[0]} if none uses one of them). Use any other agent, such as claude or cline, only when the user asks for it, because only these agents can be handed off when a task gets stuck.
+- When creating a task and the user did not name an agent, always pass \`--agent-id\`. Rotate through ${HAND_OFF_CYCLE.join(", ")} in that order, starting after the agent of the most recently created task in \`task list\` (start with ${HAND_OFF_CYCLE[0]} if none uses one of them). Use any other agent, such as claude or cline, only when the user asks for it, because only these agents can be handed off when a task gets stuck. Use \`--model\` only when the user names a Claude model; never pick Claude or a model on your own.
 
 # Reviewing tasks
 

@@ -73,17 +73,18 @@ function getAgentScoreTaskKey(event: Pick<AgentScoreEvent, "type" | "agentId" | 
 export function summarizeAgentScoreEvents(events: AgentScoreEvent[]): RuntimeAgentScore[] {
 	const agents = new Map<string, AgentScoreAccumulator>();
 	for (const event of events) {
-		let accumulator = agents.get(event.agentId);
+		const agentId = event.agentId === "claude" ? "opus" : event.agentId;
+		let accumulator = agents.get(agentId);
 		if (!accumulator) {
 			accumulator = createAgentScoreAccumulator();
-			agents.set(event.agentId, accumulator);
+			agents.set(agentId, accumulator);
 		}
 		if (event.type === "assigned") {
 			accumulator.taskIds.add(event.taskId);
 		} else if (event.type === "pass") {
 			accumulator.passTaskIds.add(event.taskId);
 		} else {
-			accumulator.failTaskKeys.add(getAgentScoreTaskKey(event));
+			accumulator.failTaskKeys.add(getAgentScoreTaskKey({ ...event, agentId }));
 		}
 	}
 

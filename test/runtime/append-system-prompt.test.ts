@@ -77,6 +77,12 @@ describe("renderAppendSystemPrompt", () => {
 		expect(updateSection).toContain("Use `default` to clear the override.");
 	});
 
+	it("documents Claude model selection for user-requested models", () => {
+		const rendered = renderAppendSystemPrompt("kanban");
+		expect(rendered).toContain("--model <haiku|sonnet|opus>");
+		expect(rendered).toContain("Use `--model` only when the user names a Claude model");
+	});
+
 	it("defaults task creation to the handoff agent cycle", () => {
 		const rendered = renderAppendSystemPrompt("kanban");
 		const workflowNotes = rendered.slice(rendered.indexOf("# Workflow Notes"), rendered.indexOf("# Reviewing tasks"));

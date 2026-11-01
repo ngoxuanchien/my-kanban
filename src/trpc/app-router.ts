@@ -4,7 +4,6 @@
 import type { inferRouterInputs, inferRouterOutputs } from "@trpc/server";
 import { initTRPC, TRPCError } from "@trpc/server";
 import { z } from "zod";
-
 import type {
 	RuntimeAgentTranscriptRequest,
 	RuntimeAgentTranscriptResponse,
@@ -215,6 +214,7 @@ import {
 	runtimeWorktreeEnsureRequestSchema,
 	runtimeWorktreeEnsureResponseSchema,
 } from "../core/api-contract";
+import { resolveScoreAgentKey } from "../core/claude-model";
 import { recordAgentScoreEvent } from "../state/agent-scores";
 import { recordTaskHistoryEvent } from "../state/task-history";
 import { loadWorkspaceBoardById } from "../state/workspace-state";
@@ -568,7 +568,7 @@ export const runtimeAppRouter = t.router({
 							if (
 								await recordAgentScoreEvent(ctx.workspaceScope.workspaceId, {
 									type: "fail",
-									agentId: result.fromAgentId,
+									agentId: resolveScoreAgentKey({ agentId: result.fromAgentId }),
 									taskId: input.taskId,
 									round: reviewRound,
 								})

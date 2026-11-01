@@ -15,6 +15,18 @@ export function resolveEffectiveClaudeModel(
 	return cardModel ?? defaultModel ?? DEFAULT_CLAUDE_MODEL;
 }
 
+export function resolveScoreAgentKey(input: {
+	agentId: string;
+	sessionClaudeModel?: string | null;
+	cardClaudeModel?: RuntimeClaudeModel;
+	defaultClaudeModel?: RuntimeClaudeModel;
+}): string {
+	if (input.agentId !== "claude") return input.agentId;
+	if (input.sessionClaudeModel !== undefined)
+		return isRuntimeClaudeModel(input.sessionClaudeModel) ? input.sessionClaudeModel : "claude";
+	return resolveEffectiveClaudeModel(input.cardClaudeModel, input.defaultClaudeModel);
+}
+
 export function readCliModelOption(args: readonly string[]): string | null {
 	for (let index = 0; index < args.length; index += 1) {
 		const arg = args[index];

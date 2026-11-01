@@ -12,6 +12,7 @@ import type {
 	RuntimeWorkspaceStateResponse,
 } from "../core/api-contract";
 import { runtimeAgentIdSchema, runtimeClineReasoningEffortSchema } from "../core/api-contract";
+import { type RuntimeClaudeModel, resolveScoreAgentKey, runtimeClaudeModelSchema } from "../core/claude-model";
 import { resolveEffectiveTaskAgentId } from "../core/effective-task-agent";
 import { getHandOffCount } from "../core/hand-off-cap";
 import { buildKanbanRuntimeUrl, getKanbanRuntimeOrigin, getRuntimeFetch } from "../core/runtime-endpoint";
@@ -117,6 +118,45 @@ function parseOptionalStringOrDefault(value: string | undefined): string | null 
 		return null;
 	}
 	return value;
+}
+
+function parseTaskClaudeModel(value: string | undefined, allowDefault: false): RuntimeClaudeModel | undefined;
+function parseTaskClaudeModel(
+	value: string | undefined,
+	allowDefault: true,
+): RuntimeClaudeModel | "default" | undefined;
+function parseTaskClaudeModel(
+	value: string | undefined,
+	allowDefault: boolean,
+): RuntimeClaudeModel | "default" | undefined {
+	if (value === undefined) return undefined;
+	if (allowDefault && value === "default") return "default";
+	const result = runtimeClaudeModelSchema.safeParse(value);
+	if (!result.success)
+		throw new Error(`Invalid --model "${value}". Expected: haiku, sonnet, opus${allowDefault ? ", default" : ""}.`);
+	return result.data;
+}
+
+function setTaskClaudeModel(
+	board: RuntimeWorkspaceStateResponse["board"],
+	taskId: string,
+	model: RuntimeClaudeModel | undefined,
+): { board: RuntimeWorkspaceStateResponse["board"]; task: RuntimeBoardCard | null } {
+	let task: RuntimeBoardCard | null = null;
+	const columns = board.columns.map((column) => {
+		let changed = false;
+		const cards = column.cards.map((card) => {
+			if (card.id !== taskId) return card;
+			changed = true;
+			task =
+				model === undefined
+					? (({ claudeModel: _claudeModel, ...rest }) => rest)(card)
+					: { ...card, claudeModel: model };
+			return task;
+		});
+		return changed ? { ...column, cards } : column;
+	});
+	return { board: { ...board, columns }, task };
 }
 
 type ParsedTaskClineReasoningEffort = RuntimeClineReasoningEffort | "default" | null | undefined;
@@ -323,6 +363,14 @@ async function recordReviewScore(input: {
 		const agentId = card
 			? resolveEffectiveTaskAgentId(card.agentId, state.sessions[input.taskId]?.agentId, config.selectedAgentId)
 			: null;
+		const scoreAgentId = agentId
+			? resolveScoreAgentKey({
+					agentId,
+					sessionClaudeModel: state.sessions[input.taskId]?.claudeModel,
+					cardClaudeModel: card?.claudeModel,
+					defaultClaudeModel: config.claudeDefaultModel,
+				})
+			: null;
 		if (
 			!card ||
 			!agentId ||
@@ -345,7 +393,7 @@ async function recordReviewScore(input: {
 		}
 		const recorded = await recordAgentScoreEvent(input.workspaceId, {
 			type: input.type,
-			agentId,
+			agentId: scoreAgentId ?? agentId,
 			taskId: input.taskId,
 			round: card.reviewRound,
 		});
@@ -418,6 +466,7 @@ function formatTaskRecord(
 		reviewRound: task.reviewRound ?? 0,
 		handOffCount: getHandOffCount(task),
 		...(task.agentId ? { agentId: task.agentId } : {}),
+		...(task.claudeModel ? { claudeModel: task.claudeModel } : {}),
 		...formatTaskClineSettings(task.clineSettings),
 		createdAt: task.createdAt,
 		updatedAt: task.updatedAt,
@@ -573,8 +622,14 @@ async function createTask(input: {
 	autoReviewEnabled?: boolean;
 	autoReviewMode?: "commit" | "pr";
 	agentId?: RuntimeAgentId;
+	model?: string;
 	clineSettings?: RuntimeTaskClineSettings;
 }): Promise<JsonRecord> {
+	const model = parseTaskClaudeModel(input.model, false);
+	const config = model ? await createRuntimeTrpcClient(null).runtime.getConfig.query() : null;
+	if (model && (input.agentId ?? config?.selectedAgentId) !== "claude") {
+		throw new Error("--model can only be used when the effective task agent is claude.");
+	}
 	const workspaceRepoPath = await resolveWorkspaceRepoPath(input.projectPath, input.cwd);
 	const workspaceId = await ensureRuntimeWorkspace(workspaceRepoPath);
 	const runtimeClient = createRuntimeTrpcClient(workspaceId);
@@ -598,7 +653,10 @@ async function createTask(input: {
 			},
 			() => globalThis.crypto.randomUUID(),
 		);
-		const reviewed = setTaskAgentReviewEnabled(result.board, result.task.id, input.agentReviewEnabled ?? true);
+		const modeled = model
+			? setTaskClaudeModel(result.board, result.task.id, model)
+			: { board: result.board, task: result.task };
+		const reviewed = setTaskAgentReviewEnabled(modeled.board, result.task.id, input.agentReviewEnabled ?? true);
 		return {
 			board: reviewed.board,
 			value: reviewed.task ?? result.task,
@@ -619,6 +677,7 @@ async function createTask(input: {
 			autoReviewMode: created.autoReviewMode ?? "commit",
 			agentReviewEnabled: created.agentReviewEnabled === true,
 			...(created.agentId ? { agentId: created.agentId } : {}),
+			...(created.claudeModel ? { claudeModel: created.claudeModel } : {}),
 			...formatTaskClineSettings(created.clineSettings),
 		},
 	};
@@ -636,6 +695,7 @@ async function updateTaskCommand(input: {
 	autoReviewEnabled?: boolean;
 	autoReviewMode?: "commit" | "pr";
 	agentId?: RuntimeAgentId | null;
+	model?: string;
 	clineProviderId?: string | null;
 	clineModelId?: string | null;
 	clineReasoningEffort?: ParsedTaskClineReasoningEffort;
@@ -649,6 +709,7 @@ async function updateTaskCommand(input: {
 		input.autoReviewEnabled === undefined &&
 		input.autoReviewMode === undefined &&
 		input.agentId === undefined &&
+		input.model === undefined &&
 		input.clineProviderId === undefined &&
 		input.clineModelId === undefined &&
 		input.clineReasoningEffort === undefined
@@ -659,10 +720,19 @@ async function updateTaskCommand(input: {
 	const workspaceRepoPath = await resolveWorkspaceRepoPath(input.projectPath, input.cwd);
 	const workspaceId = await ensureRuntimeWorkspace(workspaceRepoPath);
 	const runtimeClient = createRuntimeTrpcClient(workspaceId);
+	const model = parseTaskClaudeModel(input.model, true);
+	const config = model !== undefined ? await runtimeClient.runtime.getConfig.query() : null;
 	const updated = await updateRuntimeWorkspaceState(runtimeClient, workspaceRepoPath, (runtimeState) => {
 		const taskRecord = findTaskRecord(runtimeState, input.taskId);
 		if (!taskRecord) {
 			throw new Error(`Task "${input.taskId}" was not found in workspace ${workspaceRepoPath}.`);
+		}
+		const effectiveAgentId =
+			input.agentId !== undefined
+				? (input.agentId ?? config?.selectedAgentId)
+				: (taskRecord.task.agentId ?? config?.selectedAgentId);
+		if (model !== undefined && effectiveAgentId !== "claude") {
+			throw new Error("--model can only be used when the effective task agent is claude.");
 		}
 		const nextTaskClineSettings = buildTaskClineSettingsForUpdate(taskRecord.task.clineSettings, {
 			providerId: input.clineProviderId,
@@ -683,11 +753,15 @@ async function updateTaskCommand(input: {
 		if (!updatedTask.updated || !updatedTask.task) {
 			throw new Error(`Task "${input.taskId}" could not be updated.`);
 		}
+		const modelUpdated =
+			model === undefined
+				? { board: updatedTask.board, task: updatedTask.task }
+				: setTaskClaudeModel(updatedTask.board, input.taskId, model === "default" ? undefined : model);
 
 		const reviewed =
 			input.agentReviewEnabled === undefined
-				? { board: updatedTask.board, task: updatedTask.task }
-				: setTaskAgentReviewEnabled(updatedTask.board, input.taskId, input.agentReviewEnabled);
+				? { board: modelUpdated.board, task: modelUpdated.task }
+				: setTaskAgentReviewEnabled(modelUpdated.board, input.taskId, input.agentReviewEnabled);
 
 		const nextState: RuntimeWorkspaceStateResponse = {
 			...runtimeState,
@@ -1262,6 +1336,7 @@ export function registerTaskCommand(program: Command): void {
 		.option("--auto-review-enabled [value]", "Enable auto-review behavior (true|false). Flag-only implies true.")
 		.option("--auto-review-mode <mode>", "Auto-review mode: commit | pr.", parseAutoReviewMode)
 		.option("--agent-id <id>", `Agent override: ${VALID_AGENT_IDS_TEXT} | default.`)
+		.option("--model <model>", "Claude model: haiku | sonnet | opus.")
 		.option(
 			"--cline-provider <id>",
 			'Cline provider override (e.g. anthropic, openai, cline). Use "default" for workspace default.',
@@ -1285,6 +1360,7 @@ export function registerTaskCommand(program: Command): void {
 				autoReviewEnabled?: unknown;
 				autoReviewMode?: "commit" | "pr";
 				agentId?: string;
+				model?: string;
 				clineProvider?: string;
 				clineModel?: string;
 				clineReasoningEffort?: string;
@@ -1305,6 +1381,7 @@ export function registerTaskCommand(program: Command): void {
 							autoReviewEnabled: parseOptionalBooleanOption(options.autoReviewEnabled, "--auto-review-enabled"),
 							autoReviewMode: options.autoReviewMode,
 							agentId: parseAgentId(options.agentId) ?? undefined,
+							model: options.model,
 							clineSettings: buildTaskClineSettingsForCreate({
 								providerId: parseOptionalStringOrDefault(options.clineProvider) ?? undefined,
 								modelId: parseOptionalStringOrDefault(options.clineModel) ?? undefined,
@@ -1328,6 +1405,7 @@ export function registerTaskCommand(program: Command): void {
 		.option("--auto-review-enabled [value]", "Enable auto-review behavior (true|false). Flag-only implies true.")
 		.option("--auto-review-mode <mode>", "Auto-review mode: commit | pr.", parseAutoReviewMode)
 		.option("--agent-id <id>", `Agent override: ${VALID_AGENT_IDS_TEXT}. Use "default" to clear.`)
+		.option("--model <model>", 'Claude model: haiku | sonnet | opus. Use "default" to clear.')
 		.option(
 			"--cline-provider <id>",
 			'Cline provider override (e.g. anthropic, openai, cline). Use "default" to clear.',
@@ -1349,6 +1427,7 @@ export function registerTaskCommand(program: Command): void {
 				autoReviewEnabled?: unknown;
 				autoReviewMode?: "commit" | "pr";
 				agentId?: string;
+				model?: string;
 				clineProvider?: string;
 				clineModel?: string;
 				clineReasoningEffort?: string;
@@ -1370,6 +1449,7 @@ export function registerTaskCommand(program: Command): void {
 							autoReviewEnabled: parseOptionalBooleanOption(options.autoReviewEnabled, "--auto-review-enabled"),
 							autoReviewMode: options.autoReviewMode,
 							agentId: parseAgentId(options.agentId),
+							model: options.model,
 							clineProviderId: parseOptionalStringOrDefault(options.clineProvider),
 							clineModelId: parseOptionalStringOrDefault(options.clineModel),
 							clineReasoningEffort: parseTaskClineReasoningEffort(options.clineReasoningEffort),

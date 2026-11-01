@@ -184,7 +184,7 @@ describe("agent score recording for runtime task starts", () => {
 			baseRef: "main",
 		});
 
-		expect(mocks.events).toEqual([{ type: "assigned", agentId: "claude", taskId: "task-1" }]);
+		expect(mocks.events).toEqual([{ type: "assigned", agentId: "opus", taskId: "task-1" }]);
 		expect(mocks.recordTaskHistoryEvent).toHaveBeenCalledWith("workspace-1", "task-1", {
 			type: "started",
 			agentId: "claude",
@@ -222,7 +222,7 @@ describe("agent score recording for runtime review messages", () => {
 	it("uses the running session agent when the review card has no override", async () => {
 		setBoard("review", { ...reviewCard, agentId: undefined });
 		await createMessageApi("claude").sendTaskMessage(scope, { taskId: "task-1", message: "fix it" });
-		expect(mocks.events).toEqual([{ type: "fail", agentId: "claude", taskId: "task-1", round: 2 }]);
+		expect(mocks.events).toEqual([{ type: "fail", agentId: "opus", taskId: "task-1", round: 2 }]);
 		expect(mocks.historyEvents).toEqual([
 			{ type: "fail", agentId: "claude", round: 2, detail: "fix it", taskId: "task-1" },
 		]);

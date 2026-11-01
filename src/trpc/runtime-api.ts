@@ -53,7 +53,7 @@ import {
 	parseTaskSessionStartRequest,
 	parseTaskSessionStopRequest,
 } from "../core/api-validation";
-import { type RuntimeClaudeModel, resolveEffectiveClaudeModel } from "../core/claude-model";
+import { type RuntimeClaudeModel, resolveEffectiveClaudeModel, resolveScoreAgentKey } from "../core/claude-model";
 import { resolveEffectiveTaskAgentId } from "../core/effective-task-agent";
 import { isHomeAgentSessionId } from "../core/home-agent-session";
 import { resolveTaskTitle } from "../core/task-title.js";
@@ -161,11 +161,24 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 		taskId: string,
 		sessionAgentId: string | null | undefined,
 		defaultAgentId: string | null | undefined,
+		sessionClaudeModel?: string | null,
+		defaultClaudeModel?: RuntimeClaudeModel,
 	): Promise<void> => {
 		try {
 			const card = findBoardCard(await loadWorkspaceBoardById(workspaceScope.workspaceId), taskId);
 			const agentId = resolveEffectiveTaskAgentId(card?.agentId, sessionAgentId, defaultAgentId);
-			if (agentId) await recordScore(workspaceScope, { type: "assigned", agentId, taskId });
+			if (agentId) {
+				await recordScore(workspaceScope, {
+					type: "assigned",
+					agentId: resolveScoreAgentKey({
+						agentId,
+						sessionClaudeModel,
+						cardClaudeModel: card?.claudeModel,
+						defaultClaudeModel,
+					}),
+					taskId,
+				});
+			}
 		} catch (error) {
 			warnAgentScoreRecording("Could not record agent score event.", error);
 		}
@@ -387,6 +400,8 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 						body.taskId,
 						summary.agentId,
 						scopedRuntimeConfig.selectedAgentId,
+						summary.claudeModel,
+						scopedRuntimeConfig.claudeDefaultModel,
 					);
 					return {
 						ok: true,
@@ -453,6 +468,8 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 					body.taskId,
 					summary.agentId ?? resolved.agentId,
 					scopedRuntimeConfig.selectedAgentId,
+					summary.claudeModel,
+					scopedRuntimeConfig.claudeDefaultModel,
 				);
 				return {
 					ok: true,
@@ -556,10 +573,18 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 					return { ok: false, error: `Task "${taskId}" session is not running.` };
 				}
 				const reviewCard = findReviewRoundCard(board, taskId);
-				const sessionAgentId =
-					terminalManager.getSummary?.(taskId)?.agentId ?? clineTaskSessionService.getSummary?.(taskId)?.agentId;
+				const sessionSummary = terminalManager.getSummary?.(taskId) ?? clineTaskSessionService.getSummary?.(taskId);
+				const sessionAgentId = sessionSummary?.agentId;
 				const agentId = reviewCard
 					? resolveEffectiveTaskAgentId(reviewCard.agentId, sessionAgentId, runtimeConfig.selectedAgentId)
+					: null;
+				const scoreAgentId = agentId
+					? resolveScoreAgentKey({
+							agentId,
+							sessionClaudeModel: sessionSummary?.claudeModel,
+							cardClaudeModel: reviewCard?.claudeModel,
+							defaultClaudeModel: runtimeConfig.claudeDefaultModel,
+						})
 					: null;
 				if (reviewCard && agentId) {
 					try {
@@ -574,7 +599,7 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 					}
 					await recordScore(workspaceScope, {
 						type: "fail",
-						agentId,
+						agentId: scoreAgentId ?? agentId,
 						taskId,
 						round: reviewCard.reviewRound,
 					});

@@ -14,6 +14,7 @@ import {
 	isRuntimeClaudeModel,
 	readCliModelOption,
 	resolveEffectiveClaudeModel,
+	resolveScoreAgentKey,
 	runtimeClaudeModelSchema,
 } from "../../../src/core/claude-model";
 
@@ -48,6 +49,15 @@ describe("runtime claude model helpers", () => {
 		expect(runtimeClaudeModelSchema.safeParse("sonnet").success).toBe(true);
 		expect(runtimeClaudeModelSchema.safeParse("opus").success).toBe(true);
 		expect(runtimeClaudeModelSchema.safeParse("custom-x").success).toBe(false);
+	});
+
+	it("resolves Claude score keys from the launched model", () => {
+		expect(resolveScoreAgentKey({ agentId: "codex" })).toBe("codex");
+		expect(resolveScoreAgentKey({ agentId: "claude", sessionClaudeModel: "haiku", cardClaudeModel: "sonnet" })).toBe(
+			"haiku",
+		);
+		expect(resolveScoreAgentKey({ agentId: "claude", sessionClaudeModel: "custom-x" })).toBe("claude");
+		expect(resolveScoreAgentKey({ agentId: "claude", defaultClaudeModel: "opus" })).toBe("opus");
 	});
 });
 
