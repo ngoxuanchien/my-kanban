@@ -1,4 +1,4 @@
-import type { ITerminalOptions } from "@xterm/xterm";
+import type { ILinkHandler, ITerminalOptions } from "@xterm/xterm";
 
 import type { ThemeTerminalColors } from "@/hooks/use-theme";
 
@@ -13,6 +13,18 @@ const TERMINAL_WORD_SEPARATOR = " ()[]{}',\"`";
 const TERMINAL_FONT_FAMILY =
 	"'Cascadia Code', 'Fira Code', 'JetBrains Mono', 'SF Mono', Menlo, Monaco, 'Courier New', monospace";
 
+export function openTerminalLink(uri: string): void {
+	let url: URL;
+	try {
+		url = new URL(uri);
+	} catch {
+		return;
+	}
+	if (url.protocol === "http:" || url.protocol === "https:") {
+		window.open(uri, "_blank", "noopener,noreferrer");
+	}
+}
+
 export function createKanbanTerminalOptions({
 	cursorColor,
 	isMacPlatform,
@@ -22,6 +34,10 @@ export function createKanbanTerminalOptions({
 	return {
 		allowProposedApi: true,
 		allowTransparency: false,
+		linkHandler: {
+			allowNonHttpProtocols: false,
+			activate: (_event, uri) => openTerminalLink(uri),
+		} satisfies ILinkHandler,
 		convertEol: false,
 		cursorBlink: false,
 		cursorInactiveStyle: "outline",
