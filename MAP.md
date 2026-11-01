@@ -72,6 +72,9 @@ Update this file whenever a file or folder is created or moved.
 | `docs/superpowers/plans/2026-11-01-terminal-osc8-links.md` | Plan for the OSC 8 terminal links spec (1 Kanban task). |
 | `docs/superpowers/specs/2026-11-01-terminal-file-links-vscode-design.md` | Spec: OSC 8 `file://` terminal links open in VS Code (`vscode://file`), runtime only allows paths inside the workspace or task worktrees. |
 | `docs/superpowers/plans/2026-11-01-terminal-file-links-vscode.md` | Plan for the terminal file links spec (1 Kanban task). |
+| `docs/superpowers/specs/2026-11-01-open-button-electron-env-design.md` | Spec: top-bar Open button fails because `runScopedCommand` passes `ELECTRON_RUN_AS_NODE=1` to VS Code; strip it. |
+| `docs/superpowers/plans/2026-11-01-open-button-electron-env.md` | Plan for the Open button env spec (1 Kanban task). |
+| `docs/superpowers/specs/2026-11-01-claude-model-per-task-design.md` | Spec: per-task Claude model (haiku/sonnet/opus) via UI and `--model`; scores split per model; default model setting (opus). |
 | `docs/agents/task-prompt-template.md` | Prompt template the planner fills in for every Kanban task. |
 | `.plan/` | Older internal plans, handoffs, investigations (`.plan/docs/`). |
 
