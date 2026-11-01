@@ -75,6 +75,7 @@ Update this file whenever a file or folder is created or moved.
 | `docs/superpowers/specs/2026-11-01-open-button-electron-env-design.md` | Spec: top-bar Open button fails because `runScopedCommand` passes `ELECTRON_RUN_AS_NODE=1` to VS Code; strip it. |
 | `docs/superpowers/plans/2026-11-01-open-button-electron-env.md` | Plan for the Open button env spec (1 Kanban task). |
 | `docs/superpowers/specs/2026-11-01-claude-model-per-task-design.md` | Spec: per-task Claude model (haiku/sonnet/opus) via UI and `--model`; scores split per model; default model setting (opus). |
+| `docs/superpowers/plans/2026-11-01-claude-model-per-task.md` | Plan for the Claude model per task spec, split into 3 Kanban tasks (1 → 2, 3). |
 | `docs/agents/task-prompt-template.md` | Prompt template the planner fills in for every Kanban task. |
 | `.plan/` | Older internal plans, handoffs, investigations (`.plan/docs/`). |
 
