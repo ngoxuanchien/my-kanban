@@ -522,7 +522,6 @@ describe("createRuntimeApi startTaskSession", () => {
 							createdAt: 1,
 							updatedAt: 1,
 							agentId,
-							claudeAgent: "debugger",
 							claudeModel: "haiku",
 						},
 					],
@@ -560,11 +559,7 @@ describe("createRuntimeApi startTaskSession", () => {
 
 		expect(response.ok).toBe(true);
 		expect(terminalManager.startTaskSession).toHaveBeenCalledWith(
-			expect.objectContaining({
-				agentId,
-				claudeAgent: agentId === "claude" ? "debugger" : undefined,
-				claudeModel: expectedModel,
-			}),
+			expect.objectContaining({ agentId, claudeModel: expectedModel }),
 		);
 	});
 

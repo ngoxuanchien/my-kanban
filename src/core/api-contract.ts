@@ -1,10 +1,8 @@
 import { z } from "zod";
-import { runtimeClaudeAgentSchema } from "./claude-agent";
 import { type RuntimeClaudeModel, runtimeClaudeModelSchema } from "./claude-model";
 import { resolveTaskTitle } from "./task-title.js";
 
 export type { RuntimeClaudeModel };
-export type RuntimeClaudeAgent = z.infer<typeof runtimeClaudeAgentSchema>;
 
 export const runtimeWorkspaceFileStatusSchema = z.enum([
 	"modified",
@@ -202,7 +200,6 @@ export const runtimeBoardCardSchema = z
 		quotaBlockedAt: z.number().optional(),
 		images: z.array(runtimeTaskImageSchema).optional(),
 		agentId: runtimeAgentIdSchema.optional(),
-		claudeAgent: runtimeClaudeAgentSchema.optional(),
 		claudeModel: runtimeClaudeModelSchema.optional(),
 		clineSettings: runtimeTaskClineSettingsSchema.optional(),
 		clineProviderId: z.string().optional(),
@@ -361,7 +358,6 @@ export const runtimeTaskSessionSummarySchema = z.object({
 	state: runtimeTaskSessionStateSchema,
 	mode: runtimeTaskSessionModeSchema.nullable().optional(),
 	agentId: runtimeAgentIdSchema.nullable(),
-	claudeAgent: z.string().nullable().optional(),
 	claudeModel: z.string().nullable().optional(),
 	workspacePath: z.string().nullable(),
 	pid: z.number().nullable(),
@@ -1098,7 +1094,6 @@ export const runtimeTaskSessionStartRequestSchema = z.object({
 	cols: z.number().int().positive().optional(),
 	rows: z.number().int().positive().optional(),
 	agentId: runtimeAgentIdSchema.optional(),
-	claudeAgent: runtimeClaudeAgentSchema.optional(),
 	clineSettings: runtimeTaskClineSettingsSchema.optional(),
 	claudeModel: runtimeClaudeModelSchema.optional(),
 });

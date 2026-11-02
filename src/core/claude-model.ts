@@ -19,13 +19,9 @@ export function resolveScoreAgentKey(input: {
 	agentId: string;
 	sessionClaudeModel?: string | null;
 	cardClaudeModel?: RuntimeClaudeModel;
-	sessionClaudeAgent?: string | null;
-	cardClaudeAgent?: string;
 	defaultClaudeModel?: RuntimeClaudeModel;
 }): string {
 	if (input.agentId !== "claude") return input.agentId;
-	if (input.sessionClaudeAgent !== undefined && input.sessionClaudeAgent !== null) return input.sessionClaudeAgent;
-	if (input.sessionClaudeAgent === undefined && input.cardClaudeAgent !== undefined) return input.cardClaudeAgent;
 	if (input.sessionClaudeModel !== undefined)
 		return isRuntimeClaudeModel(input.sessionClaudeModel) ? input.sessionClaudeModel : "claude";
 	return resolveEffectiveClaudeModel(input.cardClaudeModel, input.defaultClaudeModel);

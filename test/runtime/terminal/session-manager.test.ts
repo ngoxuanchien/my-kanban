@@ -42,7 +42,6 @@ describe("TerminalSessionManager", () => {
 				agentId: "claude",
 				binary: "claude",
 				args: [],
-				claudeAgent: "debugger",
 				claudeModel: "opus",
 				cwd: "/tmp/worktree",
 				prompt: "",
@@ -50,7 +49,6 @@ describe("TerminalSessionManager", () => {
 			expect(spawnRequests[0]?.args).toContain("--model");
 			expect(spawnRequests[0]?.args).toContain("opus");
 			expect(manager.getSummary("claude-default-model")?.claudeModel).toBe("opus");
-			expect(manager.getSummary("claude-default-model")?.claudeAgent).toBe("debugger");
 
 			await manager.startTaskSession({
 				taskId: "claude-custom-model",
@@ -66,7 +64,6 @@ describe("TerminalSessionManager", () => {
 				1,
 			);
 			expect(manager.getSummary("claude-custom-model")?.claudeModel).toBeNull();
-			expect(manager.getSummary("claude-custom-model")?.claudeAgent).toBeNull();
 
 			await manager.startTaskSession({
 				taskId: "claude-explicit-model",
@@ -90,17 +87,6 @@ describe("TerminalSessionManager", () => {
 			const homeArgs = spawnRequests[3]?.args;
 			expect(homeArgs).not.toContain("--model");
 			expect(manager.getSummary("__home_agent__:workspace-1:claude")?.claudeModel).toBeNull();
-			expect(manager.getSummary("__home_agent__:workspace-1:claude")?.claudeAgent).toBeNull();
-
-			await manager.startTaskSession({
-				taskId: "codex-agent-option",
-				agentId: "codex",
-				binary: "codex",
-				args: ["--agent", "debugger"],
-				cwd: "/tmp/worktree",
-				prompt: "",
-			});
-			expect(manager.getSummary("codex-agent-option")?.claudeAgent).toBeNull();
 		} finally {
 			spawn.mockRestore();
 		}

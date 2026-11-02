@@ -58,29 +58,6 @@ describe("runtime claude model helpers", () => {
 		);
 		expect(resolveScoreAgentKey({ agentId: "claude", sessionClaudeModel: "custom-x" })).toBe("claude");
 		expect(resolveScoreAgentKey({ agentId: "claude", defaultClaudeModel: "opus" })).toBe("opus");
-		expect(
-			resolveScoreAgentKey({ agentId: "claude", sessionClaudeAgent: "debugger", cardClaudeAgent: "database-admin" }),
-		).toBe("debugger");
-		expect(resolveScoreAgentKey({ agentId: "claude", cardClaudeAgent: "ecc:typescript-reviewer" })).toBe(
-			"ecc:typescript-reviewer",
-		);
-		expect(
-			resolveScoreAgentKey({
-				agentId: "claude",
-				sessionClaudeAgent: null,
-				cardClaudeAgent: "debugger",
-				cardClaudeModel: "haiku",
-			}),
-		).toBe("haiku");
-		expect(
-			resolveScoreAgentKey({
-				agentId: "claude",
-				sessionClaudeAgent: null,
-				sessionClaudeModel: "sonnet",
-				cardClaudeAgent: "debugger",
-			}),
-		).toBe("sonnet");
-		expect(resolveScoreAgentKey({ agentId: "codex", sessionClaudeAgent: "debugger" })).toBe("codex");
 	});
 });
 

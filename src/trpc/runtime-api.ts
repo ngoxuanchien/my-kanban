@@ -422,7 +422,6 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 					};
 				}
 				let resolvedClaudeModel: RuntimeClaudeModel | undefined;
-				let claudeAgent: string | undefined;
 				if (!isHomeAgentSessionId(body.taskId) && resolved.agentId === "claude") {
 					const board = await loadWorkspaceBoardById(workspaceScope.workspaceId);
 					const card = board ? findBoardCard(board, body.taskId) : null;
@@ -430,7 +429,6 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 						card?.claudeModel,
 						scopedRuntimeConfig.claudeDefaultModel,
 					);
-					claudeAgent = card?.claudeAgent;
 				}
 				const summary = await terminalManager.startTaskSession({
 					taskId: body.taskId,
@@ -438,7 +436,6 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 					binary: resolved.binary,
 					args: resolved.args,
 					claudeModel: resolved.agentId === "claude" ? resolvedClaudeModel : undefined,
-					claudeAgent: resolved.agentId === "claude" ? claudeAgent : undefined,
 					autonomousModeEnabled: scopedRuntimeConfig.agentAutonomousModeEnabled,
 					cwd: taskCwd,
 					prompt: body.prompt,

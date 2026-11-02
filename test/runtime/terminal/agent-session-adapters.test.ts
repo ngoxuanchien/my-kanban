@@ -831,58 +831,6 @@ describe("prepareAgentLaunch hook strategies", () => {
 		expect(launch.args[launch.args.indexOf("--model") + 1]).toBe("haiku");
 	});
 
-	it("launches a Claude specialist agent once and keeps it on resume", async () => {
-		setupTempHome();
-		const launch = await prepareAgentLaunch({
-			taskId: "task-claude-agent",
-			agentId: "claude",
-			binary: "claude",
-			args: [],
-			cwd: "/tmp",
-			prompt: "",
-			claudeAgent: "debugger",
-			resumeFromTrash: true,
-		});
-
-		expect(launch.args.filter((arg) => arg === "--agent")).toHaveLength(1);
-		expect(launch.args[launch.args.indexOf("--agent") + 1]).toBe("debugger");
-		expect(launch.args).toContain("--continue");
-	});
-
-	it("does not add a Claude specialist agent when unset, explicitly set, or launching a home agent", async () => {
-		setupTempHome();
-		const unsetLaunch = await prepareAgentLaunch({
-			taskId: "task-claude-agent-unset",
-			agentId: "claude",
-			binary: "claude",
-			args: [],
-			cwd: "/tmp",
-			prompt: "",
-		});
-		const explicitLaunch = await prepareAgentLaunch({
-			taskId: "task-claude-agent-explicit",
-			agentId: "claude",
-			binary: "claude",
-			args: ["--agent", "foo"],
-			claudeAgent: "debugger",
-			cwd: "/tmp",
-			prompt: "",
-		});
-		const homeLaunch = await prepareAgentLaunch({
-			taskId: "__home_agent__:workspace-1:claude",
-			agentId: "claude",
-			binary: "claude",
-			args: [],
-			claudeAgent: "debugger",
-			cwd: "/tmp",
-			prompt: "",
-		});
-
-		expect(unsetLaunch.args).not.toContain("--agent");
-		expect(explicitLaunch.args.filter((arg) => arg === "--agent")).toHaveLength(1);
-		expect(homeLaunch.args).not.toContain("--agent");
-	});
-
 	it("keeps a user supplied claude --model without duplicating it", async () => {
 		setupTempHome();
 		const launch = await prepareAgentLaunch({
