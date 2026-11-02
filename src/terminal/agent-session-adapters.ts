@@ -5,6 +5,7 @@ import { pathToFileURL } from "node:url";
 
 import type {
 	RuntimeAgentId,
+	RuntimeClaudeAgent,
 	RuntimeClaudeModel,
 	RuntimeHookEvent,
 	RuntimeTaskImage,
@@ -36,6 +37,7 @@ export interface AgentAdapterLaunchInput {
 	resumeFromTrash?: boolean;
 	env?: Record<string, string | undefined>;
 	workspaceId?: string;
+	claudeAgent?: RuntimeClaudeAgent;
 	claudeModel?: RuntimeClaudeModel;
 }
 
@@ -431,6 +433,9 @@ const claudeAdapter: AgentSessionAdapter = {
 		}
 		if (input.resumeFromTrash && !hasCliOption(args, "--continue")) {
 			args.push("--continue");
+		}
+		if (input.claudeAgent !== undefined && !isHomeAgentSessionId(input.taskId) && !hasCliOption(args, "--agent")) {
+			args.push("--agent", input.claudeAgent);
 		}
 		if (input.claudeModel !== undefined && !isHomeAgentSessionId(input.taskId) && !hasCliOption(args, "--model")) {
 			args.push("--model", input.claudeModel);

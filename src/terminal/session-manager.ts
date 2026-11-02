@@ -2,6 +2,7 @@
 // It owns process lifecycle, terminal protocol filtering, and summary updates
 // for command-driven agents such as Claude Code, Codex, Gemini, and shell sessions.
 import type {
+	RuntimeClaudeAgent,
 	RuntimeClaudeModel,
 	RuntimeTaskHookActivity,
 	RuntimeTaskImage,
@@ -10,6 +11,7 @@ import type {
 	RuntimeTaskSessionSummary,
 	RuntimeTaskTurnCheckpoint,
 } from "../core/api-contract";
+import { readCliAgentOption } from "../core/claude-agent";
 import { isRuntimeClaudeModel, readCliModelOption } from "../core/claude-model";
 import {
 	type AgentAdapterLaunchInput,
@@ -95,6 +97,7 @@ export interface StartTaskSessionRequest {
 	rows?: number;
 	env?: Record<string, string | undefined>;
 	workspaceId?: string;
+	claudeAgent?: RuntimeClaudeAgent;
 	claudeModel?: RuntimeClaudeModel;
 }
 
@@ -338,6 +341,7 @@ export class TerminalSessionManager implements TerminalSessionService {
 			binary: request.binary,
 			args: request.args,
 			claudeModel: request.claudeModel,
+			claudeAgent: request.claudeAgent,
 			autonomousModeEnabled: request.autonomousModeEnabled,
 			cwd: request.cwd,
 			prompt: request.prompt,
@@ -352,6 +356,7 @@ export class TerminalSessionManager implements TerminalSessionService {
 		const env = buildTerminalEnvironment(request.env, launch.env);
 
 		const launchedClaudeModel = request.agentId === "claude" ? readCliModelOption(launch.args) : null;
+		const claudeAgent = request.agentId === "claude" ? readCliAgentOption(launch.args) : null;
 		const claudeModel =
 			launchedClaudeModel !== null && isRuntimeClaudeModel(launchedClaudeModel) ? launchedClaudeModel : null;
 
@@ -517,6 +522,7 @@ export class TerminalSessionManager implements TerminalSessionService {
 				latestTurnCheckpoint: null,
 				previousTurnCheckpoint: null,
 				claudeModel: null,
+				claudeAgent: null,
 			});
 			this.emitSummary(summary);
 			throw new Error(formatSpawnFailure(commandBinary, error));
@@ -564,6 +570,7 @@ export class TerminalSessionManager implements TerminalSessionService {
 			latestTurnCheckpoint: null,
 			previousTurnCheckpoint: null,
 			claudeModel: request.agentId === "claude" ? claudeModel : null,
+			claudeAgent: request.agentId === "claude" ? claudeAgent : null,
 		});
 		this.emitSummary(entry.summary);
 
