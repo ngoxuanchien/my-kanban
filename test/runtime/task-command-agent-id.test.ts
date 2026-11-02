@@ -63,8 +63,8 @@ describe("task command --agent-id parsing", () => {
 		expect(parseAgentId(undefined)).toBeUndefined();
 	});
 
-	it("rejects known agents that cannot be launched", () => {
-		expect(() => parseAgentId("gemini")).toThrow('Invalid agent ID "gemini": is not supported for task launch.');
+	it.each(["cline", "droid", "kiro"])("rejects disabled agent %s", (agentId) => {
+		expect(() => parseAgentId(agentId)).toThrow("Expected one of: claude, codex, antigravity, opencode, default.");
 	});
 
 	it("rejects unknown agents", () => {

@@ -68,7 +68,7 @@ export function isTaskAgentSetupSatisfied(
 	if (!config) {
 		return null;
 	}
-	if (isNativeClineAgentSelected(config.selectedAgentId)) {
+	if (isNativeClineAgentSelected(config.selectedAgentId) && isRuntimeAgentLaunchSupported(config.selectedAgentId)) {
 		if (isClineProviderAuthenticated(getRuntimeClineProviderSettings(config))) {
 			return true;
 		}

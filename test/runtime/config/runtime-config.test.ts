@@ -69,9 +69,9 @@ function writeFakeCommand(binDir: string, command: string): void {
 describe.sequential("runtime-config auto agent selection", () => {
 	it("selects agents using the configured priority order", () => {
 		expect(pickBestInstalledAgentIdFromDetected(["codex", "opencode", "gemini"])).toBe("codex");
-		expect(pickBestInstalledAgentIdFromDetected(["opencode", "droid", "gemini"])).toBe("droid");
-		expect(pickBestInstalledAgentIdFromDetected(["kiro-cli", "gemini"])).toBe("kiro");
-		expect(pickBestInstalledAgentIdFromDetected(["droid", "gemini", "cline"])).toBe("droid");
+		expect(pickBestInstalledAgentIdFromDetected(["opencode", "droid", "gemini"])).toBeNull();
+		expect(pickBestInstalledAgentIdFromDetected(["kiro-cli", "gemini"])).toBeNull();
+		expect(pickBestInstalledAgentIdFromDetected(["droid", "gemini", "cline"])).toBeNull();
 		expect(pickBestInstalledAgentIdFromDetected(["gemini", "cline"])).toBeNull();
 		expect(pickBestInstalledAgentIdFromDetected(["claude", "codex", "cline"])).toBe("claude");
 		expect(pickBestInstalledAgentIdFromDetected(["claude", "droid"])).toBe("claude");
@@ -145,7 +145,7 @@ describe.sequential("runtime-config auto agent selection", () => {
 				process.env.SHELL = "/definitely-not-a-shell";
 				await withTemporaryEnv({ home: tempHome, pathPrefix: tempBin, replacePath: true }, async () => {
 					const state = await loadRuntimeConfig(tempProject);
-					expect(state.selectedAgentId).toBe("cline");
+					expect(state.selectedAgentId).toBe("claude");
 					expect(existsSync(join(tempHome, ".cline", "kanban", "config.json"))).toBe(false);
 				});
 			} finally {
@@ -207,39 +207,42 @@ describe.sequential("runtime-config auto agent selection", () => {
 		}
 	});
 
-	it("normalizes unsupported configured agents to the default launch agent", async () => {
-		const { path: tempHome, cleanup: cleanupHome } = createTempDir("kanban-home-runtime-config-set-");
-		const { path: tempProject, cleanup: cleanupProject } = createTempDir("kanban-project-runtime-config-set-");
-		const { path: tempBin, cleanup: cleanupBin } = createTempDir("kanban-bin-runtime-config-set-");
+	it.each(["cline", "droid", "kiro", "gemini"] as const)(
+		"normalizes unsupported configured agent %s to the default launch agent",
+		async (agentId) => {
+			const { path: tempHome, cleanup: cleanupHome } = createTempDir("kanban-home-runtime-config-set-");
+			const { path: tempProject, cleanup: cleanupProject } = createTempDir("kanban-project-runtime-config-set-");
+			const { path: tempBin, cleanup: cleanupBin } = createTempDir("kanban-bin-runtime-config-set-");
 
-		try {
-			writeFakeCommand(tempBin, "claude");
-			writeFakeCommand(tempBin, "codex");
+			try {
+				writeFakeCommand(tempBin, "claude");
+				writeFakeCommand(tempBin, "codex");
 
-			const runtimeConfigDir = join(tempHome, ".cline", "kanban");
-			mkdirSync(runtimeConfigDir, { recursive: true });
-			writeFileSync(
-				join(runtimeConfigDir, "config.json"),
-				JSON.stringify(
-					{
-						selectedAgentId: "gemini",
-					},
-					null,
-					2,
-				),
-				"utf8",
-			);
+				const runtimeConfigDir = join(tempHome, ".cline", "kanban");
+				mkdirSync(runtimeConfigDir, { recursive: true });
+				writeFileSync(
+					join(runtimeConfigDir, "config.json"),
+					JSON.stringify(
+						{
+							selectedAgentId: agentId,
+						},
+						null,
+						2,
+					),
+					"utf8",
+				);
 
-			await withTemporaryEnv({ home: tempHome, pathPrefix: tempBin }, async () => {
-				const state = await loadRuntimeConfig(tempProject);
-				expect(state.selectedAgentId).toBe("cline");
-			});
-		} finally {
-			cleanupBin();
-			cleanupProject();
-			cleanupHome();
-		}
-	});
+				await withTemporaryEnv({ home: tempHome, pathPrefix: tempBin }, async () => {
+					const state = await loadRuntimeConfig(tempProject);
+					expect(state.selectedAgentId).toBe("claude");
+				});
+			} finally {
+				cleanupBin();
+				cleanupProject();
+				cleanupHome();
+			}
+		},
+	);
 
 	it("keeps Antigravity as a supported configured launch agent", async () => {
 		const { path: tempHome, cleanup: cleanupHome } = createTempDir("kanban-home-runtime-config-antigravity-");
@@ -285,7 +288,7 @@ describe.sequential("runtime-config auto agent selection", () => {
 
 			await withTemporaryEnv({ home: tempHome, pathPrefix: tempBin }, async () => {
 				const state = await loadRuntimeConfig(tempProject);
-				expect(state.selectedAgentId).toBe("cline");
+				expect(state.selectedAgentId).toBe("claude");
 			});
 		} finally {
 			cleanupBin();

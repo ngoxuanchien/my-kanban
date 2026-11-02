@@ -88,8 +88,21 @@ describe("native-agent helpers", () => {
 		expect(isNativeClineAgentSelected("codex")).toBe(false);
 	});
 
-	it("treats selected cline as task-ready when cline authentication is configured", () => {
-		expect(isTaskAgentSetupSatisfied(createRuntimeConfigResponse("cline"))).toBe(true);
+	it("does not treat disabled cline as task-ready, even when authenticated", () => {
+		const config = createRuntimeConfigResponse("cline", {
+			agents: [
+				{
+					id: "cline",
+					label: "Cline",
+					binary: "cline",
+					command: "cline",
+					defaultArgs: [],
+					installed: true,
+					configured: true,
+				},
+			],
+		});
+		expect(isTaskAgentSetupSatisfied(config)).toBe(false);
 		expect(isTaskAgentSetupSatisfied(null)).toBeNull();
 	});
 

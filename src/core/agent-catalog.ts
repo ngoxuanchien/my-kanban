@@ -79,14 +79,14 @@ export const RUNTIME_AGENT_CATALOG: RuntimeAgentCatalogEntry[] = [
 // Temporarily keep launch support scoped to the core agent set.
 // Re-enable additional CLIs by uncommenting entries below when ready.
 export const RUNTIME_LAUNCH_SUPPORTED_AGENT_IDS: readonly RuntimeAgentId[] = [
-	"cline",
 	"claude",
 	"codex",
-	"droid",
-	"kiro",
 	"antigravity",
 	"opencode",
 	// "gemini",
+	// "cline",
+	// "droid",
+	// "kiro",
 ];
 
 const RUNTIME_LAUNCH_SUPPORTED_AGENT_ID_SET = new Set<RuntimeAgentId>(RUNTIME_LAUNCH_SUPPORTED_AGENT_IDS);

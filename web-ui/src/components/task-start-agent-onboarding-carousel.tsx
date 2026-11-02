@@ -1,5 +1,5 @@
 import * as RadixCheckbox from "@radix-ui/react-checkbox";
-import { getRuntimeAgentCatalogEntry } from "@runtime-agent-catalog";
+import { getRuntimeAgentCatalogEntry, RUNTIME_LAUNCH_SUPPORTED_AGENT_IDS } from "@runtime-agent-catalog";
 import { Check } from "lucide-react";
 import { type ReactElement, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -83,7 +83,7 @@ export const TASK_START_ONBOARDING_SLIDES: OnboardingSlide[] = [
 	},
 ];
 
-const ONBOARDING_AGENT_IDS: readonly RuntimeAgentId[] = ["cline", "claude", "codex", "droid", "kiro", "antigravity"];
+const ONBOARDING_AGENT_IDS: readonly RuntimeAgentId[] = RUNTIME_LAUNCH_SUPPORTED_AGENT_IDS;
 const FALLBACK_ONBOARDING_SLIDE: OnboardingSlide = {
 	kind: "agent-selection",
 	title: "",
@@ -362,7 +362,7 @@ export function TaskStartAgentOnboardingCarousel({
 	const clineSettings = useRuntimeSettingsClineController({
 		open,
 		workspaceId,
-		selectedAgentId: activeAgentId ?? selectedAgentId ?? "cline",
+		selectedAgentId: activeAgentId ?? selectedAgentId ?? "claude",
 		config: runtimeConfig,
 	});
 	const onboardingAgents = useMemo(
