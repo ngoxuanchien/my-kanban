@@ -1,4 +1,4 @@
-import { type ChildProcess, spawn, spawnSync } from "node:child_process";
+import { type ChildProcess, type StdioOptions, spawn, spawnSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { createRequire } from "node:module";
@@ -202,10 +202,7 @@ async function requestGracefulShutdown(process: ChildProcess): Promise<void> {
 	});
 }
 
-function spawnSourceCli(
-	args: string[],
-	options: { cwd: string; env: NodeJS.ProcessEnv; stdio?: ChildProcess["stdio"] },
-) {
+function spawnSourceCli(args: string[], options: { cwd: string; env: NodeJS.ProcessEnv; stdio?: StdioOptions }) {
 	const cliEntrypoint = resolve(process.cwd(), "src/cli.ts");
 	return spawn(process.execPath, ["--import", resolveTsxLoaderImportSpecifier(), cliEntrypoint, ...args], {
 		cwd: options.cwd,
@@ -248,6 +245,99 @@ async function runCliCommandAndCollectOutput(options: {
 }
 
 describe("source task commands", () => {
+	it("exits cleanly when a reader closes stdout or merged output early", { timeout: 60_000 }, async () => {
+		const { path: homeDir, cleanup: cleanupHome } = createTempDir("kanban-home-task-epipe-");
+		const { path: projectPath, cleanup: cleanupProject } = createTempDir("kanban-project-task-epipe-");
+
+		try {
+			initGitRepository(projectPath);
+			writeFileSync(join(projectPath, "README.md"), "# Task EPIPE Test\n", "utf8");
+			commitAll(projectPath, "init");
+
+			const env = createGitTestEnv({
+				HOME: homeDir,
+				USERPROFILE: homeDir,
+				KANBAN_RUNTIME_PORT: String(await getAvailablePort()),
+			});
+			const serverProcess = spawn(
+				process.execPath,
+				[
+					"--require",
+					resolveShutdownIpcHookPath(),
+					"--import",
+					resolveTsxLoaderImportSpecifier(),
+					resolve(process.cwd(), "src/cli.ts"),
+					"--no-open",
+				],
+				{ cwd: projectPath, env, stdio: ["ignore", "pipe", "pipe", "ipc"] },
+			);
+
+			try {
+				await waitForServerStart(serverProcess);
+				const created = await runCliCommandAndCollectOutput({
+					args: ["task", "create", "--prompt", "x".repeat(600), "--project-path", projectPath],
+					cwd: projectPath,
+					env,
+				});
+				expect(created.didExit).toBe(true);
+				expect(created.exitCode).toBe(0);
+
+				for (const merged of [true, false]) {
+					const cliArgs = [
+						"--import",
+						resolveTsxLoaderImportSpecifier(),
+						resolve(process.cwd(), "src/cli.ts"),
+						"task",
+						"list",
+						"--project-path",
+						projectPath,
+					];
+					let commandProcess: ChildProcess;
+					if (merged) {
+						commandProcess = spawn(
+							"/bin/sh",
+							["-c", 'exec "$@" 2>&1', "kanban-cli", process.execPath, ...cliArgs],
+							{ cwd: projectPath, env, stdio: ["ignore", "pipe", "ignore"] },
+						);
+					} else {
+						commandProcess = spawnSourceCli(cliArgs.slice(3), {
+							cwd: projectPath,
+							env,
+							stdio: ["ignore", "pipe", "pipe"],
+						});
+					}
+					let bytesRead = 0;
+					commandProcess.stdout?.on("data", (chunk: Buffer) => {
+						bytesRead += chunk.length;
+						if (bytesRead >= 400) {
+							commandProcess.stdout?.destroy();
+						}
+					});
+					commandProcess.stderr?.resume();
+
+					const didExit = await waitForExit(commandProcess, 5_000);
+					if (!didExit) {
+						commandProcess.kill("SIGKILL");
+					}
+					expect(bytesRead).toBeGreaterThanOrEqual(400);
+					expect(didExit).toBe(true);
+					expect(commandProcess.exitCode).toBe(0);
+					expect(commandProcess.signalCode).toBeNull();
+				}
+			} finally {
+				await requestGracefulShutdown(serverProcess);
+				const stopped = await waitForExit(serverProcess, 5_000);
+				if (!stopped) {
+					serverProcess.kill("SIGKILL");
+					await waitForExit(serverProcess, 5_000);
+				}
+			}
+		} finally {
+			cleanupProject();
+			cleanupHome();
+		}
+	});
+
 	it("exits after creating a task when the runtime server is already running", { timeout: 60_000 }, async () => {
 		const { path: homeDir, cleanup: cleanupHome } = createTempDir("kanban-home-task-exit-");
 		const { path: projectPath, cleanup: cleanupProject } = createTempDir("kanban-project-task-exit-");
