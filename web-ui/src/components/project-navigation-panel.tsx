@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/dialog";
 import { Kbd } from "@/components/ui/kbd";
 import { Spinner } from "@/components/ui/spinner";
+import { useAbbreviatedPath } from "@/hooks/use-abbreviated-path";
 import type { FeaturebaseFeedbackState } from "@/hooks/use-featurebase-feedback-widget";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import type { RuntimeAgentId, RuntimeClineProviderSettings, RuntimeProjectSummary } from "@/runtime/types";
@@ -702,6 +703,7 @@ function ProjectRow({
 	onRemove: (id: string) => void;
 }): React.ReactElement {
 	const displayPath = formatPathForDisplay(project.path);
+	const { pathRef, displayPath: abbreviatedPath } = useAbbreviatedPath(displayPath);
 	const isRemovingProject = removingProjectId === project.id;
 	const hasAnyProjectRemoval = removingProjectId !== null;
 	const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -765,12 +767,14 @@ function ProjectRow({
 					{project.name}
 				</div>
 				<div
+					ref={pathRef}
 					className={cn(
 						"font-mono text-xs whitespace-nowrap overflow-hidden text-ellipsis",
 						isCurrent ? "text-accent-fg/85" : "text-text-secondary",
 					)}
+					title={project.path}
 				>
-					{displayPath}
+					<span className="block overflow-hidden text-ellipsis">{abbreviatedPath}</span>
 				</div>
 				{taskCountBadges.length > 0 ? (
 					<div className="flex gap-1 mt-1">

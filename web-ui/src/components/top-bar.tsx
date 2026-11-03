@@ -28,6 +28,7 @@ import { cn } from "@/components/ui/cn";
 import { Dialog, DialogBody, DialogFooter, DialogHeader } from "@/components/ui/dialog";
 import { Spinner } from "@/components/ui/spinner";
 import { Tooltip } from "@/components/ui/tooltip";
+import { useAbbreviatedPath } from "@/hooks/use-abbreviated-path";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import type { RuntimeGitSyncAction, RuntimeProjectShortcut } from "@/runtime/types";
 import {
@@ -350,7 +351,13 @@ export function TopBar({
 	hideProjectDependentActions?: boolean;
 }): React.ReactElement {
 	const isMobile = useIsMobile();
-	const displayWorkspacePath = workspacePath ? formatPathForDisplay(workspacePath) : null;
+	const formattedWorkspacePath = workspacePath ? formatPathForDisplay(workspacePath) : null;
+	const {
+		pathRef,
+		displayPath: abbreviatedWorkspacePath,
+		fullPathWidth,
+	} = useAbbreviatedPath(formattedWorkspacePath ?? "");
+	const displayWorkspacePath = formattedWorkspacePath ? abbreviatedWorkspacePath : null;
 	const workspaceSegments = displayWorkspacePath ? getWorkspacePathSegments(displayWorkspacePath) : [];
 	const hasAbsoluteLeadingSlash = Boolean(displayWorkspacePath?.startsWith("/"));
 	const handleAddShortcut = () => {
@@ -439,7 +446,14 @@ export function TopBar({
 							aria-hidden
 						/>
 					) : displayWorkspacePath ? (
-						<div className={cn("shrink min-w-0 overflow-hidden", isMobile ? "max-w-[180px]" : "max-w-[640px]")}>
+						<div
+							ref={pathRef}
+							className={cn(
+								"min-w-0 overflow-hidden",
+								isMobile ? "shrink max-w-[180px]" : "shrink max-w-[640px]",
+							)}
+							style={!isMobile ? { flexBasis: fullPathWidth } : undefined}
+						>
 							<span
 								className="font-mono truncate block w-full min-w-0 text-xs max-w-full text-text-secondary"
 								title={workspacePath}

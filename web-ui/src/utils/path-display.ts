@@ -29,3 +29,20 @@ export function formatPathForDisplay(path: string): string {
 	}
 	return normalized;
 }
+
+export function abbreviatePathSegments(path: string, abbreviatedCount: number): string {
+	const normalized = normalizeDisplayPath(path);
+	const driveMatch = normalized.match(/^([A-Za-z]:)\//);
+	const prefix = normalized.startsWith("~/")
+		? "~/"
+		: normalized.startsWith("/")
+			? "/"
+			: driveMatch
+				? `${driveMatch[1]}/`
+				: "";
+	const segments = normalized.slice(prefix.length).split("/").filter(Boolean);
+	const lastParentIndex = Math.max(0, segments.length - 1);
+	return `${prefix}${segments
+		.map((segment, index) => (index < Math.min(abbreviatedCount, lastParentIndex) ? segment[0] : segment))
+		.join("/")}`;
+}
