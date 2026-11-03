@@ -1,11 +1,14 @@
-import { access, lstat, mkdir, readdir, readFile, rm, symlink } from "node:fs/promises";
+import { access, lstat, mkdir, mkdtemp, readdir, readFile, rm, symlink } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join } from "node:path";
 
 import type {
 	RuntimeTaskWorkspaceInfoResponse,
+	RuntimeWorkspaceFileChange,
 	RuntimeWorktreeDeleteResponse,
 	RuntimeWorktreeEnsureResponse,
 } from "../core/api-contract";
+import { createGitProcessEnv } from "../core/git-process-env";
 import { type LockRequest, lockedFileSystem } from "../fs/locked-file-system";
 import { getRuntimeHomePath, getTaskWorktreesHomePath, loadWorkspaceContext } from "../state/workspace-state";
 import { getGitCommandErrorMessage, getGitStdout, readGitHeadInfo, runGit } from "./git-utils";
@@ -235,6 +238,156 @@ async function captureTaskPatch(options: { repoPath: string; taskId: string; wor
 
 async function applyTaskPatch(patchPath: string, worktreePath: string): Promise<void> {
 	await getGitStdout(["apply", "--binary", "--whitespace=nowarn", patchPath], worktreePath);
+}
+
+/**
+ * Diff two tree refs (base -> target) into workspace file changes with old/new text.
+ * `baseRef` is the base content ref (a commit or tree hash); an empty string means the
+ * base is a root commit, so every file counts as added.
+ */
+export async function listGitTreeFileChanges(options: {
+	repoPath: string;
+	baseRef: string;
+	targetRef: string;
+}): Promise<RuntimeWorkspaceFileChange[]> {
+	const rawFiles = await getGitStdout(
+		options.baseRef
+			? ["diff", "--name-status", "-M", "--end-of-options", options.baseRef, options.targetRef]
+			: [
+					"diff-tree",
+					"--root",
+					"-r",
+					"--no-commit-id",
+					"--name-status",
+					"-M",
+					"--end-of-options",
+					options.targetRef,
+				],
+		options.repoPath,
+	);
+	return await Promise.all(
+		rawFiles
+			.split("\n")
+			.filter(Boolean)
+			.map(async (line) => {
+				const [rawStatus = "M", firstPath = "", secondPath] = line.split("\t");
+				const renamed = rawStatus.startsWith("R") || rawStatus.startsWith("C");
+				const status = rawStatus.startsWith("A")
+					? "added"
+					: rawStatus.startsWith("D")
+						? "deleted"
+						: rawStatus.startsWith("R")
+							? "renamed"
+							: rawStatus.startsWith("C")
+								? "copied"
+								: "modified";
+				const path = renamed ? (secondPath ?? firstPath) : firstPath;
+				const previousPath = renamed ? firstPath : path;
+				const oldText =
+					options.baseRef && status !== "added"
+						? await getGitStdout(
+								["cat-file", "blob", `${options.baseRef}:${previousPath}`],
+								options.repoPath,
+							).catch(() => null)
+						: null;
+				const newText =
+					status !== "deleted"
+						? await getGitStdout(["cat-file", "blob", `${options.targetRef}:${path}`], options.repoPath).catch(
+								() => null,
+							)
+						: null;
+				const numstat = await getGitStdout(
+					options.baseRef
+						? [
+								"diff",
+								"--numstat",
+								options.baseRef,
+								options.targetRef,
+								"--",
+								previousPath,
+								...(renamed ? [path] : []),
+							]
+						: [
+								"diff-tree",
+								"--root",
+								"--no-commit-id",
+								"--numstat",
+								"-r",
+								"-M",
+								"--end-of-options",
+								options.targetRef,
+								"--",
+								previousPath,
+							],
+					options.repoPath,
+				).catch(() => "");
+				const [added = "0", deleted = "0"] = numstat.split("\t");
+				return {
+					path,
+					...(renamed ? { previousPath } : {}),
+					status,
+					additions: Number(added) || 0,
+					deletions: Number(deleted) || 0,
+					oldText,
+					newText,
+				};
+			}),
+	);
+}
+
+/**
+ * Resolve a task's saved patch (written by captureTaskPatch before the worktree removal)
+ * into file changes without touching the real index or working tree. Applies the patch to a
+ * temporary index and diffs the resulting tree against the patch's base commit.
+ */
+export async function getTaskPatchFileChanges(options: {
+	repoPath: string;
+	taskId: string;
+}): Promise<RuntimeWorkspaceFileChange[] | { notFound: true }> {
+	const taskIdNormalized = normalizeTaskIdForWorktreePath(options.taskId);
+	const patch = await findTaskPatch(taskIdNormalized);
+	if (!patch) {
+		return { notFound: true };
+	}
+
+	const patchContents = await readFile(patch.path, "utf8").catch(() => null);
+	if (!patchContents) {
+		return { notFound: true };
+	}
+
+	const tempDir = await mkdtemp(join(tmpdir(), "kanban-task-patch-"));
+	const tempIndexPath = join(tempDir, "index");
+	const gitEnv = () => createGitProcessEnv({ GIT_INDEX_FILE: tempIndexPath });
+	try {
+		const readTreeResult = await runGit(options.repoPath, ["read-tree", patch.commit], { env: gitEnv() });
+		if (!readTreeResult.ok) {
+			return { notFound: true };
+		}
+		const applyResult = await runGit(
+			options.repoPath,
+			["apply", "--cached", "--binary", "--whitespace=nowarn", patch.path],
+			{
+				env: gitEnv(),
+			},
+		);
+		if (!applyResult.ok) {
+			return { notFound: true };
+		}
+		const writeTreeResult = await runGit(options.repoPath, ["write-tree"], { env: gitEnv() });
+		if (!writeTreeResult.ok || !writeTreeResult.stdout) {
+			return { notFound: true };
+		}
+		const targetRef = writeTreeResult.stdout.trim();
+		return await listGitTreeFileChanges({
+			repoPath: options.repoPath,
+			baseRef: patch.commit,
+			targetRef,
+		});
+	} catch {
+		return { notFound: true };
+	} finally {
+		await rm(tempDir, { recursive: true, force: true });
+	}
 }
 
 function shouldSkipSymlink(relativePath: string): boolean {

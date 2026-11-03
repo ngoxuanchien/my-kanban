@@ -14,6 +14,7 @@ import type {
 	RuntimeAgentTranscriptResponse,
 	RuntimeCommitChangesResponse,
 	RuntimeTaskHistoryEvent,
+	RuntimeTaskPatchChangesResponse,
 	RuntimeWorkspaceFileChange,
 } from "@/runtime/types";
 import type { CardSelection } from "@/types";
@@ -141,6 +142,7 @@ export function DoneTaskDetailView({ selection, currentProjectId }: DoneTaskDeta
 	const [isHistoryLoading, setIsHistoryLoading] = useState(true);
 
 	const [commitChanges, setCommitChanges] = useState<RuntimeCommitChangesResponse | null>(null);
+	const [patchChanges, setPatchChanges] = useState<RuntimeTaskPatchChangesResponse | null>(null);
 	const [isCommitLoading, setIsCommitLoading] = useState(false);
 	const [selectedDiffPath, setSelectedDiffPath] = useState<string | null>(null);
 	const emptyComments = useMemo(() => new Map<string, DiffLineComment>(), []);
@@ -240,35 +242,39 @@ export function DoneTaskDetailView({ selection, currentProjectId }: DoneTaskDeta
 	}, [historyEvents]);
 
 	useEffect(() => {
-		if (!passEvent?.commit) {
-			setCommitChanges(null);
-			setIsCommitLoading(false);
-			return;
-		}
-
 		let isCancelled = false;
+		setCommitChanges(null);
+		setPatchChanges(null);
 		setIsCommitLoading(true);
+		if (isHistoryLoading) {
+			return () => {
+				isCancelled = true;
+			};
+		}
 		const trpcClient = getRuntimeTrpcClient(currentProjectId);
-
-		trpcClient.workspace.getCommitChanges
-			.query({ commit: passEvent.commit })
-			.then((response) => {
-				if (!isCancelled) {
-					setCommitChanges(response);
-					setIsCommitLoading(false);
-				}
-			})
-			.catch(() => {
-				if (!isCancelled) {
-					setCommitChanges({ notFound: true, commit: passEvent.commit! });
-					setIsCommitLoading(false);
-				}
-			});
+		const loadPatch = async () => {
+			const response = await trpcClient.workspace.getTaskPatchChanges
+				.query({ taskId: card.id })
+				.catch(() => ({ notFound: true as const }));
+			if (!isCancelled) setPatchChanges(response);
+		};
+		void (async () => {
+			if (!passEvent?.commit) {
+				await loadPatch();
+			} else {
+				const response = await trpcClient.workspace.getCommitChanges
+					.query({ commit: passEvent.commit })
+					.catch(() => ({ notFound: true as const, commit: passEvent.commit! }));
+				if (!isCancelled) setCommitChanges(response);
+				if ("notFound" in response) await loadPatch();
+			}
+			if (!isCancelled) setIsCommitLoading(false);
+		})();
 
 		return () => {
 			isCancelled = true;
 		};
-	}, [currentProjectId, passEvent?.commit]);
+	}, [card.id, currentProjectId, isHistoryLoading, passEvent?.commit]);
 
 	// Load transcript when viewingSessionId changes
 	const handleOpenSessionTranscript = useCallback((sessionId: string) => {
@@ -518,14 +524,46 @@ export function DoneTaskDetailView({ selection, currentProjectId }: DoneTaskDeta
 							<div className="flex flex-1 items-center justify-center p-8">
 								<Spinner size={20} />
 							</div>
-						) : !passEvent || !passEvent.commit ? (
-							<div className="flex flex-1 items-center justify-center p-8 text-sm text-text-tertiary">
-								No commit recorded for this task.
-							</div>
+						) : !passEvent?.commit ? (
+							patchChanges && "files" in patchChanges ? (
+								<>
+									<div className="shrink-0 px-4 py-2 text-xs text-text-secondary">
+										Uncommitted changes saved when the task was moved to Done
+									</div>
+									<DiffViewerPanel
+										workspaceFiles={patchChanges.files}
+										selectedPath={selectedDiffPath}
+										onSelectedPathChange={setSelectedDiffPath}
+										comments={emptyComments}
+										onCommentsChange={noopCommentsChange}
+										viewMode="unified"
+									/>
+								</>
+							) : (
+								<div className="flex flex-1 items-center justify-center p-8 text-sm text-text-tertiary">
+									No commit recorded for this task.
+								</div>
+							)
 						) : commitChanges && "notFound" in commitChanges ? (
-							<div className="flex flex-1 items-center justify-center p-8 text-sm text-text-tertiary">
-								Commit {commitChanges.commit} not found on this repository.
-							</div>
+							patchChanges && "files" in patchChanges ? (
+								<>
+									<div className="shrink-0 px-4 py-2 text-xs text-text-secondary">
+										Uncommitted changes saved when the task was moved to Done
+									</div>
+									<DiffViewerPanel
+										workspaceFiles={patchChanges.files}
+										selectedPath={selectedDiffPath}
+										onSelectedPathChange={setSelectedDiffPath}
+										comments={emptyComments}
+										onCommentsChange={noopCommentsChange}
+										viewMode="unified"
+									/>
+								</>
+							) : (
+								<div className="flex flex-1 items-center justify-center p-8 text-sm text-text-tertiary">
+									Commit {commitChanges.commit} not found on this repository.
+								</div>
+							)
 						) : workspaceFiles ? (
 							<DiffViewerPanel
 								workspaceFiles={workspaceFiles}

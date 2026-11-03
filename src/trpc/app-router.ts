@@ -84,6 +84,8 @@ import type {
 	RuntimeTaskHandOffResponse,
 	RuntimeTaskHistoryRequest,
 	RuntimeTaskHistoryResponse,
+	RuntimeTaskPatchChangesRequest,
+	RuntimeTaskPatchChangesResponse,
 	RuntimeTaskSendMessageRequest,
 	RuntimeTaskSendMessageResponse,
 	RuntimeTaskSessionInputRequest,
@@ -189,6 +191,8 @@ import {
 	runtimeTaskHandOffResponseSchema,
 	runtimeTaskHistoryRequestSchema,
 	runtimeTaskHistoryResponseSchema,
+	runtimeTaskPatchChangesRequestSchema,
+	runtimeTaskPatchChangesResponseSchema,
 	runtimeTaskSendMessageRequestSchema,
 	runtimeTaskSendMessageResponseSchema,
 	runtimeTaskSessionInputRequestSchema,
@@ -345,6 +349,10 @@ export interface RuntimeTrpcContext {
 			scope: RuntimeTrpcWorkspaceScope,
 			input: RuntimeCommitChangesRequest,
 		) => Promise<RuntimeCommitChangesResponse>;
+		getTaskPatchChanges: (
+			scope: RuntimeTrpcWorkspaceScope,
+			input: RuntimeTaskPatchChangesRequest,
+		) => Promise<RuntimeTaskPatchChangesResponse>;
 		getAgentTranscript: (
 			scope: RuntimeTrpcWorkspaceScope,
 			input: RuntimeAgentTranscriptRequest,
@@ -822,6 +830,10 @@ export const runtimeAppRouter = t.router({
 			.input(runtimeCommitChangesRequestSchema)
 			.output(runtimeCommitChangesResponseSchema)
 			.query(async ({ ctx, input }) => await ctx.runtimeApi.getCommitChanges(ctx.workspaceScope, input)),
+		getTaskPatchChanges: workspaceProcedure
+			.input(runtimeTaskPatchChangesRequestSchema)
+			.output(runtimeTaskPatchChangesResponseSchema)
+			.query(async ({ ctx, input }) => await ctx.runtimeApi.getTaskPatchChanges(ctx.workspaceScope, input)),
 		getAgentTranscript: workspaceProcedure
 			.input(runtimeAgentTranscriptRequestSchema)
 			.output(runtimeAgentTranscriptResponseSchema)

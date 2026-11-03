@@ -28,8 +28,9 @@ import type {
 	RuntimeTaskHandOffResponse,
 	RuntimeTaskHistoryRequest,
 	RuntimeTaskHistoryResponse,
+	RuntimeTaskPatchChangesRequest,
+	RuntimeTaskPatchChangesResponse,
 	RuntimeUpdateStatusResponse,
-	RuntimeWorkspaceFileChange,
 } from "../core/api-contract";
 import {
 	parseClineAccountSwitchRequest,
@@ -68,7 +69,7 @@ import { buildRuntimeConfigResponse, resolveAgentCommand } from "../terminal/age
 import { sendPromptToSession } from "../terminal/send-prompt-to-session";
 import type { TerminalSessionManager } from "../terminal/session-manager";
 import { getGitStdout } from "../workspace/git-utils";
-import { resolveTaskCwd } from "../workspace/task-worktree";
+import { getTaskPatchFileChanges, listGitTreeFileChanges, resolveTaskCwd } from "../workspace/task-worktree";
 import { captureTaskTurnCheckpoint } from "../workspace/turn-checkpoints";
 import type { RuntimeTrpcContext, RuntimeTrpcWorkspaceScope } from "./app-router";
 
@@ -973,69 +974,21 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 			const parent = await getGitStdout(["rev-parse", "--verify", `${commit}^`], workspaceScope.workspacePath).catch(
 				() => null,
 			);
-			const rawFiles = await getGitStdout(
-				["diff-tree", "--root", "-r", "--no-commit-id", "--name-status", "-M", "--end-of-options", commit],
-				workspaceScope.workspacePath,
-			);
-			const files: RuntimeWorkspaceFileChange[] = await Promise.all(
-				rawFiles
-					.split("\n")
-					.filter(Boolean)
-					.map(async (line) => {
-						const [rawStatus = "M", firstPath = "", secondPath] = line.split("\t");
-						const renamed = rawStatus.startsWith("R") || rawStatus.startsWith("C");
-						const status = rawStatus.startsWith("A")
-							? "added"
-							: rawStatus.startsWith("D")
-								? "deleted"
-								: rawStatus.startsWith("R")
-									? "renamed"
-									: rawStatus.startsWith("C")
-										? "copied"
-										: "modified";
-						const path = renamed ? (secondPath ?? firstPath) : firstPath;
-						const previousPath = renamed ? firstPath : path;
-						const oldText =
-							parent && status !== "added"
-								? await getGitStdout(["show", `${parent}:${previousPath}`], workspaceScope.workspacePath).catch(
-										() => null,
-									)
-								: null;
-						const newText =
-							status !== "deleted"
-								? await getGitStdout(["show", `${commit}:${path}`], workspaceScope.workspacePath).catch(
-										() => null,
-									)
-								: null;
-						const numstat = await getGitStdout(
-							parent
-								? ["diff", "--numstat", parent, commit, "--", previousPath, ...(renamed ? [path] : [])]
-								: [
-										"diff-tree",
-										"--root",
-										"--numstat",
-										"-r",
-										"-M",
-										"--end-of-options",
-										commit,
-										"--",
-										previousPath,
-									],
-							workspaceScope.workspacePath,
-						).catch(() => "");
-						const [added = "0", deleted = "0"] = numstat.split("\t");
-						return {
-							path,
-							...(renamed ? { previousPath } : {}),
-							status,
-							additions: Number(added) || 0,
-							deletions: Number(deleted) || 0,
-							oldText,
-							newText,
-						};
-					}),
-			);
+			const files = await listGitTreeFileChanges({
+				repoPath: workspaceScope.workspacePath,
+				baseRef: parent ?? "",
+				targetRef: commit,
+			});
 			return { repoRoot: workspaceScope.workspacePath, generatedAt: Date.now(), files };
+		},
+		getTaskPatchChanges: async (
+			workspaceScope,
+			input: RuntimeTaskPatchChangesRequest,
+		): Promise<RuntimeTaskPatchChangesResponse> => {
+			const result = await getTaskPatchFileChanges({ repoPath: workspaceScope.workspacePath, taskId: input.taskId });
+			return "notFound" in result
+				? result
+				: { repoRoot: workspaceScope.workspacePath, generatedAt: Date.now(), files: result };
 		},
 		getAgentTranscript: async (
 			workspaceScope,

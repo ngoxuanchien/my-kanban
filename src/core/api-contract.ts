@@ -70,6 +70,14 @@ export const runtimeCommitChangesResponseSchema = z.union([
 ]);
 export type RuntimeCommitChangesResponse = z.infer<typeof runtimeCommitChangesResponseSchema>;
 
+export const runtimeTaskPatchChangesRequestSchema = z.object({ taskId: z.string() });
+export type RuntimeTaskPatchChangesRequest = z.infer<typeof runtimeTaskPatchChangesRequestSchema>;
+export const runtimeTaskPatchChangesResponseSchema = z.union([
+	runtimeWorkspaceChangesResponseSchema,
+	z.object({ notFound: z.literal(true) }),
+]);
+export type RuntimeTaskPatchChangesResponse = z.infer<typeof runtimeTaskPatchChangesResponseSchema>;
+
 export const runtimeAgentTranscriptRequestSchema = z.object({
 	taskId: z.string(),
 	sessionId: z.string(),

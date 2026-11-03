@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { recordTaskHistoryEvent } from "../../src/state/task-history";
 import type { RuntimeTrpcWorkspaceScope } from "../../src/trpc/app-router";
 import { type CreateRuntimeApiDependencies, createRuntimeApi } from "../../src/trpc/runtime-api";
+import { getTaskPatchFileChanges } from "../../src/workspace/task-worktree";
 import { createGitTestEnv } from "../utilities/git-env";
 
 let temp = "";
@@ -67,6 +68,48 @@ describe("task history runtime queries", () => {
 		const changes = await api.getCommitChanges(scope, { commit });
 		expect("notFound" in changes ? changes : changes.files.map(({ path }) => path)).toContain("one.txt");
 		expect(await api.getCommitChanges(scope, { commit: "deadbeef" })).toEqual({ notFound: true, commit: "deadbeef" });
+	});
+
+	it("returns saved patch changes for tracked and untracked files, or notFound without a patch", async () => {
+		const { home, repo, scope } = await setup();
+		await writeFile(join(repo, "tracked.txt"), "before\n");
+		spawnSync("git", ["add", "tracked.txt"], { cwd: repo, stdio: "ignore", env: createGitTestEnv() });
+		spawnSync("git", ["commit", "-m", "initial"], { cwd: repo, stdio: "ignore", env: createGitTestEnv() });
+		const baseCommit = spawnSync("git", ["rev-parse", "HEAD"], {
+			cwd: repo,
+			encoding: "utf8",
+			env: createGitTestEnv(),
+		}).stdout.trim();
+		await writeFile(join(repo, "tracked.txt"), "after\n");
+		await writeFile(join(repo, "new.txt"), "created\n");
+		const trackedPatch = spawnSync("git", ["diff", "--binary", "HEAD"], {
+			cwd: repo,
+			encoding: "utf8",
+			env: createGitTestEnv(),
+		}).stdout;
+		const untrackedPatch = spawnSync("git", ["diff", "--binary", "--no-index", "--", "/dev/null", "new.txt"], {
+			cwd: repo,
+			encoding: "utf8",
+			env: createGitTestEnv(),
+		}).stdout;
+		const patchesDir = join(home, ".cline", "kanban", "trashed-task-patches");
+		await mkdir(patchesDir, { recursive: true });
+		await writeFile(join(patchesDir, `task-with-patch.${baseCommit}.patch`), `${trackedPatch}${untrackedPatch}`);
+
+		const fileChanges = await getTaskPatchFileChanges({ repoPath: repo, taskId: "task-with-patch" });
+		expect(fileChanges).toMatchObject([
+			{ path: "new.txt", status: "added", oldText: null, newText: "created" },
+			{ path: "tracked.txt", status: "modified", oldText: "before", newText: "after" },
+		]);
+		const changes = await createApi().getTaskPatchChanges(scope, { taskId: "task-with-patch" });
+		expect(changes).toMatchObject({
+			files: [
+				{ path: "new.txt", status: "added", oldText: null, newText: "created" },
+				{ path: "tracked.txt", status: "modified", oldText: "before", newText: "after" },
+			],
+		});
+		expect(await getTaskPatchFileChanges({ repoPath: repo, taskId: "missing-patch" })).toEqual({ notFound: true });
+		expect(await createApi().getTaskPatchChanges(scope, { taskId: "missing-patch" })).toEqual({ notFound: true });
 	});
 
 	it("looks up recorded session ids before reading transcript paths", async () => {

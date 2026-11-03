@@ -10,6 +10,7 @@ import type { BoardCard, CardSelection } from "@/types";
 
 const mockGetTaskHistoryQuery = vi.hoisted(() => vi.fn());
 const mockGetCommitChangesQuery = vi.hoisted(() => vi.fn());
+const mockGetTaskPatchChangesQuery = vi.hoisted(() => vi.fn());
 const mockGetAgentTranscriptQuery = vi.hoisted(() => vi.fn());
 const mockStartTaskSessionMutate = vi.hoisted(() => vi.fn());
 
@@ -21,6 +22,9 @@ vi.mock("@/runtime/trpc-client", () => ({
 			},
 			getCommitChanges: {
 				query: mockGetCommitChangesQuery,
+			},
+			getTaskPatchChanges: {
+				query: mockGetTaskPatchChangesQuery,
 			},
 			getAgentTranscript: {
 				query: mockGetAgentTranscriptQuery,
@@ -77,6 +81,8 @@ describe("DoneTaskDetailView", () => {
 		root = createRoot(container);
 		mockGetTaskHistoryQuery.mockReset();
 		mockGetCommitChangesQuery.mockReset();
+		mockGetTaskPatchChangesQuery.mockReset();
+		mockGetTaskPatchChangesQuery.mockResolvedValue({ notFound: true });
 		mockGetAgentTranscriptQuery.mockReset();
 		mockStartTaskSessionMutate.mockReset();
 	});
@@ -237,6 +243,35 @@ describe("DoneTaskDetailView", () => {
 			root.render(<DoneTaskDetailView selection={selectionWithCommit} currentProjectId="project-1" />);
 		});
 		expect(container.textContent).toContain("Commit deadbeef not found on this repository.");
+	});
+
+	it("shows the saved patch when no commit was recorded and keeps the fallback when no patch exists", async () => {
+		mockGetTaskHistoryQuery.mockResolvedValue({ events: [] });
+		mockGetTaskPatchChangesQuery.mockResolvedValue({
+			repoRoot: "/repo",
+			generatedAt: 1,
+			files: [
+				{ path: "one.txt", status: "modified", additions: 1, deletions: 1, oldText: "old\n", newText: "new\n" },
+			],
+		});
+
+		await act(async () => {
+			root.render(<DoneTaskDetailView selection={createSelection(createCard())} currentProjectId="project-1" />);
+		});
+		expect(mockGetTaskPatchChangesQuery).toHaveBeenCalledWith({ taskId: "done-task-1" });
+		expect(container.textContent).toContain("Uncommitted changes saved when the task was moved to Done");
+		expect(container.textContent).toContain("Files: 1");
+
+		mockGetTaskPatchChangesQuery.mockResolvedValue({ notFound: true });
+		await act(async () => {
+			root.render(
+				<DoneTaskDetailView
+					selection={createSelection(createCard({ id: "done-task-2" }))}
+					currentProjectId="project-1"
+				/>,
+			);
+		});
+		expect(container.textContent).toContain("No commit recorded for this task.");
 	});
 
 	it("renders agent transcript panel with turns and handles unavailable message", async () => {
