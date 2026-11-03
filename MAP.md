@@ -80,6 +80,8 @@ Update this file whenever a file or folder is created or moved.
 | `docs/superpowers/plans/2026-11-03-done-history-saved-patch.md` | Plan for the Done history saved patch spec (1 Kanban task). |
 | `docs/superpowers/specs/2026-11-03-start-task-from-review-design.md` | Spec: `task start` relaunches a Review task whose session stopped (current agent, `--message` fix list); sidebar uses it when send/handoff can't. |
 | `docs/superpowers/plans/2026-11-03-start-task-from-review.md` | Plan for the start-from-review spec (1 Kanban task). |
+| `docs/superpowers/specs/2026-11-03-compact-task-list-and-comments-design.md` | Spec: plain-text `task list` (3 recent Done, links, last created), `task show`, task comments stored as history events, shown in handoff/restart prompts and Done timeline. |
+| `docs/superpowers/plans/2026-11-03-compact-task-list-and-comments.md` | Plan for the compact task list and comments spec (2 chained Kanban tasks). |
 | `docs/agents/task-prompt-template.md` | Prompt template the planner fills in for every Kanban task. |
 | `.plan/` | Older internal plans, handoffs, investigations (`.plan/docs/`). |
 
