@@ -1,4 +1,4 @@
-import { act } from "react";
+import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -38,10 +38,9 @@ vi.mock("@/runtime/trpc-client", () => ({
 	}),
 }));
 
-vi.mock("@/components/detail-panels/diff-viewer-panel", () => ({
-	DiffViewerPanel: ({ workspaceFiles }: { workspaceFiles: unknown[] | null }) => (
-		<div data-testid="mock-diff-viewer-panel">Files: {workspaceFiles ? workspaceFiles.length : 0}</div>
-	),
+vi.mock("@/components/ui/tooltip", () => ({
+	TooltipProvider: ({ children }: { children: ReactNode }) => <>{children}</>,
+	Tooltip: ({ children }: { children: ReactNode }) => <>{children}</>,
 }));
 
 function createCard(overrides: Partial<BoardCard> = {}): BoardCard {
@@ -186,8 +185,7 @@ describe("DoneTaskDetailView", () => {
 		expect(orangeText).toContain("Out of quota");
 		expect(orangeText).toContain("Retried with OpenAI Codex");
 
-		// Check DiffViewerPanel rendered with files
-		expect(container.querySelector('[data-testid="mock-diff-viewer-panel"]')).not.toBeNull();
+		expect(container.querySelector('button[aria-label="Hide file tree"]')).not.toBeNull();
 	});
 
 	it("collapses detail and expands with 'Show all'", async () => {
@@ -260,7 +258,7 @@ describe("DoneTaskDetailView", () => {
 		});
 		expect(mockGetTaskPatchChangesQuery).toHaveBeenCalledWith({ taskId: "done-task-1" });
 		expect(container.textContent).toContain("Uncommitted changes saved when the task was moved to Done");
-		expect(container.textContent).toContain("Files: 1");
+		expect(container.querySelector('button[aria-label="Hide file tree"]')).not.toBeNull();
 
 		mockGetTaskPatchChangesQuery.mockResolvedValue({ notFound: true });
 		await act(async () => {

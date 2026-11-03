@@ -3,7 +3,7 @@ import { Clock, History, X } from "lucide-react";
 import type { MouseEvent as ReactMouseEvent } from "react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { type DiffLineComment, DiffViewerPanel } from "@/components/detail-panels/diff-viewer-panel";
+import { GitCommitDiffPanel } from "@/components/git-history/git-commit-diff-panel";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { ResizeHandle } from "@/resize/resize-handle";
@@ -145,8 +145,6 @@ export function DoneTaskDetailView({ selection, currentProjectId }: DoneTaskDeta
 	const [patchChanges, setPatchChanges] = useState<RuntimeTaskPatchChangesResponse | null>(null);
 	const [isCommitLoading, setIsCommitLoading] = useState(false);
 	const [selectedDiffPath, setSelectedDiffPath] = useState<string | null>(null);
-	const emptyComments = useMemo(() => new Map<string, DiffLineComment>(), []);
-	const noopCommentsChange = useCallback(() => {}, []);
 
 	const [expandedDetailKeys, setExpandedDetailKeys] = useState<Set<string>>(() => new Set());
 	const [viewingSessionId, setViewingSessionId] = useState<string | null>(null);
@@ -373,6 +371,9 @@ export function DoneTaskDetailView({ selection, currentProjectId }: DoneTaskDeta
 		}
 		return commitChanges.files;
 	}, [commitChanges]);
+	const savedPatchFiles = patchChanges && "files" in patchChanges ? patchChanges.files : null;
+	const showSavedPatch =
+		(!passEvent?.commit || (commitChanges && "notFound" in commitChanges)) && savedPatchFiles !== null;
 
 	return (
 		<div className="relative flex h-full w-full flex-col bg-surface-0 text-text-primary overflow-hidden">
@@ -524,54 +525,32 @@ export function DoneTaskDetailView({ selection, currentProjectId }: DoneTaskDeta
 							<div className="flex flex-1 items-center justify-center p-8">
 								<Spinner size={20} />
 							</div>
-						) : !passEvent?.commit ? (
-							patchChanges && "files" in patchChanges ? (
-								<>
-									<div className="shrink-0 px-4 py-2 text-xs text-text-secondary">
-										Uncommitted changes saved when the task was moved to Done
-									</div>
-									<DiffViewerPanel
-										workspaceFiles={patchChanges.files}
-										selectedPath={selectedDiffPath}
-										onSelectedPathChange={setSelectedDiffPath}
-										comments={emptyComments}
-										onCommentsChange={noopCommentsChange}
-										viewMode="unified"
-									/>
-								</>
-							) : (
-								<div className="flex flex-1 items-center justify-center p-8 text-sm text-text-tertiary">
-									No commit recorded for this task.
-								</div>
-							)
-						) : commitChanges && "notFound" in commitChanges ? (
-							patchChanges && "files" in patchChanges ? (
-								<>
-									<div className="shrink-0 px-4 py-2 text-xs text-text-secondary">
-										Uncommitted changes saved when the task was moved to Done
-									</div>
-									<DiffViewerPanel
-										workspaceFiles={patchChanges.files}
-										selectedPath={selectedDiffPath}
-										onSelectedPathChange={setSelectedDiffPath}
-										comments={emptyComments}
-										onCommentsChange={noopCommentsChange}
-										viewMode="unified"
-									/>
-								</>
-							) : (
-								<div className="flex flex-1 items-center justify-center p-8 text-sm text-text-tertiary">
-									Commit {commitChanges.commit} not found on this repository.
-								</div>
-							)
-						) : workspaceFiles ? (
-							<DiffViewerPanel
-								workspaceFiles={workspaceFiles}
+						) : showSavedPatch ? (
+							<GitCommitDiffPanel
+								diffSource={{ type: "working-copy", files: savedPatchFiles }}
+								isLoading={false}
 								selectedPath={selectedDiffPath}
-								onSelectedPathChange={setSelectedDiffPath}
-								comments={emptyComments}
-								onCommentsChange={noopCommentsChange}
-								viewMode="unified"
+								onSelectPath={setSelectedDiffPath}
+								headerContent={
+									<div className="shrink-0 px-4 py-2 text-xs text-text-secondary">
+										Uncommitted changes saved when the task was moved to Done
+									</div>
+								}
+							/>
+						) : !passEvent?.commit ? (
+							<div className="flex flex-1 items-center justify-center p-8 text-sm text-text-tertiary">
+								No commit recorded for this task.
+							</div>
+						) : commitChanges && "notFound" in commitChanges ? (
+							<div className="flex flex-1 items-center justify-center p-8 text-sm text-text-tertiary">
+								Commit {commitChanges.commit} not found on this repository.
+							</div>
+						) : workspaceFiles ? (
+							<GitCommitDiffPanel
+								diffSource={{ type: "working-copy", files: workspaceFiles }}
+								isLoading={false}
+								selectedPath={selectedDiffPath}
+								onSelectPath={setSelectedDiffPath}
 							/>
 						) : (
 							<div className="flex flex-1 items-center justify-center p-8 text-sm text-text-tertiary">
