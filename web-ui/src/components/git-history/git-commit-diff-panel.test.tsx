@@ -1,10 +1,21 @@
-import { act } from "react";
+import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { GitCommitDiffPanel, type GitCommitDiffSource } from "@/components/git-history/git-commit-diff-panel";
+import { LocalStorageKey } from "@/storage/local-storage-store";
+
+vi.mock("@/components/ui/tooltip", () => ({
+	TooltipProvider: ({ children }: { children: ReactNode }) => <>{children}</>,
+	Tooltip: ({ children }: { children: ReactNode }) => <>{children}</>,
+}));
 
 vi.mock("@/resize/layout-customizations", () => ({
 	useLayoutResetEffect: () => {},
+}));
+
+vi.mock("@/components/ui/tooltip", () => ({
+	TooltipProvider: ({ children }: { children: ReactNode }) => <>{children}</>,
+	Tooltip: ({ children }: { children: ReactNode }) => <>{children}</>,
 }));
 
 function createRect(top: number): DOMRect {
@@ -27,6 +38,7 @@ describe("GitCommitDiffPanel", () => {
 	let previousActEnvironment: boolean | undefined;
 
 	beforeEach(() => {
+		window.localStorage.clear();
 		previousActEnvironment = (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean })
 			.IS_REACT_ACT_ENVIRONMENT;
 		(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -164,5 +176,74 @@ describe("GitCommitDiffPanel", () => {
 		expect(container.textContent).toContain("Binary");
 		expect(container.textContent).not.toContain("No textual diff available.");
 		expect(container.querySelector(".kb-diff-row")).toBeNull();
+	});
+
+	it("toggles the file tree panel visibility and persists the hidden choice", async () => {
+		const diffSource: GitCommitDiffSource = {
+			type: "commit",
+			files: [
+				{
+					path: "src/a.ts",
+					status: "modified",
+					additions: 1,
+					deletions: 0,
+					patch: "@@ -1 +1 @@\n-const a = 1;\n+const a = 2;\n",
+				},
+			],
+		};
+
+		await act(async () => {
+			root.render(
+				<GitCommitDiffPanel
+					diffSource={diffSource}
+					isLoading={false}
+					errorMessage={null}
+					selectedPath={null}
+					onSelectPath={() => {}}
+				/>,
+			);
+		});
+
+		const hideFileTreeButton = container.querySelector('button[aria-label="Hide file tree"]');
+		expect(hideFileTreeButton).toBeInstanceOf(HTMLButtonElement);
+		if (!(hideFileTreeButton instanceof HTMLButtonElement)) {
+			throw new Error("Expected a hide file tree button.");
+		}
+
+		const layout = container.firstElementChild;
+		expect(layout).toBeInstanceOf(HTMLElement);
+		if (!(layout instanceof HTMLElement)) {
+			throw new Error("Expected a diff layout element.");
+		}
+		expect(layout.children).toHaveLength(3);
+
+		await act(async () => {
+			hideFileTreeButton.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+			hideFileTreeButton.click();
+		});
+
+		expect(layout.children).toHaveLength(1);
+		const diffContent = layout.children[0];
+		expect(diffContent).toBeInstanceOf(HTMLElement);
+		if (!(diffContent instanceof HTMLElement)) {
+			throw new Error("Expected a diff content element.");
+		}
+		expect(diffContent.style.flex).toBe("0 0 100%");
+		expect(window.localStorage.getItem(LocalStorageKey.FileTreeHidden)).toBe("true");
+
+		const showFileTreeButton = container.querySelector('button[aria-label="Show file tree"]');
+		expect(showFileTreeButton).toBeInstanceOf(HTMLButtonElement);
+		if (!(showFileTreeButton instanceof HTMLButtonElement)) {
+			throw new Error("Expected a show file tree button.");
+		}
+
+		await act(async () => {
+			showFileTreeButton.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+			showFileTreeButton.click();
+		});
+
+		expect(layout.children).toHaveLength(3);
+		expect(diffContent.style.flex).toBe("0 0 62.5%");
+		expect(window.localStorage.getItem(LocalStorageKey.FileTreeHidden)).toBe("false");
 	});
 });

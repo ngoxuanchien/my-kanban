@@ -1,5 +1,14 @@
 import type { DropResult } from "@hello-pangea/dnd";
-import { Files, GitCompareArrows, Maximize2, MessageSquare, Minimize2, X } from "lucide-react";
+import {
+	Files,
+	GitCompareArrows,
+	Maximize2,
+	MessageSquare,
+	Minimize2,
+	PanelRightClose,
+	PanelRightOpen,
+	X,
+} from "lucide-react";
 import type { MouseEvent as ReactMouseEvent, ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useHotkeys } from "react-hotkeys-hook";
@@ -10,6 +19,7 @@ import { type DiffLineComment, DiffViewerPanel } from "@/components/detail-panel
 import { FileTreePanel } from "@/components/detail-panels/file-tree-panel";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
+import { Tooltip } from "@/components/ui/tooltip";
 import type { ClineChatActionResult } from "@/hooks/use-cline-chat-runtime-actions";
 import type { ClineChatMessage } from "@/hooks/use-cline-chat-session";
 import { useIsMobile } from "@/hooks/use-is-mobile";
@@ -27,10 +37,11 @@ import type {
 	RuntimeWorkspaceChangesMode,
 } from "@/runtime/types";
 import { useRuntimeWorkspaceChanges } from "@/runtime/use-runtime-workspace-changes";
+import { LocalStorageKey } from "@/storage/local-storage-store";
 import { useTaskWorkspaceStateVersionValue } from "@/stores/workspace-metadata-store";
 import { useTerminalThemeColors } from "@/terminal/theme-colors";
 import { type BoardCard, type CardSelection, getTaskAutoReviewCancelButtonLabel } from "@/types";
-import { useWindowEvent } from "@/utils/react-use";
+import { useBooleanLocalStorageValue, useWindowEvent } from "@/utils/react-use";
 
 // We still poll the open detail diff because line content can change without changing
 // the overall file or line counts that drive the shared workspace metadata stream.
@@ -267,12 +278,16 @@ function DiffToolbar({
 	isExpanded,
 	onToggleExpand,
 	hideExpand,
+	isFileTreeHidden = false,
+	onToggleFileTree,
 }: {
 	mode: RuntimeWorkspaceChangesMode;
 	onModeChange: (mode: RuntimeWorkspaceChangesMode) => void;
 	isExpanded: boolean;
 	onToggleExpand: () => void;
 	hideExpand?: boolean;
+	isFileTreeHidden?: boolean;
+	onToggleFileTree?: () => void;
 }): React.ReactElement {
 	return (
 		<div className="flex items-center gap-1 border-b border-divider px-2 py-1">
@@ -294,6 +309,18 @@ function DiffToolbar({
 					Last Turn
 				</DiffModeButton>
 			</div>
+			{onToggleFileTree ? (
+				<Tooltip content={isFileTreeHidden ? "Show file tree" : "Hide file tree"}>
+					<Button
+						variant="ghost"
+						size="sm"
+						icon={isFileTreeHidden ? <PanelRightOpen size={14} /> : <PanelRightClose size={14} />}
+						onClick={onToggleFileTree}
+						className="h-5"
+						aria-label={isFileTreeHidden ? "Show file tree" : "Hide file tree"}
+					/>
+				</Tooltip>
+			) : null}
 			{!hideExpand ? (
 				<Button
 					variant="ghost"
@@ -440,6 +467,7 @@ export function CardDetailView({
 	const [diffComments, setDiffComments] = useState<Map<string, DiffLineComment>>(new Map());
 	const [diffMode, setDiffMode] = useState<RuntimeWorkspaceChangesMode>("working_copy");
 	const [isDiffExpanded, setIsDiffExpanded] = useState(false);
+	const [isFileTreeHidden, setIsFileTreeHidden] = useBooleanLocalStorageValue(LocalStorageKey.FileTreeHidden, false);
 	const {
 		taskCardsPanelRatio,
 		setTaskCardsPanelRatio,
@@ -603,6 +631,10 @@ export function CardDetailView({
 		}
 		setIsDiffExpanded((previous) => !previous);
 	}, [bottomTerminalOpen, isDiffExpanded, onBottomTerminalClose]);
+
+	const handleToggleFileTree = useCallback(() => {
+		setIsFileTreeHidden(!isFileTreeHidden);
+	}, [isFileTreeHidden, setIsFileTreeHidden]);
 
 	const handleAddDiffComments = useCallback(
 		(formatted: string) => {
@@ -866,18 +898,24 @@ export function CardDetailView({
 										onModeChange={setDiffMode}
 										isExpanded={isDiffExpanded}
 										onToggleExpand={handleToggleDiffExpand}
+										isFileTreeHidden={isFileTreeHidden}
+										onToggleFileTree={handleToggleFileTree}
 									/>
 								) : null}
 								<div className="flex min-h-0 flex-1">
 									{isWorkspaceChangesPending ? (
-										<WorkspaceChangesLoadingPanel panelFlex={detailDiffFileTreePanelFlex} />
+										<WorkspaceChangesLoadingPanel
+											panelFlex={isFileTreeHidden ? "1 1 0" : detailDiffFileTreePanelFlex}
+										/>
 									) : hasNoWorkspaceFileChanges ? (
 										<WorkspaceChangesEmptyPanel title={emptyDiffTitle} />
 									) : (
 										<div ref={detailDiffRowRef} className="flex min-w-0 flex-1">
 											<div
 												className="flex min-h-0 min-w-0"
-												style={{ flex: `0 0 ${detailDiffContentPanelPercent}` }}
+												style={{
+													flex: isFileTreeHidden ? "0 0 100%" : `0 0 ${detailDiffContentPanelPercent}`,
+												}}
 											>
 												<DiffViewerPanel
 													workspaceFiles={isRuntimeAvailable ? runtimeFiles : null}
@@ -898,23 +936,27 @@ export function CardDetailView({
 													onCommentsChange={setDiffComments}
 												/>
 											</div>
-											<ResizeHandle
-												orientation="vertical"
-												ariaLabel="Resize detail diff panels"
-												onMouseDown={handleDetailDiffSeparatorMouseDown}
-												className="z-10"
-											/>
-											<div
-												className="flex min-h-0 min-w-0"
-												style={{ flex: `0 0 ${detailDiffFileTreePanelPercent}` }}
-											>
-												<FileTreePanel
-													workspaceFiles={isRuntimeAvailable ? runtimeFiles : null}
-													selectedPath={selectedPath}
-													onSelectPath={setSelectedPath}
-													panelFlex="1 1 0"
-												/>
-											</div>
+											{!isFileTreeHidden ? (
+												<>
+													<ResizeHandle
+														orientation="vertical"
+														ariaLabel="Resize detail diff panels"
+														onMouseDown={handleDetailDiffSeparatorMouseDown}
+														className="z-10"
+													/>
+													<div
+														className="flex min-h-0 min-w-0"
+														style={{ flex: `0 0 ${detailDiffFileTreePanelPercent}` }}
+													>
+														<FileTreePanel
+															workspaceFiles={isRuntimeAvailable ? runtimeFiles : null}
+															selectedPath={selectedPath}
+															onSelectPath={setSelectedPath}
+															panelFlex="1 1 0"
+														/>
+													</div>
+												</>
+											) : null}
 										</div>
 									)}
 								</div>

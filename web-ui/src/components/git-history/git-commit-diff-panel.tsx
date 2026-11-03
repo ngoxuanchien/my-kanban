@@ -1,4 +1,12 @@
-import { AlertCircle, ChevronDown, ChevronRight, GitCommit, GitCompare } from "lucide-react";
+import {
+	AlertCircle,
+	ChevronDown,
+	ChevronRight,
+	GitCommit,
+	GitCompare,
+	PanelRightClose,
+	PanelRightOpen,
+} from "lucide-react";
 import { type MouseEvent as ReactMouseEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FileTreePanel } from "@/components/detail-panels/file-tree-panel";
 import {
@@ -8,11 +16,15 @@ import {
 	truncatePathMiddle,
 	type UnifiedDiffRow,
 } from "@/components/shared/diff-renderer";
+import { Button } from "@/components/ui/button";
+import { Tooltip } from "@/components/ui/tooltip";
 import { ResizeHandle } from "@/resize/resize-handle";
 import { useGitCommitDiffLayout } from "@/resize/use-git-commit-diff-layout";
 import { useResizeDrag } from "@/resize/use-resize-drag";
 import type { RuntimeGitCommitDiffFile, RuntimeWorkspaceFileChange } from "@/runtime/types";
+import { LocalStorageKey } from "@/storage/local-storage-store";
 import { isBinaryFilePath } from "@/utils/is-binary-file-path";
+import { useBooleanLocalStorageValue } from "@/utils/react-use";
 
 export type GitCommitDiffSource =
 	| { type: "commit"; files: RuntimeGitCommitDiffFile[] }
@@ -90,6 +102,7 @@ export function GitCommitDiffPanel({
 }): React.ReactElement {
 	const [expandedPaths, setExpandedPaths] = useState<Record<string, boolean>>({});
 	const { fileTreePanelRatio, setFileTreePanelRatio } = useGitCommitDiffLayout();
+	const [isFileTreeHidden, setIsFileTreeHidden] = useBooleanLocalStorageValue(LocalStorageKey.FileTreeHidden, false);
 	const scrollContainerRef = useRef<HTMLDivElement>(null);
 	const sectionElementsRef = useRef<Record<string, HTMLElement | null>>({});
 	const diffLayoutRef = useRef<HTMLDivElement | null>(null);
@@ -137,6 +150,10 @@ export function GitCommitDiffPanel({
 		},
 		[fileTreePanelRatio, setFileTreePanelRatio, startDiffSplitResize],
 	);
+
+	const handleToggleFileTree = useCallback(() => {
+		setIsFileTreeHidden(!isFileTreeHidden);
+	}, [isFileTreeHidden, setIsFileTreeHidden]);
 
 	useEffect(() => {
 		setExpandedPaths({});
@@ -311,6 +328,19 @@ export function GitCommitDiffPanel({
 		);
 	}
 
+	const fileTreeToggle = (
+		<Tooltip content={isFileTreeHidden ? "Show file tree" : "Hide file tree"}>
+			<Button
+				variant="ghost"
+				size="sm"
+				icon={isFileTreeHidden ? <PanelRightOpen size={14} /> : <PanelRightClose size={14} />}
+				onClick={handleToggleFileTree}
+				className="h-5"
+				aria-label={isFileTreeHidden ? "Show file tree" : "Hide file tree"}
+			/>
+		</Tooltip>
+	);
+
 	const fileTreePanelPercent = `${(fileTreePanelRatio * 100).toFixed(1)}%`;
 	const diffContentPanelPercent = `${((1 - fileTreePanelRatio) * 100).toFixed(1)}%`;
 
@@ -322,13 +352,20 @@ export function GitCommitDiffPanel({
 			<div
 				style={{
 					display: "flex",
-					flex: `0 0 ${diffContentPanelPercent}`,
+					flex: isFileTreeHidden ? "0 0 100%" : `0 0 ${diffContentPanelPercent}`,
 					minWidth: 0,
 					minHeight: 0,
 					flexDirection: "column",
 				}}
 			>
-				{headerContent ? headerContent : null}
+				{headerContent ? (
+					<div className="flex items-start">
+						<div className="min-w-0 flex-1">{headerContent}</div>
+						{fileTreeToggle}
+					</div>
+				) : (
+					<div className="flex justify-end px-3 pt-2">{fileTreeToggle}</div>
+				)}
 				<div
 					ref={scrollContainerRef}
 					onScroll={handleDiffScroll}
@@ -433,27 +470,31 @@ export function GitCommitDiffPanel({
 					})}
 				</div>
 			</div>
-			<ResizeHandle
-				orientation="vertical"
-				ariaLabel="Resize git diff panels"
-				onMouseDown={handleDiffSplitSeparatorMouseDown}
-				className="z-10"
-			/>
-			<div
-				style={{
-					display: "flex",
-					flex: `0 0 ${fileTreePanelPercent}`,
-					minWidth: 0,
-					minHeight: 0,
-				}}
-			>
-				<FileTreePanel
-					workspaceFiles={workspaceFilesForTree}
-					selectedPath={selectedPath}
-					onSelectPath={onSelectPath}
-					panelFlex="1 1 0"
-				/>
-			</div>
+			{!isFileTreeHidden ? (
+				<>
+					<ResizeHandle
+						orientation="vertical"
+						ariaLabel="Resize git diff panels"
+						onMouseDown={handleDiffSplitSeparatorMouseDown}
+						className="z-10"
+					/>
+					<div
+						style={{
+							display: "flex",
+							flex: `0 0 ${fileTreePanelPercent}`,
+							minWidth: 0,
+							minHeight: 0,
+						}}
+					>
+						<FileTreePanel
+							workspaceFiles={workspaceFilesForTree}
+							selectedPath={selectedPath}
+							onSelectPath={onSelectPath}
+							panelFlex="1 1 0"
+						/>
+					</div>
+				</>
+			) : null}
 		</div>
 	);
 }

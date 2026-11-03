@@ -26,6 +26,11 @@ vi.mock("react-hotkeys-hook", () => ({
 	useHotkeys: () => {},
 }));
 
+vi.mock("@/components/ui/tooltip", () => ({
+	TooltipProvider: ({ children }: { children: ReactNode }) => <>{children}</>,
+	Tooltip: ({ children }: { children: ReactNode }) => <>{children}</>,
+}));
+
 vi.mock("@/hooks/use-is-mobile", () => ({
 	useIsMobile: () => false,
 }));
@@ -775,5 +780,68 @@ describe("CardDetailView", () => {
 		});
 
 		expect(requireDetailDiffFileTreePanel(container).style.flex).toBe("0 0 18%");
+	});
+
+	it("toggles the file tree panel visibility and persists the hidden choice", async () => {
+		await act(async () => {
+			root.render(
+				<CardDetailView
+					selection={createSelection()}
+					currentProjectId="workspace-1"
+					sessionSummary={null}
+					taskSessions={{}}
+					onSessionSummary={() => {}}
+					onCardSelect={() => {}}
+					onTaskDragEnd={() => {}}
+					onMoveToTrash={() => {}}
+					bottomTerminalOpen={false}
+					bottomTerminalTaskId={null}
+					bottomTerminalSummary={null}
+					onBottomTerminalClose={() => {}}
+				/>,
+			);
+		});
+
+		const hideFileTreeButton = container.querySelector('button[aria-label="Hide file tree"]');
+		expect(hideFileTreeButton).toBeInstanceOf(HTMLButtonElement);
+		if (!(hideFileTreeButton instanceof HTMLButtonElement)) {
+			throw new Error("Expected a hide file tree button.");
+		}
+
+		expect(container.querySelector('[data-testid="file-tree-panel"]')).toBeInstanceOf(HTMLDivElement);
+		expect(container.querySelector('[aria-label="Resize detail diff panels"]')).toBeInstanceOf(HTMLDivElement);
+
+		const diffContent = container.querySelector('[data-testid="diff-viewer-panel"]')?.parentElement;
+		expect(diffContent).toBeInstanceOf(HTMLElement);
+		if (!(diffContent instanceof HTMLElement)) {
+			throw new Error("Expected a diff content element.");
+		}
+		expect(diffContent.style.flex).toBe("0 0 66.7%");
+
+		await act(async () => {
+			hideFileTreeButton.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+			hideFileTreeButton.click();
+		});
+
+		expect(container.querySelector('[data-testid="file-tree-panel"]')).toBeNull();
+		expect(container.querySelector('[aria-label="Resize detail diff panels"]')).toBeNull();
+		expect(diffContent.style.flex).toBe("0 0 100%");
+		expect(window.localStorage.getItem(LocalStorageKey.FileTreeHidden)).toBe("true");
+
+		const showFileTreeButton = container.querySelector('button[aria-label="Show file tree"]');
+		expect(showFileTreeButton).toBeInstanceOf(HTMLButtonElement);
+		if (!(showFileTreeButton instanceof HTMLButtonElement)) {
+			throw new Error("Expected a show file tree button.");
+		}
+
+		await act(async () => {
+			showFileTreeButton.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+			showFileTreeButton.click();
+		});
+
+		expect(container.querySelector('[data-testid="file-tree-panel"]')).toBeInstanceOf(HTMLDivElement);
+		expect(container.querySelector('[aria-label="Resize detail diff panels"]')).toBeInstanceOf(HTMLDivElement);
+		expect(diffContent.style.flex).toBe("0 0 66.7%");
+		expect(window.localStorage.getItem(LocalStorageKey.FileTreeHidden)).toBe("false");
 	});
 });
