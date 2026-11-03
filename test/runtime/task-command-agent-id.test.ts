@@ -17,7 +17,7 @@ const cliMocks = vi.hoisted(() => ({
 			startTaskSession: { mutate: vi.fn(async () => ({ ok: true, summary: { taskId: "task-1" } })) },
 		},
 	},
-	loadWorkspaceContext: vi.fn(async () => ({ repoPath: "/tmp/repo" })),
+	loadWorkspaceContext: vi.fn(async () => ({ repoPath: "/tmp/repo", workspaceId: "workspace-1" })),
 	workspaceState: {
 		repoPath: "/tmp/repo",
 		board: {
@@ -31,6 +31,8 @@ const cliMocks = vi.hoisted(() => ({
 const scoreMocks = vi.hoisted(() => ({ recordAgentScoreEvent: vi.fn(async () => true) }));
 const historyMocks = vi.hoisted(() => ({
 	recordTaskHistoryEvent: vi.fn(async () => true),
+	loadTaskHistory: vi.fn(async () => []),
+	formatRecentTaskComments: vi.fn(() => ""),
 	deleteTaskHistory: vi.fn(async () => undefined),
 }));
 const completionMocks = vi.hoisted(() => ({ completeTaskToDone: vi.fn() }));
@@ -304,6 +306,21 @@ describe("task start from Review", () => {
 			agentId: "codex",
 		});
 		expect(cliMocks.workspaceState.board.columns[2]?.cards).toHaveLength(0);
+	});
+
+	it("adds recent comments to the restart prompt", async () => {
+		historyMocks.loadTaskHistory.mockResolvedValue([
+			{ type: "comment", agentId: "codex", at: 1, detail: "keep the existing parser" },
+		] as never);
+		historyMocks.formatRecentTaskComments.mockReturnValue(
+			"Notes from earlier agents:\n- codex, 1970-01-01T00:00:00.001Z: keep the existing parser",
+		);
+		const result = await run(["start", "--task-id", "task-1", "--message", "continue"]);
+		expect(result.ok).toBe(true);
+		expect(cliMocks.client.runtime.startTaskSession.mutate).toHaveBeenCalledWith(
+			expect.objectContaining({ prompt: expect.stringContaining("Notes from earlier agents:\n- codex,") }),
+		);
+		historyMocks.loadTaskHistory.mockResolvedValue([]);
 	});
 
 	it("rejects a Review task with a running session without starting or moving it", async () => {
@@ -671,6 +688,8 @@ describe("compact task list and task show", () => {
 		git: { currentBranch: "main", defaultBranch: "main", branches: ["main"] },
 		sessions: { "active-1": { state: "running", agentId: "claude" } },
 	};
+	const originalHookTaskId = process.env.KANBAN_HOOK_TASK_ID;
+	const originalHookWorkspaceId = process.env.KANBAN_HOOK_WORKSPACE_ID;
 
 	async function execute(args: string[]): Promise<string> {
 		cliMocks.client.workspace.getState.query.mockResolvedValue(state as never);
@@ -685,6 +704,16 @@ describe("compact task list and task show", () => {
 		write.mockRestore();
 		return output;
 	}
+
+	beforeEach(() => {
+		historyMocks.loadTaskHistory.mockResolvedValue([
+			{ type: "comment", agentId: "codex", at: 100, detail: "first" },
+			{ type: "comment", agentId: "opencode", at: 200, detail: "second" },
+		] as never);
+		historyMocks.recordTaskHistoryEvent.mockClear();
+		delete process.env.KANBAN_HOOK_TASK_ID;
+		delete process.env.KANBAN_HOOK_WORKSPACE_ID;
+	});
 
 	it("prints aligned compact rows, trims Done, and includes dependency and newest-task lines", async () => {
 		const output = await execute(["list"]);
@@ -730,12 +759,51 @@ describe("compact task list and task show", () => {
 		const shown = JSON.parse(await execute(["show", "--task-id", "active-1"]));
 		expect(shown).toMatchObject({
 			ok: true,
-			task: { id: "active-1", prompt: "Prompt", reviewRound: 2, handOffCount: 2 },
+			task: {
+				id: "active-1",
+				prompt: "Prompt",
+				reviewRound: 2,
+				handOffCount: 2,
+				comments: [
+					{ agentId: "codex", at: 100, body: "first" },
+					{ agentId: "opencode", at: 200, body: "second" },
+				],
+			},
 		});
 		process.exitCode = 0;
 		const missing = JSON.parse(await execute(["show", "--task-id", "missing"]));
 		expect(missing).toMatchObject({ ok: false, error: expect.stringContaining("Task not found: missing") });
 		expect(process.exitCode).toBe(1);
+		process.exitCode = 0;
+	});
+
+	it("records comments using --task-id or KANBAN_HOOK_TASK_ID", async () => {
+		const explicit = JSON.parse(await execute(["comment", "--task-id", "active-1", "--message", "decision"]));
+		expect(explicit).toEqual({ ok: true, taskId: "active-1" });
+		expect(historyMocks.recordTaskHistoryEvent).toHaveBeenLastCalledWith("workspace-1", "active-1", {
+			type: "comment",
+			agentId: "claude",
+			detail: "decision",
+		});
+
+		process.env.KANBAN_HOOK_TASK_ID = "active-1";
+		process.env.KANBAN_HOOK_WORKSPACE_ID = "hook-workspace";
+		const fromEnv = JSON.parse(await execute(["comment", "--message", "x".repeat(2_500)]));
+		expect(fromEnv).toEqual({ ok: true, taskId: "active-1" });
+		expect(historyMocks.recordTaskHistoryEvent).toHaveBeenLastCalledWith("hook-workspace", "active-1", {
+			type: "comment",
+			agentId: "claude",
+			detail: "x".repeat(2_500),
+		});
+		if (originalHookTaskId === undefined) delete process.env.KANBAN_HOOK_TASK_ID;
+		else process.env.KANBAN_HOOK_TASK_ID = originalHookTaskId;
+		if (originalHookWorkspaceId === undefined) delete process.env.KANBAN_HOOK_WORKSPACE_ID;
+		else process.env.KANBAN_HOOK_WORKSPACE_ID = originalHookWorkspaceId;
+	});
+
+	it("returns a JSON error when a task comment has no task ID", async () => {
+		const result = JSON.parse(await execute(["comment", "--message", "note"]));
+		expect(result).toMatchObject({ ok: false, error: expect.stringContaining("--task-id or KANBAN_HOOK_TASK_ID") });
 		process.exitCode = 0;
 	});
 });

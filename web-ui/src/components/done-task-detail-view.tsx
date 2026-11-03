@@ -92,6 +92,11 @@ function getEventDisplayInfo(event: RuntimeTaskHistoryEvent): {
 	colorClassName: string;
 } {
 	switch (event.type) {
+		case "comment":
+			return {
+				label: "Comment",
+				colorClassName: "text-text-secondary",
+			};
 		case "started":
 			return {
 				label: "Started",

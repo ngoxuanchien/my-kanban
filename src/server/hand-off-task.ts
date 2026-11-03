@@ -8,7 +8,8 @@ import {
 	nextHandOffAgent,
 } from "../core/hand-off-cap";
 import { moveTaskToColumn } from "../core/task-board-mutations";
-import { loadWorkspaceState, mutateWorkspaceState } from "../state/workspace-state";
+import { formatRecentTaskComments, loadTaskHistory } from "../state/task-history";
+import { loadWorkspaceContext, loadWorkspaceState, mutateWorkspaceState } from "../state/workspace-state";
 
 export interface HandOffTaskDependencies {
 	workspacePath: string;
@@ -32,11 +33,13 @@ export function buildHandOffPrompt(input: {
 	previousAgentIds: HandOffAgentId[];
 	baseRef: string;
 	reason: string;
+	comments?: string;
 }): string {
 	const agents = input.previousAgentIds.join(", then ");
 	const agentDescription =
 		input.previousAgentIds.length > 1 ? `Other agents (${agents}) worked` : `Another agent (${agents}) worked`;
-	return `${input.originalPrompt}\n\n---\n[Kanban handoff] ${agentDescription} on this task before you and could not finish it.\nIts unfinished work is already in this worktree (uncommitted changes and commits since ${input.baseRef}). Check it and continue from it; do not start over.\nWhy it was handed off: ${input.reason}`;
+	const prompt = `${input.originalPrompt}\n\n---\n[Kanban handoff] ${agentDescription} on this task before you and could not finish it.\nIts unfinished work is already in this worktree (uncommitted changes and commits since ${input.baseRef}). Check it and continue from it; do not start over.\nWhy it was handed off: ${input.reason}`;
+	return input.comments ? `${prompt}\n\n${input.comments}` : prompt;
 }
 
 function findCard(board: { columns: Array<{ cards: RuntimeBoardCard[] }> }, taskId: string): RuntimeBoardCard | null {
@@ -69,6 +72,8 @@ export async function handOffTask(
 	const fromAgentId = card.agentId;
 	const handOffCount = getHandOffCount(card);
 	const toAgentId = nextHandOffAgent(fromAgentId);
+	const workspace = await loadWorkspaceContext(deps.workspacePath, { autoCreateIfMissing: false });
+	const comments = formatRecentTaskComments(await loadTaskHistory(workspace.workspaceId, input.taskId));
 	await deps.stopTaskSession(input.taskId);
 	const mutation = await mutateWorkspaceState<HandOffTaskResult>(deps.workspacePath, (current) => {
 		const currentCard = findCard(current.board, input.taskId);
@@ -106,6 +111,7 @@ export async function handOffTask(
 			previousAgentIds: handOffHistory(fromAgentId, handOffCount),
 			baseRef: card.baseRef,
 			reason: input.reason,
+			comments,
 		}),
 		taskTitle: card.title ?? card.prompt,
 		baseRef: card.baseRef,

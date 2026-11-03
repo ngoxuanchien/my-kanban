@@ -6,7 +6,15 @@ import { getWorkspaceDirectoryPath } from "./workspace-state";
 export const TASK_HISTORY_DIRNAME = "task-history";
 const TASK_HISTORY_FILE_VERSION = 1;
 
-export type TaskHistoryEventType = "started" | "fail" | "handoff" | "quota_blocked" | "retry" | "pass" | "session";
+export type TaskHistoryEventType =
+	| "started"
+	| "fail"
+	| "handoff"
+	| "quota_blocked"
+	| "retry"
+	| "pass"
+	| "session"
+	| "comment";
 
 export interface AgentSessionRef {
 	agentId: string;
@@ -35,6 +43,7 @@ function getTaskHistoryPath(workspaceId: string, taskId: string): string {
 }
 
 const MAX_DETAIL_LENGTH = 20_000;
+const MAX_COMMENT_LENGTH = 2_000;
 const TRUNCATED_SUFFIX = "… (truncated)";
 
 function truncateDetail(detail: string | undefined): string | undefined {
@@ -55,7 +64,8 @@ function isTaskHistoryEventType(value: unknown): value is TaskHistoryEventType {
 		value === "quota_blocked" ||
 		value === "retry" ||
 		value === "pass" ||
-		value === "session"
+		value === "session" ||
+		value === "comment"
 	);
 }
 
@@ -74,6 +84,9 @@ function isTaskHistoryEvent(value: unknown): value is TaskHistoryEvent {
 		return false;
 	}
 	if (candidate.detail !== undefined && typeof candidate.detail !== "string") {
+		return false;
+	}
+	if (candidate.type === "comment" && typeof candidate.detail !== "string") {
 		return false;
 	}
 	if (candidate.commit !== undefined && typeof candidate.commit !== "string") {
@@ -121,7 +134,10 @@ async function readTaskHistoryEvents(path: string): Promise<TaskHistoryEvent[]> 
 }
 
 function appendTaskHistoryEvent(events: TaskHistoryEvent[], input: Omit<TaskHistoryEvent, "at">, at: number): boolean {
-	const truncatedDetail = truncateDetail(input.detail);
+	const truncatedDetail =
+		input.type === "comment" && input.detail !== undefined
+			? input.detail.slice(0, MAX_COMMENT_LENGTH)
+			: truncateDetail(input.detail);
 
 	if (input.type === "fail") {
 		const existingFail = events.find((existing) => existing.type === "fail" && existing.round === input.round);
@@ -169,7 +185,7 @@ function appendTaskHistoryEvent(events: TaskHistoryEvent[], input: Omit<TaskHist
 		if (isDuplicate) {
 			return false;
 		}
-	} else {
+	} else if (input.type !== "comment") {
 		const isDuplicate = events.some((existing) => {
 			return (
 				existing.type === input.type &&
@@ -199,6 +215,27 @@ function appendTaskHistoryEvent(events: TaskHistoryEvent[], input: Omit<TaskHist
 	if (input.agentSession !== undefined) newEvent.agentSession = input.agentSession;
 	events.push(newEvent);
 	return true;
+}
+
+export function formatRecentTaskComments(events: TaskHistoryEvent[]): string {
+	const comments = events.filter((event) => event.type === "comment" && event.detail !== undefined);
+	if (comments.length === 0) return "";
+
+	const heading = "Notes from earlier agents:";
+	const maxLength = 3_000;
+	const lines: string[] = [];
+	let length = heading.length;
+	for (const comment of comments.slice().reverse()) {
+		const prefix = `- ${comment.agentId}, ${new Date(comment.at).toISOString()}: `;
+		const available = maxLength - length - 1 - prefix.length;
+		if (available <= 0) break;
+		const body = (comment.detail ?? "").replace(/\s+/gu, " ");
+		const line = `${prefix}${body.slice(0, available)}`;
+		lines.unshift(line);
+		length += line.length + 1;
+		if (line.length < prefix.length + body.length) break;
+	}
+	return `${heading}\n${lines.join("\n")}`;
 }
 
 export async function recordTaskHistoryEvent(

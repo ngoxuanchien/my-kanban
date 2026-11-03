@@ -28,8 +28,14 @@ import {
 } from "../core/task-board-mutations";
 import { resolveProjectInputPath } from "../projects/project-path";
 import { recordAgentScoreEvent } from "../state/agent-scores";
-import { deleteTaskHistory, recordTaskHistoryEvent } from "../state/task-history";
+import {
+	deleteTaskHistory,
+	formatRecentTaskComments,
+	loadTaskHistory,
+	recordTaskHistoryEvent,
+} from "../state/task-history";
 import { getTaskWorktreesHomePath, loadWorkspaceContext, mutateWorkspaceState } from "../state/workspace-state";
+import { KANBAN_HOOK_TASK_ID_ENV, KANBAN_HOOK_WORKSPACE_ID_ENV } from "../terminal/hook-runtime-context";
 import type { RuntimeAppRouter } from "../trpc/app-router";
 import { columnCanHaveLiveTaskSession, completeTaskToDone } from "../workspace/complete-task-to-done";
 import { getWorkspaceFolderLabelForWorktreePath } from "../workspace/task-worktree-path";
@@ -693,7 +699,35 @@ async function showTask(input: { cwd: string; projectPath?: string; taskId: stri
 	if (!record) {
 		throw new Error(`Task not found: ${input.taskId}`);
 	}
-	return { ok: true, task: formatTaskRecord(state, record.task, record.columnId) };
+	const comments = (await loadTaskHistory(workspace.workspaceId, input.taskId))
+		.filter((event) => event.type === "comment" && event.detail !== undefined)
+		.map(({ agentId, at, detail }) => ({ agentId, at, body: detail }));
+	return { ok: true, task: { ...formatTaskRecord(state, record.task, record.columnId), comments } };
+}
+
+async function commentOnTask(input: {
+	cwd: string;
+	projectPath?: string;
+	taskId?: string;
+	message: string;
+}): Promise<JsonRecord> {
+	const taskId = input.taskId?.trim() || process.env[KANBAN_HOOK_TASK_ID_ENV]?.trim();
+	if (!taskId) throw new Error("task comment requires --task-id or KANBAN_HOOK_TASK_ID.");
+	const workspaceId = input.projectPath
+		? (await resolveRuntimeWorkspace(input.projectPath, input.cwd, { autoCreateIfMissing: false })).workspaceId
+		: process.env[KANBAN_HOOK_WORKSPACE_ID_ENV]?.trim() ||
+			(await resolveRuntimeWorkspace(undefined, input.cwd, { autoCreateIfMissing: false })).workspaceId;
+	const runtimeClient = createRuntimeTrpcClient(workspaceId);
+	const state = await runtimeClient.workspace.getState.query();
+	const record = findTaskRecord(state, taskId);
+	if (!record) throw new Error(`Task not found: ${taskId}`);
+	const agentId = record.task.agentId ?? state.sessions[taskId]?.agentId ?? "user";
+	await recordTaskHistoryEvent(workspaceId, taskId, {
+		type: "comment",
+		agentId,
+		detail: input.message,
+	});
+	return { ok: true, taskId };
 }
 
 async function stopTaskRuntimeSession(
@@ -960,8 +994,14 @@ async function unlinkTasks(input: { cwd: string; dependencyId: string; projectPa
 	};
 }
 
-export function buildRestartPrompt(input: { originalPrompt: string; baseRef: string; message?: string }): string {
-	return `${input.originalPrompt}\n\n---\n[Kanban restart] Earlier work on this task is already in this worktree (uncommitted changes and commits since ${input.baseRef}). Check it and continue from it; do not start over.${input.message !== undefined ? `\nReviewer notes:\n${input.message}` : ""}`;
+export function buildRestartPrompt(input: {
+	originalPrompt: string;
+	baseRef: string;
+	message?: string;
+	comments?: string;
+}): string {
+	const prompt = `${input.originalPrompt}\n\n---\n[Kanban restart] Earlier work on this task is already in this worktree (uncommitted changes and commits since ${input.baseRef}). Check it and continue from it; do not start over.${input.message !== undefined ? `\nReviewer notes:\n${input.message}` : ""}`;
+	return input.comments ? `${prompt}\n\n${input.comments}` : prompt;
 }
 
 async function startTask(input: {
@@ -998,6 +1038,10 @@ async function startTask(input: {
 	}
 
 	if (shouldStartSession) {
+		const comments =
+			fromColumnId === "review" || input.message !== undefined
+				? formatRecentTaskComments(await loadTaskHistory(workspaceId, task.id))
+				: "";
 		const ensured = await runtimeClient.workspace.ensureWorktree.mutate({
 			taskId: task.id,
 			baseRef: task.baseRef,
@@ -1010,7 +1054,12 @@ async function startTask(input: {
 			taskId: task.id,
 			prompt:
 				fromColumnId === "review" || input.message !== undefined
-					? buildRestartPrompt({ originalPrompt: task.prompt, baseRef: task.baseRef, message: input.message })
+					? buildRestartPrompt({
+							originalPrompt: task.prompt,
+							baseRef: task.baseRef,
+							message: input.message,
+							comments,
+						})
 					: task.prompt,
 			taskTitle: task.title,
 			startInPlanMode: task.startInPlanMode,
@@ -1486,6 +1535,23 @@ export function registerTaskCommand(program: Command): void {
 		.action(async (options: { taskId: string; projectPath?: string }) => {
 			await runTaskCommand(() =>
 				showTask({ cwd: process.cwd(), projectPath: options.projectPath, taskId: options.taskId }),
+			);
+		});
+
+	task
+		.command("comment")
+		.description("Add a short comment to a task for the next agent.")
+		.requiredOption("--message <text>", "Comment text.")
+		.option("--task-id <id>", "Task ID. Defaults to KANBAN_HOOK_TASK_ID in a task session.")
+		.option("--project-path <path>", "Workspace path. Defaults to current directory workspace.")
+		.action(async (options: { taskId?: string; projectPath?: string; message: string }) => {
+			await runTaskCommand(() =>
+				commentOnTask({
+					cwd: process.cwd(),
+					taskId: options.taskId,
+					projectPath: options.projectPath,
+					message: options.message,
+				}),
 			);
 		});
 

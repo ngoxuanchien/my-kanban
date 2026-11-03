@@ -11,8 +11,13 @@ const workspaceState = vi.hoisted(() => ({
 		dependencies: [],
 	},
 }));
+const taskHistory = vi.hoisted(() => ({
+	loadTaskHistory: vi.fn(async () => []),
+	formatRecentTaskComments: vi.fn(() => ""),
+}));
 
 vi.mock("../../../src/state/workspace-state", () => ({
+	loadWorkspaceContext: vi.fn(async () => ({ workspaceId: "workspace-1" })),
 	loadWorkspaceState: vi.fn(async () => ({ board: workspaceState.board })),
 	mutateWorkspaceState: vi.fn(
 		async (_path: string, mutate: (state: { board: typeof workspaceState.board }) => unknown) => {
@@ -26,6 +31,7 @@ vi.mock("../../../src/state/workspace-state", () => ({
 		},
 	),
 }));
+vi.mock("../../../src/state/task-history", () => taskHistory);
 
 import { buildHandOffPrompt, type HandOffTaskDependencies, handOffTask } from "../../../src/server/hand-off-task";
 
@@ -60,6 +66,8 @@ describe("handOffTask", () => {
 			{ id: "review", title: "Review", cards: [card()] },
 			{ id: "trash", title: "Trash", cards: [] },
 		];
+		taskHistory.loadTaskHistory.mockResolvedValue([]);
+		taskHistory.formatRecentTaskComments.mockReturnValue("");
 	});
 
 	it.each([
@@ -114,6 +122,20 @@ describe("handOffTask", () => {
 			"Original\n\n---\n[Kanban handoff] Another agent (codex) worked on this task before you and could not finish it.\n" +
 				"Its unfinished work is already in this worktree (uncommitted changes and commits since main). Check it and continue from it; do not start over.\n" +
 				"Why it was handed off: Tests fail",
+		);
+	});
+
+	it("appends recent comments to the handoff prompt", async () => {
+		taskHistory.loadTaskHistory.mockResolvedValue([
+			{ type: "comment", agentId: "codex", at: 100, detail: "preserve the current worktree" },
+		] as never);
+		taskHistory.formatRecentTaskComments.mockReturnValue(
+			"Notes from earlier agents:\n- codex, 1970-01-01T00:00:00.100Z: preserve the current worktree",
+		);
+		const deps = dependencies();
+		await handOffTask(deps, { taskId: "task-1", reason: "Need another agent" });
+		expect(deps.startTaskSession).toHaveBeenCalledWith(
+			expect.objectContaining({ prompt: expect.stringContaining("Notes from earlier agents:") }),
 		);
 	});
 

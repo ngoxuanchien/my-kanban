@@ -149,6 +149,7 @@ describe("DoneTaskDetailView", () => {
 			{ type: "quota_blocked", agentId: "antigravity", at: 4000 },
 			{ type: "retry", agentId: "antigravity", toAgentId: "codex", at: 5000 },
 			{ type: "pass", agentId: "codex", commit: "a1b2c3d4", at: 6000 },
+			{ type: "comment", agentId: "codex", detail: "Keep the parser behavior", at: 6500 },
 		];
 		mockGetTaskHistoryQuery.mockResolvedValue({ events });
 		mockGetCommitChangesQuery.mockResolvedValue({
@@ -169,6 +170,8 @@ describe("DoneTaskDetailView", () => {
 		expect(container.textContent).toContain("Out of quota");
 		expect(container.textContent).toContain("Retried with OpenAI Codex");
 		expect(container.textContent).toContain("Passed · a1b2c3d4");
+		expect(container.textContent).toContain("Comment");
+		expect(container.textContent).toContain("Keep the parser behavior");
 
 		// Check colours
 		const failElement = container.querySelector(".text-status-red");

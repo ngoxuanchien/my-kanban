@@ -58,6 +58,7 @@ import { type RuntimeClaudeModel, resolveEffectiveClaudeModel, resolveScoreAgent
 import { resolveEffectiveTaskAgentId } from "../core/effective-task-agent";
 import { isHomeAgentSessionId } from "../core/home-agent-session";
 import { resolveTaskTitle } from "../core/task-title.js";
+import { resolveAppendSystemPromptCommandPrefix } from "../prompts/append-system-prompt";
 import { openInBrowser } from "../server/browser";
 import { EditorFileLinkError, resolveEditorFileUrl } from "../server/editor-link";
 import { handOffTask as handOffTaskInWorkspace } from "../server/hand-off-task";
@@ -74,6 +75,12 @@ import { captureTaskTurnCheckpoint } from "../workspace/turn-checkpoints";
 import type { RuntimeTrpcContext, RuntimeTrpcWorkspaceScope } from "./app-router";
 
 const warnAgentScoreRecording = console.warn.bind(console);
+
+function appendKanbanNotesFooter(prompt: string): string {
+	if (prompt.includes("[Kanban notes]")) return prompt;
+	const command = resolveAppendSystemPromptCommandPrefix();
+	return `${prompt}\n\n---\n[Kanban notes] Record key decisions, progress, and blockers for the next agent with:\n${command} task comment --message "<1-3 lines>"\nComment when you make a non-obvious decision and before you stop with work unfinished. Keep it short; never paste diffs or secrets.`;
+}
 
 export interface CreateRuntimeApiDependencies {
 	getActiveWorkspaceId: () => string | null;
@@ -330,6 +337,10 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 				//   (including trash-restore) uses the updated values.
 				const terminalManager = await deps.getScopedTerminalManager(workspaceScope);
 				const resumesPreviousConversation = body.resumeFromTrash || body.resumeFromPersistence;
+				const prompt =
+					!isHomeAgentSessionId(body.taskId) && body.prompt.trim() && !resumesPreviousConversation
+						? appendKanbanNotesFooter(body.prompt)
+						: body.prompt;
 				const previousTerminalAgentId = resumesPreviousConversation
 					? (terminalManager.getSummary(body.taskId)?.agentId ?? null)
 					: null;
@@ -366,7 +377,7 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 					const summary = await clineTaskSessionService.startTaskSession({
 						taskId: body.taskId,
 						cwd: taskCwd,
-						prompt: body.prompt,
+						prompt,
 						taskTitle: resolvedClineTitle.length > 0 ? resolvedClineTitle : undefined,
 						images: body.images,
 						resumeFromTrash: body.resumeFromTrash,
@@ -439,7 +450,7 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 					claudeModel: resolved.agentId === "claude" ? resolvedClaudeModel : undefined,
 					autonomousModeEnabled: scopedRuntimeConfig.agentAutonomousModeEnabled,
 					cwd: taskCwd,
-					prompt: body.prompt,
+					prompt,
 					images: body.images,
 					startInPlanMode: body.startInPlanMode,
 					resumeFromTrash: body.resumeFromTrash,

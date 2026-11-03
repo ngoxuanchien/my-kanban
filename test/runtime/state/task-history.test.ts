@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
 	deleteTaskHistory,
+	formatRecentTaskComments,
 	loadTaskHistory,
 	recordTaskHistoryEvent,
 	type TaskHistoryEvent,
@@ -115,6 +116,37 @@ describe("task history store", () => {
 			const history = await loadTaskHistory(WORKSPACE_ID, "task-1");
 			expect(history[0]?.detail).toHaveLength(20_000 + "… (truncated)".length);
 			expect(history[0]?.detail).toBe(`${"x".repeat(20_000)}… (truncated)`);
+		});
+	});
+
+	it("stores comments up to 2,000 characters and formats recent notes newest last within the cap", async () => {
+		await withTemporaryHome(async () => {
+			await recordTaskHistoryEvent(
+				WORKSPACE_ID,
+				"task-1",
+				{
+					type: "comment",
+					agentId: "codex",
+					detail: "x".repeat(2_500),
+				},
+				() => 100,
+			);
+			await recordTaskHistoryEvent(
+				WORKSPACE_ID,
+				"task-1",
+				{
+					type: "comment",
+					agentId: "opencode",
+					detail: "latest note",
+				},
+				() => 200,
+			);
+			const history = await loadTaskHistory(WORKSPACE_ID, "task-1");
+			expect(history[0]?.detail).toHaveLength(2_000);
+			const notes = formatRecentTaskComments(history);
+			expect(notes.length).toBeLessThanOrEqual(3_000);
+			expect(notes.indexOf("codex,")).toBeLessThan(notes.indexOf("opencode,"));
+			expect(notes).toContain("latest note");
 		});
 	});
 

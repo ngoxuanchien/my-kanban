@@ -44,7 +44,7 @@ export const runtimeWorkspaceChangesResponseSchema = z.object({
 export type RuntimeWorkspaceChangesResponse = z.infer<typeof runtimeWorkspaceChangesResponseSchema>;
 
 export const runtimeTaskHistoryEventSchema = z.object({
-	type: z.enum(["started", "fail", "handoff", "quota_blocked", "retry", "pass", "session"]),
+	type: z.enum(["started", "fail", "handoff", "quota_blocked", "retry", "pass", "session", "comment"]),
 	agentId: z.string(),
 	at: z.number(),
 	round: z.number().optional(),

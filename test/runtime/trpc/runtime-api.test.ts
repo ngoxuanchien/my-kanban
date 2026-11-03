@@ -461,7 +461,7 @@ describe("createRuntimeApi startTaskSession", () => {
 		});
 
 		const terminalManager = {
-			startTaskSession: vi.fn(async () => createSummary()),
+			startTaskSession: vi.fn(async (_input: { prompt: string }) => createSummary()),
 			applyTurnCheckpoint: vi.fn(),
 		};
 		const clineTaskSessionService = createClineTaskSessionServiceMock();
@@ -501,6 +501,35 @@ describe("createRuntimeApi startTaskSession", () => {
 				claudeModel: "opus",
 			}),
 		);
+		const startedPrompt = terminalManager.startTaskSession.mock.calls[0]?.[0].prompt;
+		expect(startedPrompt).toContain(
+			"[Kanban notes] Record key decisions, progress, and blockers for the next agent with:",
+		);
+		expect(startedPrompt?.match(/\[Kanban notes\]/gu)).toHaveLength(1);
+	});
+
+	it("does not append the Kanban notes footer to an empty task prompt", async () => {
+		taskWorktreeMocks.resolveTaskCwd.mockResolvedValue("/tmp/existing-worktree");
+		const terminalManager = {
+			startTaskSession: vi.fn(async (_input: { prompt: string }) => createSummary()),
+			applyTurnCheckpoint: vi.fn(),
+		};
+		const api = createTestRuntimeApi({
+			getActiveWorkspaceId: vi.fn(() => "workspace-1"),
+			loadScopedRuntimeConfig: vi.fn(async () => createRuntimeConfigState()),
+			setActiveRuntimeConfig: vi.fn(),
+			getScopedTerminalManager: vi.fn(async () => terminalManager as never),
+			getScopedClineTaskSessionService: vi.fn(async () => createClineTaskSessionServiceMock() as never),
+			resolveInteractiveShellCommand: vi.fn(),
+			runCommand: vi.fn(),
+		});
+
+		await api.startTaskSession(
+			{ workspaceId: "workspace-1", workspacePath: "/tmp/repo" },
+			{ taskId: "task-1", baseRef: "main", prompt: "  " },
+		);
+
+		expect(terminalManager.startTaskSession.mock.calls[0]?.[0].prompt).toBe("  ");
 	});
 
 	it.each([
@@ -665,7 +694,7 @@ describe("createRuntimeApi startTaskSession", () => {
 			expect.objectContaining({
 				taskId: "task-1",
 				cwd: "/tmp/existing-worktree",
-				prompt: "Continue task",
+				prompt: expect.stringContaining("Continue task"),
 				images: [
 					{
 						id: "img-1",
@@ -851,6 +880,7 @@ describe("createRuntimeApi startTaskSession", () => {
 			expect.objectContaining({
 				taskId: "task-1",
 				agentId: "codex",
+				prompt: "Resume task",
 				resumeFromTrash: true,
 			}),
 		);
@@ -1212,6 +1242,7 @@ describe("createRuntimeApi startTaskSession", () => {
 				taskId: homeTaskId,
 				cwd: "/tmp/repo",
 				claudeModel: undefined,
+				prompt: "",
 			}),
 		);
 		expect(turnCheckpointMocks.captureTaskTurnCheckpoint).not.toHaveBeenCalled();
