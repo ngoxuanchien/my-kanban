@@ -22,12 +22,12 @@ export function useAbbreviatedPath(path: string): {
 			const styles = getComputedStyle(element.firstElementChild ?? element);
 			probe.style.cssText = `position: fixed; visibility: hidden; white-space: nowrap; font: ${styles.font}; letter-spacing: ${styles.letterSpacing};`;
 			probe.textContent = path;
-			setFullPathWidth(probe.getBoundingClientRect().width);
+			setFullPathWidth(Math.ceil(probe.getBoundingClientRect().width) + 1);
 			let count = 0;
 			while (count < parentCount) {
 				const candidate = abbreviatePathSegments(path, count);
 				probe.textContent = candidate;
-				if (probe.getBoundingClientRect().width <= element.getBoundingClientRect().width) {
+				if (Math.ceil(probe.getBoundingClientRect().width) <= Math.floor(element.getBoundingClientRect().width)) {
 					break;
 				}
 				count += 1;

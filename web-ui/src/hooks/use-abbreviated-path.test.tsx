@@ -9,6 +9,7 @@ describe("useAbbreviatedPath", () => {
 	let container: HTMLDivElement;
 	let root: Root;
 	let width = 400;
+	let fractionalPathWidth: number | undefined;
 	let resize: (() => void) | undefined;
 	let previousClientWidth: PropertyDescriptor | undefined;
 	let previousRect: PropertyDescriptor | undefined;
@@ -26,7 +27,11 @@ describe("useAbbreviatedPath", () => {
 		Object.defineProperty(HTMLElement.prototype, "getBoundingClientRect", {
 			configurable: true,
 			value(this: HTMLElement) {
-				return { width: this.tagName === "SPAN" ? (this.textContent?.length ?? 0) * 8 : width } as DOMRect;
+				const spanWidth =
+					this.textContent === path
+						? (fractionalPathWidth ?? path.length * 8)
+						: (this.textContent?.length ?? 0) * 8;
+				return { width: this.tagName === "SPAN" ? spanWidth : width } as DOMRect;
 			},
 		});
 		vi.stubGlobal(
@@ -53,6 +58,7 @@ describe("useAbbreviatedPath", () => {
 		else Reflect.deleteProperty(globalThis, "ResizeObserver");
 		vi.unstubAllGlobals();
 		resize = undefined;
+		fractionalPathWidth = undefined;
 	});
 
 	it("re-abbreviates when space shrinks and restores the full path when it grows", () => {
@@ -67,7 +73,7 @@ describe("useAbbreviatedPath", () => {
 
 		act(() => root.render(<Path attached={false} />));
 		act(() => root.render(<Path attached />));
-		expect(container.firstElementChild?.getAttribute("data-full-path-width")).toBe(String(path.length * 8));
+		expect(container.firstElementChild?.getAttribute("data-full-path-width")).toBe(String(path.length * 8 + 1));
 		width = 170;
 		act(() => resize?.());
 		expect(container.textContent).toBe("~/D/H/A/ASA-CO5260");
@@ -75,5 +81,25 @@ describe("useAbbreviatedPath", () => {
 		width = 400;
 		act(() => resize?.());
 		expect(container.textContent).toBe(path);
+	});
+
+	it("rounds fractional path measurements up and does not treat fractional pixels as a fit", () => {
+		function Path() {
+			const { pathRef, displayPath, fullPathWidth } = useAbbreviatedPath(path);
+			return (
+				<div ref={pathRef} data-full-path-width={fullPathWidth}>
+					{displayPath}
+				</div>
+			);
+		}
+
+		fractionalPathWidth = 216.742;
+		width = 216.742;
+		act(() => root.render(<Path />));
+
+		expect(Number(container.firstElementChild?.getAttribute("data-full-path-width"))).toBeGreaterThanOrEqual(218);
+		width = 216.9;
+		act(() => resize?.());
+		expect(container.textContent).not.toBe(path);
 	});
 });
