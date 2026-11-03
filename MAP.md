@@ -76,6 +76,8 @@ Update this file whenever a file or folder is created or moved.
 | `docs/superpowers/plans/2026-11-01-open-button-electron-env.md` | Plan for the Open button env spec (1 Kanban task). |
 | `docs/superpowers/specs/2026-11-01-claude-model-per-task-design.md` | Spec: per-task Claude model (haiku/sonnet/opus) via UI and `--model`; scores split per model; default model setting (opus). |
 | `docs/superpowers/plans/2026-11-01-claude-model-per-task.md` | Plan for the Claude model per task spec, split into 3 Kanban tasks (1 → 2, 3). |
+| `docs/superpowers/specs/2026-11-03-done-history-saved-patch-design.md` | Spec: Done history shows the saved trashed-task patch when a task has no recorded commit. |
+| `docs/superpowers/plans/2026-11-03-done-history-saved-patch.md` | Plan for the Done history saved patch spec (1 Kanban task). |
 | `docs/agents/task-prompt-template.md` | Prompt template the planner fills in for every Kanban task. |
 | `.plan/` | Older internal plans, handoffs, investigations (`.plan/docs/`). |
 
