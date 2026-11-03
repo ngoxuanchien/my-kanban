@@ -553,7 +553,12 @@ function findTasksInColumn(
 	}));
 }
 
-async function listTasks(input: { cwd: string; projectPath?: string; column?: ListTaskColumn }): Promise<JsonRecord> {
+async function listTasks(input: {
+	cwd: string;
+	projectPath?: string;
+	column?: ListTaskColumn;
+	all?: boolean;
+}): Promise<{ full: JsonRecord; compact: ReturnType<typeof compactTaskList> }> {
 	const workspace = await resolveRuntimeWorkspace(input.projectPath, input.cwd, {
 		autoCreateIfMissing: false,
 	});
@@ -571,13 +576,124 @@ async function listTasks(input: { cwd: string; projectPath?: string; column?: Li
 	});
 
 	return {
-		ok: true,
-		workspacePath: workspace.repoPath,
-		column: input.column ?? null,
-		tasks,
-		dependencies: state.board.dependencies.map((dependency) => formatDependencyRecord(state, dependency)),
-		count: tasks.length,
+		full: {
+			ok: true,
+			workspacePath: workspace.repoPath,
+			column: input.column ?? null,
+			tasks,
+			dependencies: state.board.dependencies.map((dependency) => formatDependencyRecord(state, dependency)),
+			count: tasks.length,
+		},
+		compact: compactTaskList(state, input.column, input.all === true),
 	};
+}
+
+type CompactTaskListRow = {
+	id: string;
+	column: string;
+	agentId: string | null;
+	reviewRound: number;
+	handOffCount: number;
+	session: string | null;
+	title: string;
+	agentReviewEnabled: boolean;
+};
+
+function compactTaskList(
+	state: RuntimeWorkspaceStateResponse,
+	column?: ListTaskColumn,
+	all = false,
+): {
+	tasks: CompactTaskListRow[];
+	doneHidden: number;
+	dependencies: Array<{ taskId: string; linkedTaskId: string; dependencyId: string }>;
+	lastCreated: { id: string; agentId: string | null } | null;
+} {
+	const done = state.board.columns.find(({ id }) => id === "trash")?.cards ?? [];
+	const hiddenDone = !all && !column ? Math.max(0, done.length - 3) : 0;
+	const tasks: CompactTaskListRow[] = state.board.columns.flatMap((boardColumn) => {
+		if (column && boardColumn.id !== column) return [];
+		const cards = boardColumn.id === "trash" && !column && !all ? boardColumn.cards.slice(0, 3) : boardColumn.cards;
+		return cards.map((task) => {
+			const session = state.sessions[task.id];
+			return {
+				id: task.id,
+				column: boardColumn.id === "trash" ? "done" : boardColumn.id,
+				agentId: task.agentId ?? null,
+				reviewRound: task.reviewRound ?? 0,
+				handOffCount: getHandOffCount(task),
+				session: session?.state ?? null,
+				title: task.title || task.prompt.split(/\r?\n/u, 1)[0]?.slice(0, 80) || "",
+				agentReviewEnabled: task.agentReviewEnabled === true,
+			};
+		});
+	});
+	const newest = state.board.columns
+		.flatMap(({ cards }) => cards)
+		.reduce<RuntimeBoardCard | null>(
+			(current, task) => (!current || task.createdAt > current.createdAt ? task : current),
+			null,
+		);
+	return {
+		tasks,
+		doneHidden: hiddenDone,
+		dependencies: state.board.dependencies.map((dependency) => ({
+			taskId: dependency.fromTaskId,
+			linkedTaskId: dependency.toTaskId,
+			dependencyId: dependency.id,
+		})),
+		lastCreated: newest ? { id: newest.id, agentId: newest.agentId ?? null } : null,
+	};
+}
+
+function formatTaskListText(list: ReturnType<typeof compactTaskList>): string {
+	const widths = {
+		id: Math.max(5, ...list.tasks.map(({ id }) => id.slice(0, 5).length)),
+		column: Math.max(6, ...list.tasks.map(({ column }) => column.length)),
+		agent: Math.max(5, ...list.tasks.map(({ agentId }) => (agentId ?? "-").length)),
+		review: Math.max(
+			4,
+			...list.tasks.map(({ reviewRound, handOffCount, agentReviewEnabled }) =>
+				agentReviewEnabled ? `r${reviewRound}/${3 * (handOffCount + 1)}`.length : 1,
+			),
+		),
+		handoff: Math.max(2, ...list.tasks.map(({ handOffCount }) => `h${handOffCount}`.length)),
+		session: Math.max(7, ...list.tasks.map(({ session }) => (session ?? "-").length)),
+	};
+	const lines = list.tasks.map((task) => {
+		const round = task.agentReviewEnabled ? `r${task.reviewRound}/${3 * (task.handOffCount + 1)}` : "-";
+		return `${task.id.slice(0, 5).padEnd(widths.id)}  ${task.column.padEnd(widths.column)}  ${(task.agentId ?? "-").padEnd(widths.agent)}  ${round.padEnd(widths.review)}  ${`h${task.handOffCount}`.padEnd(widths.handoff)}  ${(task.session ?? "-").padEnd(widths.session)}  ${task.title}`;
+	});
+	if (list.doneHidden > 0) {
+		lines.push(`(${list.doneHidden} more done not shown; pass --column done or --all)`);
+	}
+	for (const dependency of list.dependencies) {
+		lines.push(`links: ${dependency.taskId} waits on ${dependency.linkedTaskId} (dep ${dependency.dependencyId})`);
+	}
+	if (list.lastCreated) {
+		lines.push(`last created: ${list.lastCreated.id} (${list.lastCreated.agentId ?? "-"})`);
+	}
+	return `${lines.join("\n")}\n`;
+}
+
+function compactTaskListJson(list: ReturnType<typeof compactTaskList>): JsonRecord {
+	return {
+		ok: true,
+		tasks: list.tasks.map(({ agentReviewEnabled: _agentReviewEnabled, ...task }) => task),
+		doneHidden: list.doneHidden,
+		dependencies: list.dependencies,
+		lastCreated: list.lastCreated,
+	};
+}
+
+async function showTask(input: { cwd: string; projectPath?: string; taskId: string }): Promise<JsonRecord> {
+	const workspace = await resolveRuntimeWorkspace(input.projectPath, input.cwd, { autoCreateIfMissing: false });
+	const state = await createRuntimeTrpcClient(workspace.workspaceId).workspace.getState.query();
+	const record = findTaskRecord(state, input.taskId);
+	if (!record) {
+		throw new Error(`Task not found: ${input.taskId}`);
+	}
+	return { ok: true, task: formatTaskRecord(state, record.task, record.columnId) };
 }
 
 async function stopTaskRuntimeSession(
@@ -1304,9 +1420,9 @@ function parseOptionalBooleanOption(value: unknown, flagName: string): boolean |
 	throw new Error(`Invalid boolean value for ${flagName}: "${value}". Use true or false.`);
 }
 
-async function runTaskCommand(handler: () => Promise<JsonRecord>): Promise<void> {
+async function runTaskCommand(handler: () => Promise<JsonRecord>, print = printJson): Promise<void> {
 	try {
-		printJson(await handler());
+		print(await handler());
 	} catch (error) {
 		printJson({
 			ok: false,
@@ -1328,14 +1444,48 @@ export function registerTaskCommand(program: Command): void {
 			"Filter column: backlog | in_progress | review | done. trash is also accepted.",
 			parseListColumn,
 		)
-		.action(async (options: { projectPath?: string; column?: ListTaskColumn }) => {
-			await runTaskCommand(
-				async () =>
-					await listTasks({
-						cwd: process.cwd(),
-						projectPath: options.projectPath,
-						column: options.column,
-					}),
+		.option("--all", "Show every Done task.")
+		.option("--json", "Print compact JSON.")
+		.option("--full", "Print the full task records as JSON.")
+		.action(
+			async (options: {
+				projectPath?: string;
+				column?: ListTaskColumn;
+				all?: boolean;
+				json?: boolean;
+				full?: boolean;
+			}) => {
+				await runTaskCommand(
+					async () => {
+						const result = await listTasks({
+							cwd: process.cwd(),
+							projectPath: options.projectPath,
+							column: options.column,
+							all: options.all,
+						});
+						if (options.full) return result.full;
+						if (options.json) return compactTaskListJson(result.compact);
+						return { text: formatTaskListText(result.compact) };
+					},
+					(options) => {
+						if (typeof options === "object" && options !== null && "text" in options) {
+							process.stdout.write(String(options.text));
+						} else {
+							printJson(options);
+						}
+					},
+				);
+			},
+		);
+
+	task
+		.command("show")
+		.description("Show the full record for one task.")
+		.requiredOption("--task-id <id>", "Task ID.")
+		.option("--project-path <path>", "Workspace path. Defaults to current directory workspace.")
+		.action(async (options: { taskId: string; projectPath?: string }) => {
+			await runTaskCommand(() =>
+				showTask({ cwd: process.cwd(), projectPath: options.projectPath, taskId: options.taskId }),
 			);
 		});
 

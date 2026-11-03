@@ -140,6 +140,9 @@ describe("renderAppendSystemPrompt", () => {
 		expect(rendered).not.toContain("3/3 or 6/6");
 		expect(rendered).not.toContain("9/9");
 		expect(rendered).toContain("--column backlog|in_progress|review|done");
+		expect(rendered).toContain("task show --task-id <task_id>");
+		expect(rendered).toContain("[--all] [--json] [--full]");
+		expect(rendered).toContain("Use `task show --task-id <task_id>` to read its prompt");
 		expect(rendered).toContain("Provide exactly one of");
 		expect(rendered).toContain("task delete --column done");
 		expect(rendered).toContain("kanban task link");

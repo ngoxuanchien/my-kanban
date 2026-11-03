@@ -190,7 +190,7 @@ describe("task command Claude model option", () => {
 	it("creates and lists a Claude task model", async () => {
 		const created = await run(["create", "--prompt", "Ship it", "--agent-id", "claude", "--model", "sonnet"]);
 		expect(created.task?.claudeModel).toBe("sonnet");
-		const listed = await run(["list"]);
+		const listed = await run(["list", "--full"]);
 		expect(listed.tasks?.[0]?.claudeModel).toBe("sonnet");
 	});
 
@@ -603,7 +603,7 @@ describe("task list handoff count", () => {
 		}) as typeof process.stdout.write);
 		const program = new Command();
 		registerTaskCommand(program);
-		await program.parseAsync(["node", "kanban", "task", "list"]);
+		await program.parseAsync(["node", "kanban", "task", "list", "--full"]);
 		write.mockRestore();
 
 		expect(JSON.parse(output)).toHaveProperty("tasks");
@@ -614,5 +614,128 @@ describe("task list handoff count", () => {
 			["legacy", 1],
 			["plain", 0],
 		]);
+	});
+});
+
+describe("compact task list and task show", () => {
+	const state = {
+		repoPath: "/tmp/repo",
+		board: {
+			columns: [
+				{
+					id: "backlog",
+					title: "Backlog",
+					cards: [
+						{
+							id: "backlog-1",
+							title: "Waiting task",
+							prompt: "Prompt",
+							agentId: "codex",
+							createdAt: 1,
+							updatedAt: 1,
+						},
+					],
+				},
+				{
+					id: "in_progress",
+					title: "In Progress",
+					cards: [
+						{
+							id: "active-1",
+							title: "Active task",
+							prompt: "Prompt",
+							agentId: "claude",
+							reviewRound: 2,
+							handOffCount: 2,
+							agentReviewEnabled: true,
+							createdAt: 2,
+							updatedAt: 2,
+						},
+					],
+				},
+				{ id: "review", title: "Review", cards: [] },
+				{
+					id: "trash",
+					title: "Done",
+					cards: [1, 2, 3, 4].map((n) => ({
+						id: `done-${n}`,
+						title: `Done task ${n}`,
+						prompt: `Prompt ${n}`,
+						createdAt: n + 2,
+						updatedAt: n + 2,
+					})),
+				},
+			],
+			dependencies: [{ id: "dependency-1", fromTaskId: "backlog-1", toTaskId: "active-1", createdAt: 1 }],
+		},
+		git: { currentBranch: "main", defaultBranch: "main", branches: ["main"] },
+		sessions: { "active-1": { state: "running", agentId: "claude" } },
+	};
+
+	async function execute(args: string[]): Promise<string> {
+		cliMocks.client.workspace.getState.query.mockResolvedValue(state as never);
+		let output = "";
+		const write = vi.spyOn(process.stdout, "write").mockImplementation(((chunk: string | Uint8Array) => {
+			output += chunk.toString();
+			return true;
+		}) as typeof process.stdout.write);
+		const program = new Command();
+		registerTaskCommand(program);
+		await program.parseAsync(["node", "kanban", "task", ...args]);
+		write.mockRestore();
+		return output;
+	}
+
+	it("prints aligned compact rows, trims Done, and includes dependency and newest-task lines", async () => {
+		const output = await execute(["list"]);
+		expect(output).toContain("backl  backlog      codex   -     h0  -        Waiting task");
+		expect(output).toContain("activ  in_progress  claude  r2/9  h2  running  Active task");
+		expect(output).toContain("(1 more done not shown; pass --column done or --all)");
+		expect(output).toContain("links: backlog-1 waits on active-1 (dep dependency-1)");
+		expect(output).toContain("last created: done-4 (-)");
+		expect(output).not.toContain("Done task 4");
+	});
+
+	it.each([["--all"], ["--column", "done"]])("shows every Done task with %s", async (...args) => {
+		const output = await execute(["list", ...args]);
+		expect(output.match(/Done task/g)).toHaveLength(4);
+		expect(output).not.toContain("more done not shown");
+	});
+
+	it("prints the compact JSON shape and preserves the full JSON list on --full", async () => {
+		const compact = JSON.parse(await execute(["list", "--json"]));
+		expect(compact).toMatchObject({
+			ok: true,
+			doneHidden: 1,
+			dependencies: [{ taskId: "backlog-1", linkedTaskId: "active-1", dependencyId: "dependency-1" }],
+			lastCreated: { id: "done-4", agentId: null },
+		});
+		expect(compact.tasks[0]).toEqual({
+			id: "backlog-1",
+			column: "backlog",
+			agentId: "codex",
+			reviewRound: 0,
+			handOffCount: 0,
+			session: null,
+			title: "Waiting task",
+		});
+		expect(compact.tasks.at(-1)).toMatchObject({ id: "done-3", column: "done" });
+		const full = JSON.parse(await execute(["list", "--full"]));
+		expect(full).toMatchObject({ ok: true, workspacePath: "/tmp/repo", count: 2 });
+		expect(full.tasks[0]).toHaveProperty("prompt", "Prompt");
+		expect(full.tasks[0]).toHaveProperty("worktreePath");
+	});
+
+	it("shows the full record and returns a JSON error for an unknown ID", async () => {
+		const shown = JSON.parse(await execute(["show", "--task-id", "active-1"]));
+		expect(shown).toMatchObject({
+			ok: true,
+			task: { id: "active-1", prompt: "Prompt", reviewRound: 2, handOffCount: 2 },
+		});
+		process.exitCode = 0;
+		const missing = JSON.parse(await execute(["show", "--task-id", "missing"]));
+		expect(missing).toMatchObject({ ok: false, error: expect.stringContaining("Task not found: missing") });
+		expect(process.exitCode).toBe(1);
+		process.exitCode = 0;
 	});
 });

@@ -179,18 +179,27 @@ ${renderLinearSetupGuidanceForAgent(selectedAgentId)}
 
 # CLI Reference
 
-All commands return JSON.
+Commands return JSON unless noted below.
 
 ## task list
 
-Purpose: list Kanban tasks for a workspace, including auto-review settings and dependency links.
+Purpose: list Kanban tasks for a workspace with their current state and dependency links.
 
 Command:
-\`${kanbanCommand} task list [--project-path <path>] [--column backlog|in_progress|review|done]\`
+\`${kanbanCommand} task list [--project-path <path>] [--column backlog|in_progress|review|done] [--all] [--json] [--full]\`
 
 Parameters:
 - \`--project-path <path>\` optional workspace path. If omitted, uses the current working directory workspace.
 - \`--column <value>\` optional filter. Allowed values: \`backlog\`, \`in_progress\`, \`review\`, \`done\` (\`trash\` is also accepted).
+- By default, prints one compact plain-text line per task with the ID, column, agent, review round/cap, handoff count, session state, and title, followed by dependency links and the most recently created task. Done shows the 3 most recent tasks; use \`--column done\` or \`--all\` to show every Done task.
+- \`--json\` prints compact JSON rows. \`--full\` prints the full task records as JSON.
+
+## task show
+
+Purpose: read the full prompt and record for one task.
+
+Command:
+\`${kanbanCommand} task show --task-id <task_id> [--project-path <path>]\`
 
 ## task send
 
@@ -342,7 +351,7 @@ Command:
 
 When you receive a message beginning with \`[Kanban review]\`, review the named task. Whenever you report on a task, identify it by its title followed by its id in parentheses, for example \`"Fix login bug" (bd268)\`; never use a bare task id:
 
-1. Use \`task list\` to read its prompt, then inspect the worktree diff against its base ref, including untracked files. Run the acceptance commands in the prompt; when none are specified, run \`npm run typecheck\`, \`npm run lint\`, and \`npm run test:fast\`.
+1. Use \`task show --task-id <task_id>\` to read its prompt, then inspect the worktree diff against its base ref, including untracked files. Run the acceptance commands in the prompt; when none are specified, run \`npm run typecheck\`, \`npm run lint\`, and \`npm run test:fast\`.
 2. If it passes, commit the task changes in its worktree. Find the base ref's worktree with \`git worktree list --porcelain\`; if it is not checked out, check out the base ref in the task worktree. Verify the base ref, stash any existing changes there with \`git stash push -u -m "kanban-pre-cherry-pick"\`, cherry-pick the task commit into it, and restore the stash if you made one. Resolve conflicts while preserving both sets of changes. Never push. Then run \`task done --task-id <task_id> --review-passed --commit <hash of the cherry-picked commit on the base branch>\` and report the task title and id, final commit hash, and checks run in one chat line.
 3. If it fails on a round below the cap and the round is not a multiple of 3, use \`task send --task-id <task_id> --message "<concrete fix list with file:line and failing command output>"\`. If \`task send\` fails because the session is not running, use \`task start --task-id <task_id> --message "<the same fix list>"\` instead. Report what you sent, identifying the task by title and id, in one chat line.
 4. If it fails on a round equal to the cap and \`handOffCount\` from \`task list\` is less than 2, run \`task handoff --task-id <task_id> --message "<the same concrete fix list>"\`. Report it in one chat line, identifying the task by title and id. If handoff is refused at the limit, check whether the session is running. When it is not running, run \`task start --task-id <task_id> --message "<the same fix list>"\` to relaunch it on the current agent; the user can change the agent first with \`task update --task-id <task_id> --agent-id <agent_id>\`. If handoff returns another error, run \`task review-failed --task-id <task_id> --message "<the same fix list>"\`, leave the task in Review, and report the error. If it fails on a round equal to the cap and \`handOffCount\` from \`task list\` is 2 while the session is running, run \`task review-failed --task-id <task_id> --message "<the same fix list>"\`, do not send or hand off, leave it in Review, and report the reasons to the user in the chat, identifying the task by title and id. The cap is 3 × (handOffCount + 1), using \`handOffCount\` from \`task list\`.
