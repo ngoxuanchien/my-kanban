@@ -560,10 +560,15 @@ describe("task review scoring commands", () => {
 			round: 2,
 		});
 		expect(completionMocks.completeTaskToDone).toHaveBeenCalledTimes(1);
+		expect(completionMocks.completeTaskToDone).toHaveBeenCalledWith(expect.objectContaining({ reviewPassed: true }));
 
 		scoreMocks.recordAgentScoreEvent.mockClear();
+		completionMocks.completeTaskToDone.mockClear();
 		await execute(["done", "--task-id", "task-1"]);
 		expect(scoreMocks.recordAgentScoreEvent).not.toHaveBeenCalled();
+		expect(completionMocks.completeTaskToDone).toHaveBeenCalledWith(
+			expect.objectContaining({ reviewPassed: undefined }),
+		);
 	});
 
 	it("removes task history file when task is permanently deleted by task-id", async () => {

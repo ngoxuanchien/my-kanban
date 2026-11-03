@@ -1173,6 +1173,7 @@ interface TrashTaskExecutionResult {
 async function trashTaskById(input: {
 	cwd: string;
 	taskId: string;
+	reviewPassed?: boolean;
 	projectPath?: string;
 	workspaceRepoPath: string;
 	runtimeClient: ReturnType<typeof createRuntimeTrpcClient>;
@@ -1181,6 +1182,7 @@ async function trashTaskById(input: {
 	const completed = await completeTaskToDone({
 		repoPath: input.workspaceRepoPath,
 		taskId: input.taskId,
+		reviewPassed: input.reviewPassed,
 		deps: {
 			stopTaskSession: async (taskId) => await stopTaskRuntimeSession(input.runtimeClient, taskId),
 			startTask: async (taskId) => {
@@ -1246,6 +1248,7 @@ async function trashTask(input: {
 		const trashed = await trashTaskById({
 			cwd: input.cwd,
 			taskId: target.taskId,
+			reviewPassed: input.reviewPassed,
 			projectPath: input.projectPath,
 			workspaceRepoPath,
 			runtimeClient,

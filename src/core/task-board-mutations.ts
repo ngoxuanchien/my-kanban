@@ -209,8 +209,13 @@ function getLinkedBacklogTaskIdsReadyAfterTaskTrashed(
 	board: RuntimeBoardData,
 	taskId: string,
 	fromColumnId: RuntimeBoardColumnId | null,
+	reviewPassed = false,
 ): string[] {
-	if (!taskId || board.dependencies.length === 0 || fromColumnId !== "review") {
+	if (
+		!taskId ||
+		board.dependencies.length === 0 ||
+		(fromColumnId !== "review" && !(reviewPassed && fromColumnId === "in_progress"))
+	) {
 		return [];
 	}
 	const readyTaskIds = new Set<string>();
@@ -418,9 +423,10 @@ export function trashTaskAndGetReadyLinkedTaskIds(
 	board: RuntimeBoardData,
 	taskId: string,
 	now: number = Date.now(),
+	reviewPassed = false,
 ): RuntimeTrashTaskResult {
 	const fromColumnId = getTaskColumnId(board, taskId);
-	const readyTaskIds = getLinkedBacklogTaskIdsReadyAfterTaskTrashed(board, taskId, fromColumnId);
+	const readyTaskIds = getLinkedBacklogTaskIdsReadyAfterTaskTrashed(board, taskId, fromColumnId, reviewPassed);
 	const movedToTrash = moveTaskToColumn(board, taskId, "trash", now);
 	return {
 		...movedToTrash,

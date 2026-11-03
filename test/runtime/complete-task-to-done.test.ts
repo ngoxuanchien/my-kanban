@@ -101,6 +101,35 @@ describe.sequential("completeTaskToDone", () => {
 		return saved.revision;
 	}
 
+	it("starts linked backlog tasks when review passes from in_progress", async () => {
+		await seedBoard("in_progress");
+		const calls: string[] = [];
+
+		const result = await completeTaskToDone({
+			repoPath: workspacePath,
+			taskId: "A",
+			reviewPassed: true,
+			deps: createRecordingDeps(calls),
+		});
+
+		expect(result.readyTaskIds).toEqual(["B"]);
+		expect(calls).toEqual(["notify", "stop", "start:B", "delete"]);
+	});
+
+	it("does not start linked backlog tasks when an in_progress task is canceled", async () => {
+		await seedBoard("in_progress");
+		const calls: string[] = [];
+
+		const result = await completeTaskToDone({
+			repoPath: workspacePath,
+			taskId: "A",
+			deps: createRecordingDeps(calls),
+		});
+
+		expect(result.readyTaskIds).toEqual([]);
+		expect(calls).toEqual(["notify", "stop", "delete"]);
+	});
+
 	it("moves the card to trash, then stops the session, starts dependents, deletes the worktree, in that order", async () => {
 		await seedBoard("review");
 		const calls: string[] = [];

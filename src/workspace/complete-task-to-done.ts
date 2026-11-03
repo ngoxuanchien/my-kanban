@@ -59,6 +59,7 @@ function replaceCard(board: RuntimeBoardData, nextCard: RuntimeBoardCard): Runti
 export async function completeTaskToDone(input: {
 	repoPath: string;
 	taskId: string;
+	reviewPassed?: boolean;
 	deps: CompleteTaskToDoneDeps;
 	beforeMove?: (card: RuntimeBoardCard) => RuntimeBoardCard;
 }): Promise<CompleteTaskToDoneResult> {
@@ -74,7 +75,7 @@ export async function completeTaskToDone(input: {
 		}
 
 		const board = input.beforeMove ? replaceCard(latestState.board, input.beforeMove(card)) : latestState.board;
-		const trashed = trashTaskAndGetReadyLinkedTaskIds(board, input.taskId);
+		const trashed = trashTaskAndGetReadyLinkedTaskIds(board, input.taskId, Date.now(), input.reviewPassed);
 		if (!trashed.moved || !trashed.task) {
 			throw new Error(`Task "${input.taskId}" could not be moved to done.`);
 		}
