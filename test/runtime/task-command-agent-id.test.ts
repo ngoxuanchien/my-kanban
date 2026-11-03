@@ -8,11 +8,13 @@ const cliMocks = vi.hoisted(() => ({
 			notifyStateUpdated: { mutate: vi.fn(async () => ({ ok: true })) },
 			getState: { query: vi.fn(async () => ({}) as never) },
 			deleteWorktree: { mutate: vi.fn(async () => ({ ok: true, removed: true })) },
+			ensureWorktree: { mutate: vi.fn(async () => ({ ok: true })) },
 		},
 		runtime: {
 			getConfig: { query: vi.fn(async () => ({ selectedAgentId: "claude" })) },
 			handOffTask: { mutate: vi.fn() },
 			stopTaskSession: { mutate: vi.fn(async () => ({ ok: true })) },
+			startTaskSession: { mutate: vi.fn(async () => ({ ok: true, summary: { taskId: "task-1" } })) },
 		},
 	},
 	loadWorkspaceContext: vi.fn(async () => ({ repoPath: "/tmp/repo" })),
@@ -53,7 +55,7 @@ vi.mock("../../src/workspace/complete-task-to-done", () => ({
 	completeTaskToDone: completionMocks.completeTaskToDone,
 }));
 
-import { parseAgentId, registerTaskCommand } from "../../src/commands/task";
+import { buildRestartPrompt, parseAgentId, registerTaskCommand } from "../../src/commands/task";
 
 describe("task command --agent-id parsing", () => {
 	it("accepts launch-supported agents and default", () => {
@@ -222,6 +224,107 @@ describe("task command Claude model option", () => {
 		});
 		const changedAgent = await run(["update", "--task-id", "task-2", "--agent-id", "codex"]);
 		expect(changedAgent.task?.claudeModel).toBe("haiku");
+	});
+});
+
+describe("task start from Review", () => {
+	const taskCard = {
+		id: "task-1",
+		title: "Fix it",
+		prompt: "Original task prompt",
+		agentId: "codex",
+		baseRef: "main",
+		startInPlanMode: false,
+		handOffCount: 2,
+		reviewRound: 6,
+		createdAt: 1,
+		updatedAt: 1,
+	};
+
+	beforeEach(() => {
+		for (const column of cliMocks.workspaceState.board.columns) column.cards.splice(0);
+		cliMocks.workspaceState.board.columns[2].cards.push(taskCard as never);
+		cliMocks.workspaceState.sessions = { "task-1": { state: "stopped" } } as never;
+		cliMocks.client.workspace.getState.query.mockImplementation(async () => cliMocks.workspaceState as never);
+		cliMocks.client.workspace.ensureWorktree.mutate.mockReset();
+		cliMocks.client.workspace.ensureWorktree.mutate.mockResolvedValue({ ok: true });
+		cliMocks.client.runtime.startTaskSession.mutate.mockReset();
+		cliMocks.client.runtime.startTaskSession.mutate.mockResolvedValue({
+			ok: true,
+			summary: { taskId: "task-1" },
+		} as never);
+		process.exitCode = 0;
+	});
+
+	async function run(args: string[]): Promise<{ ok: boolean; task?: Record<string, unknown>; error?: string }> {
+		let output = "";
+		const write = vi.spyOn(process.stdout, "write").mockImplementation(((chunk: string | Uint8Array) => {
+			output += chunk.toString();
+			return true;
+		}) as typeof process.stdout.write);
+		const program = new Command();
+		registerTaskCommand(program);
+		await program.parseAsync(["node", "kanban", "task", ...args]);
+		write.mockRestore();
+		return JSON.parse(output) as { ok: boolean; task?: Record<string, unknown>; error?: string };
+	}
+
+	it("builds the restart prompt from the original request and reviewer notes", () => {
+		expect(
+			buildRestartPrompt({
+				originalPrompt: "Original task prompt",
+				baseRef: "main",
+				message: "Fix src/a.ts",
+			}),
+		).toBe(
+			"Original task prompt\n\n---\n[Kanban restart] Earlier work on this task is already in this worktree (uncommitted changes and commits since main). Check it and continue from it; do not start over.\nReviewer notes:\nFix src/a.ts",
+		);
+	});
+
+	it("restarts a stopped Review task with reviewer notes and preserves its handoff metadata", async () => {
+		const result = await run(["start", "--task-id", "task-1", "--message", "Fix src/a.ts and rerun checks"]);
+
+		expect(result.ok).toBe(true);
+		expect(cliMocks.client.runtime.startTaskSession.mutate).toHaveBeenCalledWith(
+			expect.objectContaining({
+				taskId: "task-1",
+				agentId: "codex",
+				baseRef: "main",
+				prompt: buildRestartPrompt({
+					originalPrompt: "Original task prompt",
+					baseRef: "main",
+					message: "Fix src/a.ts and rerun checks",
+				}),
+			}),
+		);
+		expect(cliMocks.workspaceState.board.columns[1]?.cards[0]).toMatchObject({
+			id: "task-1",
+			handOffCount: 2,
+			reviewRound: 6,
+			agentId: "codex",
+		});
+		expect(cliMocks.workspaceState.board.columns[2]?.cards).toHaveLength(0);
+	});
+
+	it("rejects a Review task with a running session without starting or moving it", async () => {
+		cliMocks.workspaceState.sessions = { "task-1": { state: "running" } } as never;
+		const result = await run(["start", "--task-id", "task-1"]);
+
+		expect(result.error).toContain('Task "task-1" is in review with a running session; use task send instead.');
+		expect(cliMocks.client.runtime.startTaskSession.mutate).not.toHaveBeenCalled();
+		expect(cliMocks.workspaceState.board.columns[2]?.cards[0]).toMatchObject({ id: "task-1" });
+		expect(cliMocks.workspaceState.board.columns[1]?.cards).toHaveLength(0);
+	});
+
+	it("starts a Backlog task with its original prompt when no message is given", async () => {
+		cliMocks.workspaceState.board.columns[2]?.cards.splice(0);
+		cliMocks.workspaceState.board.columns[0]?.cards.push(taskCard as never);
+		cliMocks.workspaceState.sessions = {};
+		await run(["start", "--task-id", "task-1"]);
+
+		expect(cliMocks.client.runtime.startTaskSession.mutate).toHaveBeenCalledWith(
+			expect.objectContaining({ prompt: "Original task prompt" }),
+		);
 	});
 });
 

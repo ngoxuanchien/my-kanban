@@ -844,7 +844,16 @@ async function unlinkTasks(input: { cwd: string; dependencyId: string; projectPa
 	};
 }
 
-async function startTask(input: { cwd: string; taskId: string; projectPath?: string }): Promise<JsonRecord> {
+export function buildRestartPrompt(input: { originalPrompt: string; baseRef: string; message?: string }): string {
+	return `${input.originalPrompt}\n\n---\n[Kanban restart] Earlier work on this task is already in this worktree (uncommitted changes and commits since ${input.baseRef}). Check it and continue from it; do not start over.${input.message !== undefined ? `\nReviewer notes:\n${input.message}` : ""}`;
+}
+
+async function startTask(input: {
+	cwd: string;
+	taskId: string;
+	projectPath?: string;
+	message?: string;
+}): Promise<JsonRecord> {
 	const workspaceRepoPath = await resolveWorkspaceRepoPath(input.projectPath, input.cwd);
 	const workspaceId = await ensureRuntimeWorkspace(workspaceRepoPath);
 	const runtimeClient = createRuntimeTrpcClient(workspaceId);
@@ -854,9 +863,9 @@ async function startTask(input: { cwd: string; taskId: string; projectPath?: str
 		throw new Error(`Task "${input.taskId}" was not found in workspace ${workspaceRepoPath}.`);
 	}
 
-	if (fromColumnId !== "backlog" && fromColumnId !== "in_progress") {
+	if (fromColumnId !== "backlog" && fromColumnId !== "in_progress" && fromColumnId !== "review") {
 		throw new Error(
-			`Task "${input.taskId}" is in "${fromColumnId}" and can only be started from backlog or in_progress.`,
+			`Task "${input.taskId}" is in "${fromColumnId}" and can only be started from backlog, in_progress, or review.`,
 		);
 	}
 
@@ -868,6 +877,9 @@ async function startTask(input: { cwd: string; taskId: string; projectPath?: str
 
 	const existingSession = runtimeState.sessions[task.id] ?? null;
 	const shouldStartSession = !existingSession || existingSession.state !== "running";
+	if (fromColumnId === "review" && !shouldStartSession) {
+		throw new Error(`Task "${input.taskId}" is in review with a running session; use task send instead.`);
+	}
 
 	if (shouldStartSession) {
 		const ensured = await runtimeClient.workspace.ensureWorktree.mutate({
@@ -880,7 +892,10 @@ async function startTask(input: { cwd: string; taskId: string; projectPath?: str
 
 		const started = await runtimeClient.runtime.startTaskSession.mutate({
 			taskId: task.id,
-			prompt: task.prompt,
+			prompt:
+				fromColumnId === "review" || input.message !== undefined
+					? buildRestartPrompt({ originalPrompt: task.prompt, baseRef: task.baseRef, message: input.message })
+					: task.prompt,
 			taskTitle: task.title,
 			startInPlanMode: task.startInPlanMode,
 			baseRef: task.baseRef,
@@ -1585,15 +1600,17 @@ export function registerTaskCommand(program: Command): void {
 
 	task
 		.command("start")
-		.description("Start a task session and move task to in_progress.")
+		.description("Start or restart a task session and move task to in_progress.")
 		.requiredOption("--task-id <id>", "Task ID.")
+		.option("--message <text>", "Additional prompt text for the task session.")
 		.option("--project-path <path>", "Workspace path. Defaults to current directory workspace.")
-		.action(async (options: { taskId: string; projectPath?: string }) => {
+		.action(async (options: { taskId: string; message?: string; projectPath?: string }) => {
 			await runTaskCommand(
 				async () =>
 					await startTask({
 						cwd: process.cwd(),
 						taskId: options.taskId,
+						message: options.message,
 						projectPath: options.projectPath,
 					}),
 			);

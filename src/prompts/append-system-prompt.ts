@@ -311,13 +311,14 @@ Parameters:
 
 ## task start
 
-Purpose: start a task by ensuring its worktree, launching its agent session, and moving it to \`in_progress\`.
+Purpose: start a task by ensuring its worktree, launching its agent session, and moving it to \`in_progress\`. This also restarts a stopped task in Review on its current agent.
 
 Command:
-\`${kanbanCommand} task start --task-id <task_id> [--project-path <path>]\`
+\`${kanbanCommand} task start --task-id <task_id> [--message "<fix list>"] [--project-path <path>]\`
 
 Parameters:
 - \`--task-id <task_id>\` required task ID.
+- \`--message <text>\` optional reviewer notes appended to the task prompt when a new session starts.
 - \`--project-path <path>\` optional workspace path. If not already registered in Kanban, it is auto-added for git repos.
 
 ## task handoff
@@ -343,8 +344,8 @@ When you receive a message beginning with \`[Kanban review]\`, review the named 
 
 1. Use \`task list\` to read its prompt, then inspect the worktree diff against its base ref, including untracked files. Run the acceptance commands in the prompt; when none are specified, run \`npm run typecheck\`, \`npm run lint\`, and \`npm run test:fast\`.
 2. If it passes, commit the task changes in its worktree. Find the base ref's worktree with \`git worktree list --porcelain\`; if it is not checked out, check out the base ref in the task worktree. Verify the base ref, stash any existing changes there with \`git stash push -u -m "kanban-pre-cherry-pick"\`, cherry-pick the task commit into it, and restore the stash if you made one. Resolve conflicts while preserving both sets of changes. Never push. Then run \`task done --task-id <task_id> --review-passed --commit <hash of the cherry-picked commit on the base branch>\` and report the task title and id, final commit hash, and checks run in one chat line.
-3. If it fails on a round below the cap and the round is not a multiple of 3, use \`task send --task-id <task_id> --message "<concrete fix list with file:line and failing command output>"\`. Report what you sent, identifying the task by title and id, in one chat line.
-4. If it fails on a round equal to the cap and \`handOffCount\` from \`task list\` is less than 2, run \`task handoff --task-id <task_id> --message "<the same concrete fix list>"\`. Report it in one chat line, identifying the task by title and id. If handoff returns an error, run \`task review-failed --task-id <task_id> --message "<the same fix list>"\`, leave the task in Review, and report the error. If it fails on a round equal to the cap and \`handOffCount\` from \`task list\` is 2, run \`task review-failed --task-id <task_id> --message "<the same fix list>"\`, do not send or hand off, leave it in Review, and report the reasons to the user in the chat, identifying the task by title and id. The cap is 3 × (handOffCount + 1), using \`handOffCount\` from \`task list\`.
+3. If it fails on a round below the cap and the round is not a multiple of 3, use \`task send --task-id <task_id> --message "<concrete fix list with file:line and failing command output>"\`. If \`task send\` fails because the session is not running, use \`task start --task-id <task_id> --message "<the same fix list>"\` instead. Report what you sent, identifying the task by title and id, in one chat line.
+4. If it fails on a round equal to the cap and \`handOffCount\` from \`task list\` is less than 2, run \`task handoff --task-id <task_id> --message "<the same concrete fix list>"\`. Report it in one chat line, identifying the task by title and id. If handoff is refused at the limit, check whether the session is running. When it is not running, run \`task start --task-id <task_id> --message "<the same fix list>"\` to relaunch it on the current agent; the user can change the agent first with \`task update --task-id <task_id> --agent-id <agent_id>\`. If handoff returns another error, run \`task review-failed --task-id <task_id> --message "<the same fix list>"\`, leave the task in Review, and report the error. If it fails on a round equal to the cap and \`handOffCount\` from \`task list\` is 2 while the session is running, run \`task review-failed --task-id <task_id> --message "<the same fix list>"\`, do not send or hand off, leave it in Review, and report the reasons to the user in the chat, identifying the task by title and id. The cap is 3 × (handOffCount + 1), using \`handOffCount\` from \`task list\`.
 5. After a pass, only if the round was above 1 or \`handOffCount\` from \`task list\` is above 0, record the lesson in 1–3 lines in the matching existing topic file in the Basic Memory project \`my-kanban\` (or directly in \`contexte/\` if the server is down). Include the date, task title, and task id, plus the cause of a failed round and the correct fix, or surprising behavior of code or a tool. Never record a task summary, diff, work log, or secret. Create a new topic file only if no topic fits, then add it to \`MAP.md\`. Do not commit these files.
 `;
 }
