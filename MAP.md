@@ -78,6 +78,8 @@ Update this file whenever a file or folder is created or moved.
 | `docs/superpowers/plans/2026-11-01-claude-model-per-task.md` | Plan for the Claude model per task spec, split into 3 Kanban tasks (1 → 2, 3). |
 | `docs/superpowers/specs/2026-11-03-done-history-saved-patch-design.md` | Spec: Done history shows the saved trashed-task patch when a task has no recorded commit. |
 | `docs/superpowers/plans/2026-11-03-done-history-saved-patch.md` | Plan for the Done history saved patch spec (1 Kanban task). |
+| `docs/superpowers/specs/2026-11-03-start-task-from-review-design.md` | Spec: `task start` relaunches a Review task whose session stopped (current agent, `--message` fix list); sidebar uses it when send/handoff can't. |
+| `docs/superpowers/plans/2026-11-03-start-task-from-review.md` | Plan for the start-from-review spec (1 Kanban task). |
 | `docs/agents/task-prompt-template.md` | Prompt template the planner fills in for every Kanban task. |
 | `.plan/` | Older internal plans, handoffs, investigations (`.plan/docs/`). |
 
@@ -103,6 +105,7 @@ Update this file whenever a file or folder is created or moved.
 | `contexte/agent-transcripts.md` | Transcript formats, normalized readers, and session capture limits. |
 | `contexte/upstream-issues.md` | Which open cline/kanban issues affect this fork, what was fixed, and what was left. |
 | `contexte/claude-model-per-task.md` | Claude model per task: what landed, review lessons for its 3 tasks. |
+| `contexte/web-ui-layout.md` | Web UI layout lessons (measuring/flex pitfalls) from reviews. |
 | `contexte/kanban-cli-oom.md` | Kanban CLI V8 OOM crash: `2>&1 | head` closes the merged pipe, unhandled EPIPE recurses; proposed fix; how to recover argv from Claude transcripts. |
 
 ## livrables/
