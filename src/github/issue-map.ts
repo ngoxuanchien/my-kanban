@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
@@ -5,7 +6,19 @@ import { type RuntimeBoardColumnId, runtimeBoardColumnIdSchema } from "../core/a
 import { lockedFileSystem } from "../fs/locked-file-system";
 import { getWorkspaceDirectoryPath } from "../state/workspace-state";
 
+const githubIssueReviewSchema = z.object({
+	id: z.string(),
+	status: z.enum(["pass", "fail"]),
+	reviewer: z.string(),
+	reviewerModel: z.string().optional(),
+	reviewedAt: z.string(),
+	body: z.string(),
+});
+export type GithubIssueReview = z.infer<typeof githubIssueReviewSchema>;
+
 export interface GithubIssueEntry {
+	pendingReviews?: GithubIssueReview[];
+	postedReviewIds?: string[];
 	issueNumber?: number;
 	issueUrl?: string;
 	syncedColumn?: RuntimeBoardColumnId;
@@ -35,6 +48,8 @@ export type GithubIssueMap = Record<string, GithubIssueEntry>;
 const issueMapSchema = z.record(
 	z.string(),
 	z.object({
+		pendingReviews: z.array(githubIssueReviewSchema).optional(),
+		postedReviewIds: z.array(z.string()).optional(),
 		issueNumber: z.number().int().positive().optional(),
 		issueUrl: z.string().url().optional(),
 		syncedColumn: runtimeBoardColumnIdSchema.optional(),
@@ -108,6 +123,23 @@ export async function setGithubIssueSummary(workspaceId: string, taskId: string,
 	await lockedFileSystem.withLock({ path, type: "file" }, async () => {
 		const map = await readGithubIssueMap(workspaceId);
 		map[taskId] = { ...map[taskId], summary: trimmed };
+		await lockedFileSystem.writeJsonFileAtomic(path, map, { lock: null });
+	});
+}
+
+export async function addGithubIssueReview(
+	workspaceId: string,
+	taskId: string,
+	input: Pick<GithubIssueReview, "status" | "reviewer" | "reviewerModel" | "body">,
+): Promise<void> {
+	const date = new Date();
+	const reviewedAt = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+	const review: GithubIssueReview = { ...input, id: randomUUID(), reviewedAt };
+	const path = getGithubIssueMapPath(workspaceId);
+	await lockedFileSystem.withLock({ path, type: "file" }, async () => {
+		const map = await readGithubIssueMap(workspaceId);
+		const entry = map[taskId];
+		map[taskId] = { ...entry, pendingReviews: [...(entry?.pendingReviews ?? []), review] };
 		await lockedFileSystem.writeJsonFileAtomic(path, map, { lock: null });
 	});
 }

@@ -19,7 +19,12 @@ import {
 	parseWorktreeEnsureRequest,
 } from "../core/api-validation";
 import { trashTaskAndGetReadyLinkedTaskIds } from "../core/task-board-mutations";
-import { readGithubIssueMap, setGithubIssueMetadata, setGithubIssueSummary } from "../github/issue-map";
+import {
+	addGithubIssueReview,
+	readGithubIssueMap,
+	setGithubIssueMetadata,
+	setGithubIssueSummary,
+} from "../github/issue-map";
 import { readIssueReport } from "../github/issue-report";
 import type { GithubIssueSyncService } from "../github/issue-sync";
 import { deleteTaskHistory } from "../state/task-history";
@@ -216,6 +221,18 @@ function isMissingTaskWorktreeError(error: unknown): boolean {
 
 export function createWorkspaceApi(deps: CreateWorkspaceApiDependencies): RuntimeTrpcContext["workspaceApi"] {
 	return {
+		addTaskIssueReview: async (scope, { taskId, reviewer, ...review }) => {
+			const board = await loadWorkspaceBoardById(scope.workspaceId);
+			if (!board.columns.some((column) => column.cards.some((card) => card.id === taskId)))
+				throw new TRPCError({ code: "NOT_FOUND", message: `Task "${taskId}" not found.` });
+			const config = await loadRuntimeConfig(scope.workspacePath);
+			await addGithubIssueReview(scope.workspaceId, taskId, {
+				...review,
+				reviewer: reviewer ?? config.selectedAgentId,
+			});
+			deps.githubIssueSync?.requestSync(scope.workspaceId, scope.workspacePath);
+			return { ok: true };
+		},
 		setTaskIssueSummary: async (scope, input) => {
 			await setGithubIssueSummary(scope.workspaceId, input.taskId, input.summary);
 			deps.githubIssueSync?.requestSync(scope.workspaceId, scope.workspacePath);

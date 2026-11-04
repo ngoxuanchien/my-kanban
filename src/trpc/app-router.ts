@@ -5,6 +5,7 @@ import type { inferRouterInputs, inferRouterOutputs } from "@trpc/server";
 import { initTRPC, TRPCError } from "@trpc/server";
 import { z } from "zod";
 import type {
+	RuntimeAddTaskIssueReviewRequest,
 	RuntimeAgentModelCatalogsRequest,
 	RuntimeAgentModelCatalogsResponse,
 	RuntimeAgentTranscriptRequest,
@@ -117,6 +118,7 @@ import type {
 	RuntimeWorktreeEnsureResponse,
 } from "../core/api-contract";
 import {
+	runtimeAddTaskIssueReviewRequestSchema,
 	runtimeAgentModelCatalogsRequestSchema,
 	runtimeAgentModelCatalogsResponseSchema,
 	runtimeAgentTranscriptRequestSchema,
@@ -380,6 +382,10 @@ export interface RuntimeTrpcContext {
 		runUpdateNow: (scope: RuntimeTrpcWorkspaceScope | null) => Promise<RuntimeRunUpdateResponse>;
 	};
 	workspaceApi: {
+		addTaskIssueReview: (
+			scope: RuntimeTrpcWorkspaceScope,
+			input: RuntimeAddTaskIssueReviewRequest,
+		) => Promise<{ ok: true }>;
 		setTaskIssueSummary: (
 			scope: RuntimeTrpcWorkspaceScope,
 			input: RuntimeSetTaskIssueSummaryRequest,
@@ -774,6 +780,10 @@ export const runtimeAppRouter = t.router({
 		}),
 	}),
 	workspace: t.router({
+		addTaskIssueReview: workspaceProcedure
+			.input(runtimeAddTaskIssueReviewRequestSchema)
+			.output(z.object({ ok: z.literal(true) }))
+			.mutation(async ({ ctx, input }) => await ctx.workspaceApi.addTaskIssueReview(ctx.workspaceScope, input)),
 		setTaskIssueSummary: workspaceProcedure
 			.input(runtimeSetTaskIssueSummaryRequestSchema)
 			.output(z.object({ ok: z.literal(true) }))

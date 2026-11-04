@@ -10,6 +10,7 @@ import type { GhRunner } from "./gh-runner";
 import { getGithubIssueMapPath, readGithubIssueMap } from "./issue-map";
 import { deleteIssueReport, hashReport, readIssueReport } from "./issue-report";
 import { type BoardMutator, issueBody, mutateBoardLocked, pullGithubChanges } from "./reverse-sync";
+import { formatIssueReview } from "./review-comment";
 import { sanitizeForGithub } from "./sanitize";
 
 export interface GithubIssueSyncDeps {
@@ -201,7 +202,7 @@ export async function reconcileGithubIssues(
 								changed = true;
 								changedForBroadcast = true;
 								result.created++;
-								if (column.id !== "trash") continue;
+								if (column.id !== "trash" && !entry.pendingReviews?.length) continue;
 							}
 							const number = String(entry.issueNumber);
 							if (entry.syncedTitle !== title) {
@@ -287,6 +288,27 @@ export async function reconcileGithubIssues(
 									await deleteIssueReport(worktree);
 								}
 							}
+							for (const review of entry.pendingReviews ?? []) {
+								if (entry.postedReviewIds?.includes(review.id)) continue;
+								// task done records the base commit after the sidebar stores its passing review.
+								if (review.status === "pass" && column.id !== "trash") continue;
+								const history =
+									review.status === "pass" ? await loadTaskHistory(input.workspaceId, card.id) : [];
+								const commit = history
+									.filter((event) => event.type === "pass")
+									.sort((a, b) => b.at - a.at)[0]?.commit;
+								await gh(["issue", "comment", number, "--body", formatIssueReview(review, commit)]);
+								entry = {
+									...entry,
+									postedReviewIds: [...(entry.postedReviewIds ?? []), review.id],
+									doneCommented: review.status === "pass" || entry.doneCommented,
+								};
+								map[card.id] = entry;
+								await save();
+								changed = true;
+								changedForBroadcast = true;
+							}
+
 							if (column.id === "trash") {
 								if (entry.closed) continue;
 								const history = await loadTaskHistory(input.workspaceId, card.id);

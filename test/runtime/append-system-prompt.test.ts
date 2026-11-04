@@ -84,8 +84,8 @@ describe("renderAppendSystemPrompt", () => {
 
 		expect(commandLine).toContain('[--summary "<text>"]');
 		expect(createSection).toContain("When the project has GitHub issue sync on");
-		expect(createSection).toContain("1–3 sentence lecturer-facing summary");
-		expect(createSection).toContain("no file paths, no `contexte/` content, and no secrets");
+		expect(createSection).toContain("whole 10-section body");
+		expect(createSection).toContain("without the footer");
 	});
 
 	it("documents updating the GitHub issue summary", () => {
@@ -93,6 +93,53 @@ describe("renderAppendSystemPrompt", () => {
 		const updateSection = rendered.slice(rendered.indexOf("## task update"), rendered.indexOf("## task done"));
 		expect(updateSection).toContain('[--summary "<text>"]');
 		expect(updateSection).toContain("The task prompt itself never goes to GitHub.");
+	});
+
+	it("scopes the complete GitHub body and review rules to sync-on projects", () => {
+		const rendered = renderAppendSystemPrompt("kanban", { agentId: "claude" });
+		const rules = rendered.slice(
+			rendered.indexOf("# GitHub issue sync rules"),
+			rendered.indexOf("# Reviewing tasks"),
+		);
+		expect(rules).toContain("Skip this entire section when `issueSyncEnabled` is false");
+		expect(rules).toContain("`task show` JSON field `issueSyncEnabled` (boolean)");
+		expect(rules).toContain("apply only when `issueSyncEnabled` is true");
+		expect(rules).toContain("`task show` JSON field `issueNumber`");
+		expect(rules).toContain('JSON field `issueReport` is `"none"`');
+		expect(rules).toContain('`"posted"|"pending"|"none"`');
+		expect(rules).not.toContain("Issue sync: on|off");
+		expect(rules).not.toContain("Issue report: none");
+		const headings = [
+			"Summary",
+			"Problem Statement",
+			"Objectives",
+			"Requirements",
+			"Technical Design",
+			"Implementation Plan",
+			"Acceptance Criteria",
+			"Dependencies",
+			"References",
+			"Notes",
+		];
+		for (const [index, heading] of headings.entries()) expect(rules).toContain(`## ${index + 1}. ${heading}`);
+		for (const text of [
+			"### Functional",
+			"### Non-Functional",
+			"None",
+			"--labels",
+			"--reviewer-model",
+			"own model id",
+			"task update --summary",
+			"task issue-review",
+			"before task send",
+			"task start",
+			"task handoff",
+			"task review-failed",
+			"task done --review-passed",
+			"#<number>",
+		])
+			expect(rules).toContain(text);
+		expect(rendered).not.toContain("1–3 sentence lecturer-facing summary");
 	});
 
 	it("documents model selection for user-requested models", () => {

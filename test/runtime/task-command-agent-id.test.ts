@@ -1,3 +1,5 @@
+import { writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import { Command } from "commander";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -5,6 +7,7 @@ const cliMocks = vi.hoisted(() => ({
 	client: {
 		projects: { add: { mutate: vi.fn(async () => ({ ok: true, project: { id: "workspace-1" } })) } },
 		workspace: {
+			addTaskIssueReview: { mutate: vi.fn(async (_input: unknown) => ({ ok: true })) },
 			notifyStateUpdated: { mutate: vi.fn(async () => ({ ok: true })) },
 			getState: { query: vi.fn(async () => ({}) as never) },
 			getGithubIssues: { query: vi.fn(async () => ({ enabled: false, issues: {}, reports: {} })) },
@@ -73,6 +76,7 @@ vi.mock("../../src/workspace/complete-task-to-done", () => ({
 }));
 
 import { buildRestartPrompt, parseAgentId, registerTaskCommand } from "../../src/commands/task";
+import { createTempDir } from "../utilities/temp-dir";
 
 describe("task command --agent-id parsing", () => {
 	it("accepts launch-supported agents and default", () => {
@@ -1418,5 +1422,94 @@ describe("compact task list and task show", () => {
 		const result = JSON.parse(await execute(["comment", "--message", "note"]));
 		expect(result).toMatchObject({ ok: false, error: expect.stringContaining("--task-id or KANBAN_HOOK_TASK_ID") });
 		process.exitCode = 0;
+	});
+});
+
+describe("task issue-review", () => {
+	beforeEach(() => {
+		cliMocks.client.workspace.addTaskIssueReview.mutate.mockClear();
+		process.exitCode = 0;
+	});
+	async function execute(args: string[]) {
+		let output = "";
+		const write = vi.spyOn(process.stdout, "write").mockImplementation((chunk) => {
+			output += chunk.toString();
+			return true;
+		});
+		const program = new Command();
+		program.exitOverride().configureOutput({ writeErr: () => {} });
+		registerTaskCommand(program);
+		try {
+			await program.parseAsync(["node", "kanban", "task", "issue-review", "--task-id", "task-1", ...args]);
+			return JSON.parse(output) as { ok: boolean; error?: string };
+		} finally {
+			write.mockRestore();
+		}
+	}
+	it("forwards an explicit reviewer and model", async () => {
+		expect(
+			(
+				await execute([
+					"--status",
+					"approved",
+					"--body",
+					"Review",
+					"--reviewer",
+					"claude",
+					"--reviewer-model",
+					"opus",
+				])
+			).ok,
+		).toBe(true);
+		expect(cliMocks.client.workspace.addTaskIssueReview.mutate).toHaveBeenCalledWith({
+			taskId: "task-1",
+			status: "pass",
+			body: "Review",
+			reviewer: "claude",
+			reviewerModel: "opus",
+		});
+	});
+	it("leaves reviewer selection to the runtime when omitted", async () => {
+		await execute(["--status", "changes-requested", "--body", "Review"]);
+		expect(cliMocks.client.workspace.addTaskIssueReview.mutate).toHaveBeenCalledWith({
+			taskId: "task-1",
+			status: "fail",
+			body: "Review",
+		});
+	});
+	it("rejects invalid status and blank body", async () => {
+		for (const args of [
+			["--status", "invalid", "--body", "Review"],
+			["--status", "approved", "--body", "  "],
+		])
+			expect((await execute(args)).ok).toBe(false);
+		expect(cliMocks.client.workspace.addTaskIssueReview.mutate).not.toHaveBeenCalled();
+	});
+	it("requires exactly one body source", async () => {
+		for (const args of [
+			["--status", "changes-requested"],
+			["--status", "approved", "--body", "Review", "--file", "review.md"],
+		]) {
+			expect(await execute(args)).toMatchObject({
+				ok: false,
+				error: expect.stringContaining("exactly one of --file or --body"),
+			});
+		}
+		expect(cliMocks.client.workspace.addTaskIssueReview.mutate).not.toHaveBeenCalled();
+	});
+	it("reads a review from --file", async () => {
+		const temp = createTempDir("issue-review-");
+		try {
+			const path = join(temp.path, "review.md");
+			await writeFile(path, "### 1. Summary\nReviewed.");
+			expect((await execute(["--status", "approved", "--file", path])).ok).toBe(true);
+			expect(cliMocks.client.workspace.addTaskIssueReview.mutate).toHaveBeenCalledWith({
+				taskId: "task-1",
+				status: "pass",
+				body: "### 1. Summary\nReviewed.",
+			});
+		} finally {
+			temp.cleanup();
+		}
 	});
 });

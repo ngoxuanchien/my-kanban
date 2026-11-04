@@ -1459,6 +1459,15 @@ export const runtimeHookIngestResponseSchema = z.object({
 });
 export type RuntimeHookIngestResponse = z.infer<typeof runtimeHookIngestResponseSchema>;
 
+export const runtimeAddTaskIssueReviewRequestSchema = z.object({
+	taskId: z.string().trim().min(1),
+	status: z.enum(["pass", "fail"]),
+	body: z.string().trim().min(1),
+	reviewer: z.string().trim().min(1).optional(),
+	reviewerModel: z.string().trim().min(1).optional(),
+});
+export type RuntimeAddTaskIssueReviewRequest = z.infer<typeof runtimeAddTaskIssueReviewRequestSchema>;
+
 export const runtimeSetTaskIssueSummaryRequestSchema = z.object({
 	taskId: z.string().trim().min(1),
 	summary: z.string(),

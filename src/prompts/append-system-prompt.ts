@@ -227,7 +227,7 @@ Command:
 Purpose: create a new task in \`backlog\`, with optional plan mode and auto-review behavior.
 
 Command:
-\`${kanbanCommand} task create [--title "<text>"] --prompt "<text>" [--project-path <path>] [--base-ref <branch>] [--start-in-plan-mode <true|false>] [--auto-review-enabled <true|false>] [--auto-review-mode commit|pr] [--agent-id <${RUNTIME_AGENT_IDS_TEXT}>] [--difficulty <1-5>] [--model <model>] [--reasoning-effort <level>] [--agent-review-enabled <true|false>] [--summary "<text>"]\`
+\`${kanbanCommand} task create [--title "<text>"] --prompt "<text>" [--project-path <path>] [--base-ref <branch>] [--start-in-plan-mode <true|false>] [--auto-review-enabled <true|false>] [--auto-review-mode commit|pr] [--agent-id <${RUNTIME_AGENT_IDS_TEXT}>] [--difficulty <1-5>] [--model <model>] [--reasoning-effort <level>] [--agent-review-enabled <true|false>] [--summary "<text>"] [--labels <a,b>] [--milestone <name>] [--assignee <login>]\`
 
 Parameters:
 - \`--title "<text>"\` optional task title. If omitted, Kanban derives one from the prompt.
@@ -242,18 +242,18 @@ Parameters:
 - \`--model <model>\` optional model: \`haiku\`, \`sonnet\`, or \`opus\` for claude, a model id from \`task models\` for codex or opencode. Pass it only when the user names a model.
 - \`--reasoning-effort <level>\` optional Codex reasoning effort. Pass it only when the user names a model or effort.
 - \`--agent-review-enabled <true|false>\` optional. Default false. When true, the sidebar agent reviews the task when it reaches Review, with up to 3 fix rounds before \`task handoff\`.
-- \`--summary "<text>"\` optional GitHub issue body. When the project has GitHub issue sync on, pass a 1–3 sentence lecturer-facing summary of the task with no file paths, no \`contexte/\` content, and no secrets. The task prompt itself never goes to GitHub.
+- \`--summary "<text>"\` optional GitHub issue body. When the project has GitHub issue sync on, pass the whole 10-section body without the footer, following GitHub issue sync rules below. The task prompt itself never goes to GitHub.
 
 ## task update
 
 Purpose: update an existing task, including prompt, base ref, plan mode, and auto-review behavior.
 
 Command:
-\`${kanbanCommand} task update --task-id <task_id> [--summary "<text>"] [--title "<text>"] [--prompt "<text>"] [--project-path <path>] [--base-ref <branch>] [--start-in-plan-mode <true|false>] [--auto-review-enabled <true|false>] [--auto-review-mode commit|pr] [--agent-id <${RUNTIME_AGENT_IDS_TEXT}|default>] [--difficulty <1-5>] [--model <model|default>] [--reasoning-effort <level|default>] [--agent-review-enabled <true|false>]\`
+\`${kanbanCommand} task update --task-id <task_id> [--summary "<text>"] [--labels <a,b>] [--milestone <name>] [--assignee <login>] [--title "<text>"] [--prompt "<text>"] [--project-path <path>] [--base-ref <branch>] [--start-in-plan-mode <true|false>] [--auto-review-enabled <true|false>] [--auto-review-mode commit|pr] [--agent-id <${RUNTIME_AGENT_IDS_TEXT}|default>] [--difficulty <1-5>] [--model <model|default>] [--reasoning-effort <level|default>] [--agent-review-enabled <true|false>]\`
 
 Parameters:
 - \`--task-id <task_id>\` required task ID.
-- \`--summary "<text>"\` optional GitHub issue body summary. When the project has GitHub issue sync on, pass a 1–3 sentence lecturer-facing summary with no file paths, no \`contexte/\` content, and no secrets. The task prompt itself never goes to GitHub.
+- \`--summary "<text>"\` optional GitHub issue body. When the project has GitHub issue sync on, pass the whole 10-section body without the footer, following GitHub issue sync rules below. The task prompt itself never goes to GitHub.
 - \`--project-path <path>\` optional workspace path. If not already registered in Kanban, it is auto-added for git repos.
 - \`--title "<text>"\` optional replacement title.
 - \`--prompt "<text>"\` optional replacement prompt text.
@@ -381,6 +381,58 @@ Rules:
 - Pass --model/--reasoning-effort only when the user names a model.
 - Run task models once before creating tasks, to see the live table and available models.
 - Record the score reason as a task comment: \`task comment --task-id <task_id> --message "<one-line reason>"\`.
+
+# GitHub issue sync rules
+
+Skip this entire section when \`issueSyncEnabled\` is false. Check the \`task show\` JSON field \`issueSyncEnabled\` (boolean); these body, label, report, and review-comment rules apply only when \`issueSyncEnabled\` is true.
+
+At create and update, pass the whole body through \`--summary\` with exactly these headings in this order:
+
+\`\`\`
+## 1. Summary
+## 2. Problem Statement
+## 3. Objectives
+## 4. Requirements
+### Functional
+- [ ] ...
+### Non-Functional
+- [ ] ...
+## 5. Technical Design
+## 6. Implementation Plan
+- [ ] ...
+## 7. Acceptance Criteria
+- [ ] ...
+## 8. Dependencies
+## 9. References
+## 10. Notes
+\`\`\`
+
+- Each empty section contains the single word None. No H1; the card supplies the issue title. Never write the Kanban footer.
+- Repo-relative paths are allowed. No PR items, task prompt copies, \`contexte/\` content, secrets, local paths, or internal notes.
+- Pick one type label (\`type: feature|bug|docs|refactor|chore\`) and one priority label (\`priority: high|medium|low\`) via \`--labels <a,b>\`. Optional metadata: \`--milestone <name>\`, \`--assignee <login>\` (defaults to @me on create).
+- In Dependencies, write the dependency's task title first; once the dependency's \`task show\` JSON field \`issueNumber\` has a number, replace the title with \`#<number>\`.
+- Every review round must check \`task show\`. Fail the round if its JSON field \`issueReport\` is \`"none"\` (possible values: \`"posted"|"pending"|"none"\`).
+- Store every round before task send, task start, task handoff, task review-failed, or task done --review-passed. If storing fails, retry and leave the task in Review until it succeeds.
+- Command: \`${kanbanCommand} task issue-review --task-id <task_id> --status <approved|changes-requested> --reviewer <Current home agent> --reviewer-model <your own model id> (--file <path> | --body "<review>") [--project-path <path>]\`. Pass your own model id with \`--reviewer-model\`; omit it only when unknown. Use the Current home agent above, never the implementing card's agent or an @mention.
+- The review body uses the following structure. Reword findings; never paste command output. Empty sections say None. Runtime fills Reviewer, Review Status, local Reviewed At date, and the pass Commit from task history.
+
+\`\`\`
+### 1. Summary
+### 2. Acceptance Criteria Review
+- [x] / - [ ] ...
+### 3. Findings
+#### [HIGH|MEDIUM|LOW] <title>
+**Problem:** ...
+**Impact:** ... (optional)
+**Suggestion:** ...
+### 4. Questions
+### 5. Recommendations
+### 6. Final Decision
+**Status:** Approved | Changes Requested
+**Next Action:** ...
+\`\`\`
+
+- On pass, tick verified checklist items by resending the full body through \`task update --summary\` before \`task done --review-passed\`. Store the passing review first; runtime posts it after Done records the base commit and closes the issue without another Done comment.
 
 # Reviewing tasks
 

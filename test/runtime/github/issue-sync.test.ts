@@ -123,6 +123,133 @@ afterEach(() => {
 });
 
 describe("reconcileGithubIssues", () => {
+	it("posts a stored fail then a pass with the latest commit, saving each before later failures", async () => {
+		const failed = {
+			id: "r1",
+			status: "fail" as const,
+			reviewer: "claude",
+			reviewedAt: "2026-11-04",
+			body: "### 1. Summary\nFix /Users/private/code",
+		};
+		await seed({ one: { ...mapped, pendingReviews: [failed] } });
+		await reconcile();
+		let comments = calls.filter((args) => args[1] === "comment");
+		expect(comments).toHaveLength(1);
+		expect(comments[0]?.[4]).toContain("Changes Requested");
+		expect(comments[0]?.[4]).toContain("[internal path]");
+		expect(comments[0]?.[4]).not.toContain("/Users/");
+		const entry = (await readGithubIssueMap(input.workspaceId)).one;
+		expect(entry.postedReviewIds).toEqual(["r1"]);
+		await seed({
+			one: {
+				...entry,
+				pendingReviews: [
+					...(entry.pendingReviews ?? []),
+					{ ...failed, id: "r2", status: "pass", reviewerModel: "opus" },
+				],
+			},
+		});
+		// A pass is stored before task done records its commit; don't publish it early.
+		await reconcile();
+		expect(calls.filter((args) => args[1] === "comment")).toHaveLength(1);
+		mocks.board.mockResolvedValue(board("trash"));
+		mocks.history.mockResolvedValue([
+			{ type: "pass", at: 1, commit: "old" },
+			{ type: "pass", at: 2, commit: "full-sha" },
+		]);
+		gh.mockImplementation(async (args, options) => {
+			if (args[1] === "close") {
+				expect((await readGithubIssueMap(input.workspaceId)).one.postedReviewIds).toEqual(["r1", "r2"]);
+				throw new Error("close failed");
+			}
+			return runFakeGh(args, options);
+		});
+		expect((await reconcile()).ok).toBe(false);
+		gh.mockImplementation(runFakeGh);
+		await reconcile();
+		comments = calls.filter((args) => args[1] === "comment");
+		expect(comments).toHaveLength(2);
+		expect(comments[1]?.[4]).toContain("**Review Status:** Approved");
+		expect(comments[1]?.[4]).toContain("**Commit:** full-sha");
+		expect(comments[1]?.[4]).toContain("**Reviewer:** claude, model: opus");
+		expect(calls.at(-1)?.slice(0, 3)).toEqual(["issue", "close", "12"]);
+		expect((await readGithubIssueMap(input.workspaceId)).one.closed).toBe(true);
+	});
+
+	it("does not reuse an older commit when the latest pass has none", async () => {
+		await seed({
+			one: {
+				...mapped,
+				pendingReviews: [
+					{ id: "pass", status: "pass", reviewer: "claude", reviewedAt: "2026-11-04", body: "Review" },
+				],
+			},
+		});
+		mocks.board.mockResolvedValue(board("trash"));
+		mocks.history.mockResolvedValue([
+			{ type: "pass", at: 1, commit: "stale" },
+			{ type: "pass", at: 2 },
+		]);
+		await reconcile();
+		expect(calls.find((args) => args[1] === "comment")?.[4]).not.toContain("**Commit:**");
+	});
+	it("saves each fail comment before the next comment and retries only the unposted review", async () => {
+		const review = { status: "fail" as const, reviewer: "claude", reviewedAt: "2026-11-04", body: "Review" };
+		await seed({
+			one: {
+				...mapped,
+				pendingReviews: [
+					{ ...review, id: "first" },
+					{ ...review, id: "second" },
+				],
+			},
+		});
+		let count = 0;
+		gh.mockImplementation(async (args, options) => {
+			if (args[1] === "comment" && ++count === 2) {
+				expect((await readGithubIssueMap(input.workspaceId)).one.postedReviewIds).toEqual(["first"]);
+				throw new Error("second comment failed");
+			}
+			return runFakeGh(args, options);
+		});
+		expect((await reconcile()).ok).toBe(false);
+		gh.mockImplementation(runFakeGh);
+		await reconcile();
+		await reconcile();
+		expect(calls.filter((args) => args[1] === "comment")).toHaveLength(2);
+		expect((await readGithubIssueMap(input.workspaceId)).one.postedReviewIds).toEqual(["first", "second"]);
+	});
+
+	it("posts a pending fail in the same reconcile that creates the issue", async () => {
+		await seed({
+			one: {
+				pendingReviews: [
+					{ id: "first", status: "fail", reviewer: "claude", reviewedAt: "2026-11-04", body: "Review" },
+				],
+			},
+		});
+		await reconcile();
+		expect(calls.filter((args) => args[1] === "comment")).toHaveLength(1);
+		expect((await readGithubIssueMap(input.workspaceId)).one.postedReviewIds).toEqual(["first"]);
+	});
+
+	it("posts a later failed round while an earlier approval waits for Done", async () => {
+		const review = { reviewer: "claude", reviewedAt: "2026-11-04", body: "Review" };
+		await seed({
+			one: {
+				...mapped,
+				pendingReviews: [
+					{ ...review, id: "approval", status: "pass" },
+					{ ...review, id: "failure", status: "fail" },
+				],
+			},
+		});
+		await reconcile();
+		expect((await readGithubIssueMap(input.workspaceId)).one.postedReviewIds).toEqual(["failure"]);
+		expect(calls.filter((args) => args[1] === "comment")).toHaveLength(1);
+		expect(calls.find((args) => args[1] === "comment")?.[4]).toContain("Changes Requested");
+	});
+
 	it("resolves origin when upstream is also configured", async () => {
 		const repoPath = join(temp.path, "repo-with-remotes");
 		await mkdir(repoPath);
@@ -923,4 +1050,41 @@ it("remembers every open task before aborting on the first gh error", async () =
 	});
 	expect(await reconcile()).toEqual({ ok: true, created: 0, updated: 0, closed: 1 });
 	expect((await readGithubIssueMap(input.workspaceId)).two.closed).toBe(true);
+});
+
+it("stores reviews on the map with the home reviewer, explicit overrides, local date, and no card fields", async () => {
+	mocks.config.mockResolvedValue({ githubIssueSyncEnabled: true, selectedAgentId: "claude" });
+	const api = createWorkspaceApi({
+		ensureTerminalManagerForWorkspace: vi.fn(),
+		getScopedClineTaskSessionService: vi.fn(),
+		broadcastRuntimeWorkspaceStateUpdated: vi.fn(),
+		broadcastRuntimeProjectsUpdated: vi.fn(),
+		buildWorkspaceStateSnapshot: vi.fn(),
+	});
+	const scope = { workspaceId: input.workspaceId, workspacePath: input.repoPath };
+	const caller = runtimeAppRouter.createCaller({
+		requestedWorkspaceId: input.workspaceId,
+		workspaceScope: scope,
+		workspaceApi: api,
+	} as RuntimeTrpcContext);
+	const date = new Date();
+	const localDate = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+	await caller.workspace.addTaskIssueReview({ taskId: "one", status: "fail", body: "Review" });
+	await caller.workspace.addTaskIssueReview({
+		taskId: "one",
+		status: "pass",
+		body: "Review",
+		reviewer: "@bob",
+		reviewerModel: "opus",
+	});
+	const reviews = (await readGithubIssueMap(input.workspaceId)).one.pendingReviews;
+	expect(reviews).toHaveLength(2);
+	expect(reviews?.[0]).toMatchObject({ reviewer: "claude", reviewedAt: localDate });
+	expect(reviews?.[1]).toMatchObject({ reviewer: "@bob", reviewerModel: "opus" });
+	expect(reviews?.[0]?.id).not.toBe(reviews?.[1]?.id);
+	expect(task).not.toHaveProperty("pendingReviews");
+	await expect(
+		caller.workspace.addTaskIssueReview({ taskId: "missing", status: "fail", body: "Review" }),
+	).rejects.toThrow("not found");
+	await expect(caller.workspace.addTaskIssueReview({ taskId: "one", status: "fail", body: " " })).rejects.toThrow();
 });

@@ -121,7 +121,7 @@ Agent text comes from the existing `describeTaskRun` data (model and effort only
 ```
 ## Issue Review
 
-**Reviewer:** <agent name, never an @mention>
+**Reviewer:** <agent name>[, model: <m>] (never an @mention)
 **Review Status:** Approved | Changes Requested
 **Reviewed At:** YYYY-MM-DD
 
@@ -141,7 +141,7 @@ Agent text comes from the existing `describeTaskRun` data (model and effort only
 **Commit:** <full sha>        (pass only)
 ```
 
-`Reviewer`, `Review Status`, `Reviewed At`, and `Commit` are filled by the runtime; the sidebar supplies sections 1–5 plus `Status` and `Next Action`. Findings are reworded, never pasted command output. An empty section says `None`. The sidebar stores the result through a new CLI command (H); the runtime posts it on the next reconcile.
+`Reviewer`, `Review Status`, `Reviewed At`, and `Commit` are filled by the runtime; the sidebar supplies sections 1–5 plus `Status` and `Next Action`. The reviewer is the stored `--reviewer`, defaulting to the runtime’s selected home agent, never the card’s agent. The sidebar passes its own model id through `--reviewer-model <id>` because runtime does not know the sidebar model. With it the line reads `**Reviewer:** claude, model: opus`; without it, `**Reviewer:** claude`. Findings are reworded, never pasted command output. An empty section says `None`. The sidebar stores the result through a new CLI command (H); the runtime posts it on the next reconcile.
 
 **Moved to Done without a sidebar review:** short form, then close:
 

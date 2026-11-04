@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createTRPCProxyClient, httpBatchLink } from "@trpc/client";
 import type { Command } from "commander";
@@ -18,7 +19,11 @@ import type {
 	RuntimeTaskClineSettings,
 	RuntimeWorkspaceStateResponse,
 } from "../core/api-contract";
-import { runtimeAgentIdSchema, runtimeClineReasoningEffortSchema } from "../core/api-contract";
+import {
+	runtimeAddTaskIssueReviewRequestSchema,
+	runtimeAgentIdSchema,
+	runtimeClineReasoningEffortSchema,
+} from "../core/api-contract";
 import {
 	isRuntimeClaudeModel,
 	type RuntimeClaudeModel,
@@ -2018,6 +2023,43 @@ export function registerTaskCommand(program: Command): void {
 							commit: options.commit,
 						}),
 				);
+			},
+		);
+
+	task
+		.command("issue-review")
+		.description("Store a sidebar review for the runtime to post to GitHub.")
+		.requiredOption("--task-id <id>", "Task ID.")
+		.requiredOption("--status <approved|changes-requested>", "Review result.")
+		.option("--body <text>", "Review sections 1–5 plus Status and Next Action.")
+		.option("--file <path>", "Read the review body from a UTF-8 file.")
+		.option("--reviewer <name>", "Reviewer agent. Defaults to the runtime's selected home agent.")
+		.option("--reviewer-model <id>", "Reviewer's own model ID.")
+		.option("--project-path <path>", "Workspace path. Defaults to current directory workspace.")
+		.action(
+			async (options: {
+				taskId: string;
+				status: string;
+				body?: string;
+				file?: string;
+				reviewer?: string;
+				reviewerModel?: string;
+				projectPath?: string;
+			}) => {
+				await runTaskCommand(async () => {
+					if ((options.body === undefined) === (options.file === undefined))
+						throw new Error("task issue-review requires exactly one of --file or --body.");
+					if (options.status !== "approved" && options.status !== "changes-requested")
+						throw new Error("Invalid review status. Expected approved or changes-requested.");
+					const input = runtimeAddTaskIssueReviewRequestSchema.parse({
+						...options,
+						status: options.status === "approved" ? "pass" : "fail",
+						body: options.file === undefined ? options.body : await readFile(options.file, "utf8"),
+					});
+					const repoPath = await resolveWorkspaceRepoPath(options.projectPath, process.cwd());
+					const workspaceId = await ensureRuntimeWorkspace(repoPath);
+					return await createRuntimeTrpcClient(workspaceId).workspace.addTaskIssueReview.mutate(input);
+				});
 			},
 		);
 
