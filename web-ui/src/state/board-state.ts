@@ -185,6 +185,7 @@ function normalizeCard(rawCard: unknown): BoardCard | null {
 		handOffCount?: unknown;
 		handedOff?: unknown;
 		quotaBlockedAt?: unknown;
+		blockedReport?: unknown;
 		images?: unknown;
 		baseRef?: unknown;
 		agentId?: unknown;
@@ -221,6 +222,16 @@ function normalizeCard(rawCard: unknown): BoardCard | null {
 	const agentModel = typeof card.agentModel === "string" ? card.agentModel.trim() : "";
 	const agentReasoningEffort = typeof card.agentReasoningEffort === "string" ? card.agentReasoningEffort.trim() : "";
 
+	const rawBlocked = card.blockedReport as { question?: unknown; reportedAt?: unknown } | null | undefined;
+	const blockedReport =
+		rawBlocked &&
+		typeof rawBlocked.question === "string" &&
+		rawBlocked.question &&
+		typeof rawBlocked.reportedAt === "number" &&
+		Number.isFinite(rawBlocked.reportedAt)
+			? { question: rawBlocked.question, reportedAt: rawBlocked.reportedAt }
+			: undefined;
+
 	const now = Date.now();
 
 	return {
@@ -246,6 +257,7 @@ function normalizeCard(rawCard: unknown): BoardCard | null {
 		...(typeof card.quotaBlockedAt === "number" && Number.isFinite(card.quotaBlockedAt) && card.quotaBlockedAt >= 0
 			? { quotaBlockedAt: card.quotaBlockedAt }
 			: {}),
+		...(blockedReport ? { blockedReport } : {}),
 		images: normalizeTaskImages(card.images),
 		baseRef,
 		...(typeof card.agentId === "string" && card.agentId ? { agentId: card.agentId as RuntimeAgentId } : {}),

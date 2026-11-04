@@ -321,6 +321,20 @@ describe("BoardCard", () => {
 		expect(await renderCard("in_progress", 1)).not.toContain("Out of quota");
 	});
 
+	it("shows Needs you and the question for a blocked card", async () => {
+		await act(async () => {
+			root.render(
+				<BoardCard
+					card={createCard({ agentId: "codex", blockedReport: { question: "Use A or B?", reportedAt: 1 } })}
+					index={0}
+					columnId="in_progress"
+				/>,
+			);
+		});
+		expect(container.textContent).toContain("Needs you");
+		expect(container.textContent).toContain("Use A or B?");
+	});
+
 	it("shows handoff and extended review state on the agent line", async () => {
 		await act(async () => {
 			root.render(

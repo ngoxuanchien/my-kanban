@@ -121,6 +121,77 @@ describe("board dependency state", () => {
 		expect(cleared.board.columns[0]?.cards[0]?.claudeModel).toBeUndefined();
 	});
 
+	describe("blockedReport", () => {
+		const blockedReport = { question: "Use A or B?", reportedAt: 5 };
+		const blockedBoard = (card: Record<string, unknown> = {}) => {
+			const board = normalizeBoardData({
+				columns: [
+					{
+						id: "review",
+						cards: [{ id: "task-1", prompt: "Task", baseRef: "main", blockedReport, ...card }],
+					},
+					{ id: "backlog", cards: [] },
+					{ id: "in_progress", cards: [] },
+					{ id: "trash", cards: [] },
+				],
+				dependencies: [],
+			});
+			if (!board) throw new Error("board did not normalize");
+			return board;
+		};
+		const blockedOf = (board: ReturnType<typeof blockedBoard>) =>
+			board.columns.flatMap((column) => column.cards).find((card) => card.id === "task-1")?.blockedReport;
+
+		it("normalizeCard keeps a valid report and drops an invalid one", () => {
+			expect(blockedOf(blockedBoard())).toEqual(blockedReport);
+			expect(blockedOf(blockedBoard({ blockedReport: { question: "", reportedAt: 5 } }))).toBeUndefined();
+			expect(blockedOf(blockedBoard({ blockedReport: { question: "Q" } }))).toBeUndefined();
+		});
+
+		it("addTaskToColumnWithResult keeps it on existing cards", () => {
+			const result = addTaskToColumnWithResult(blockedBoard(), "backlog", { prompt: "Other", baseRef: "main" });
+			expect(blockedOf(result.board)).toEqual(blockedReport);
+		});
+
+		it("updateTask keeps it", () => {
+			const result = updateTask(blockedBoard(), "task-1", { prompt: "Edited", baseRef: "main" });
+			expect(result.updated).toBe(true);
+			expect(blockedOf(result.board)).toEqual(blockedReport);
+		});
+
+		it("updateTaskTitle keeps it", () => {
+			const result = updateTaskTitle(blockedBoard(), "task-1", "New title");
+			expect(result.updated).toBe(true);
+			expect(blockedOf(result.board)).toEqual(blockedReport);
+		});
+
+		it("applyTaskDetailClineSettingsSelection keeps it", () => {
+			const result = applyTaskDetailClineSettingsSelection(blockedBoard({ agentId: "cline" }), "task-1", {
+				agentId: "cline",
+				clineSettings: { providerId: "p", modelId: "m" },
+			});
+			expect(result.updated).toBe(true);
+			expect(blockedOf(result.board)).toEqual(blockedReport);
+		});
+
+		it("applyTaskDetailClineSettingsChange keeps it", () => {
+			const result = applyTaskDetailClineSettingsChange(
+				blockedBoard({ agentId: "cline" }),
+				"task-1",
+				{ providerId: "p", modelId: "m", reasoningEffort: "" },
+				{},
+			);
+			expect(result.updated).toBe(true);
+			expect(blockedOf(result.board)).toEqual(blockedReport);
+		});
+
+		it("disableTaskAutoReview keeps it", () => {
+			const result = disableTaskAutoReview(blockedBoard(), "task-1");
+			expect(result.updated).toBe(true);
+			expect(blockedOf(result.board)).toEqual(blockedReport);
+		});
+	});
+
 	it("creates tasks when randomUUID is unavailable", () => {
 		vi.stubGlobal("crypto", { randomUUID: undefined });
 

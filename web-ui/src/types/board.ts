@@ -50,6 +50,7 @@ export interface BoardCard {
 	handOffCount?: number;
 	handedOff?: boolean;
 	quotaBlockedAt?: number;
+	blockedReport?: { question: string; reportedAt: number };
 	images?: TaskImage[];
 	agentId?: RuntimeAgentId;
 	claudeModel?: RuntimeClaudeModel;

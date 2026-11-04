@@ -182,14 +182,17 @@ export function useReviewReadyNotifications({
 		const taskTitle = selection
 			? truncateTaskPromptLabel(selection.card.prompt) || `Task ${latestTaskReadyForReview.taskId}`
 			: `Task ${latestTaskReadyForReview.taskId}`;
-		const notificationBody = resolveReviewReadyNotificationBody(
-			latestTaskReadyForReview.taskId,
-			taskTitle,
-			taskSessions,
-		);
+		// The agent files the report before its turn ends, so the board already holds it when the plain turn-end event arrives.
+		const isBlocked = latestTaskReadyForReview.reason === "blocked" || Boolean(selection?.card.blockedReport);
+		const notificationBody =
+			(isBlocked ? selection?.card.blockedReport?.question : undefined) ??
+			resolveReviewReadyNotificationBody(latestTaskReadyForReview.taskId, taskTitle, taskSessions);
 		setPendingReviewReadyNotificationCount((current) => current + 1);
-		const notificationTitle =
-			latestTaskReadyForReview.reason === "permission"
+		const notificationTitle = isBlocked
+			? workspaceTitle
+				? `${workspaceTitle} needs you`
+				: "Needs you"
+			: latestTaskReadyForReview.reason === "permission"
 				? workspaceTitle
 					? `${workspaceTitle} needs approval`
 					: "Needs approval"

@@ -66,6 +66,17 @@ describe("getCardAttention", () => {
 			),
 		).toBe("owner");
 	});
+	it.each(["in_progress", "review"] as const)("blocked report is owner in %s, review on or off", (columnId) => {
+		const blocked = { ...card, blockedReport: { question: "Q?", reportedAt: 1 } };
+		expect(getCardAttention(blocked, columnId, summary)).toBe("owner");
+		expect(getCardAttention({ ...blocked, agentReviewEnabled: false }, columnId, summary)).toBe("owner");
+		expect(getCardAttention({ ...blocked, quotaBlockedAt: 1 }, columnId, undefined)).toBe("owner");
+	});
+	it.each(["backlog", "trash"] as const)("blocked report is null in %s", (columnId) => {
+		expect(
+			getCardAttention({ ...card, blockedReport: { question: "Q?", reportedAt: 1 } }, columnId, summary),
+		).toBeNull();
+	});
 	it("prioritizes approval activity in In Progress", () => {
 		expect(
 			getCardAttention(card, "in_progress", {

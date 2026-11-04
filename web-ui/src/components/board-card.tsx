@@ -808,6 +808,14 @@ export function BoardCard({
 											{attention === "owner" ? "Needs you" : "Sidebar"}
 										</span>
 									) : null}
+									{attention === "owner" && card.blockedReport ? (
+										<span
+											className="min-w-0 truncate text-xs text-text-secondary"
+											title={card.blockedReport.question}
+										>
+											{card.blockedReport.question}
+										</span>
+									) : null}
 									{githubIssue ? (
 										<a
 											href={githubIssue.url}
