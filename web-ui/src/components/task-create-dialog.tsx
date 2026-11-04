@@ -21,11 +21,16 @@ import { useHotkeys } from "react-hotkeys-hook";
 
 import type { BranchSelectOption } from "@/components/branch-select-dropdown";
 import { BranchSelectDropdown } from "@/components/branch-select-dropdown";
-import { TaskAgentModelPicker, useTaskAgentModelPicker } from "@/components/task-agent-model-picker";
+import {
+	TaskAgentModelPicker,
+	TaskDifficultySelect,
+	useTaskAgentModelPicker,
+} from "@/components/task-agent-model-picker";
 import { TaskPromptComposer } from "@/components/task-prompt-composer";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogBody, DialogFooter, DialogHeader } from "@/components/ui/dialog";
 import { NativeSelect } from "@/components/ui/native-select";
+import { useAgentModelCatalogs } from "@/hooks/use-agent-model-catalogs";
 import type {
 	RuntimeAgentId,
 	RuntimeClaudeModel,
@@ -36,6 +41,7 @@ import { LocalStorageKey } from "@/storage/local-storage-store";
 import type { TaskAutoReviewMode, TaskImage } from "@/types";
 import { isMacPlatform, pasteShortcutLabel } from "@/utils/platform";
 import { useRawLocalStorageValue } from "@/utils/react-use";
+import type { DifficultyModelMap, TaskDifficulty } from "../../../src/core/agent-model";
 
 const AUTO_REVIEW_MODE_OPTIONS: Array<{ value: TaskAutoReviewMode; label: string }> = [
 	{ value: "commit", label: "Make commit" },
@@ -139,6 +145,13 @@ export function TaskCreateDialog({
 	issueSummaryEnabled = false,
 	issueSummary = "",
 	onIssueSummaryChange,
+	difficulty,
+	onDifficultyChange,
+	difficultyModelMap,
+	agentModel,
+	agentReasoningEffort,
+	onAgentModelChange,
+	onAgentReasoningEffortChange,
 }: {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
@@ -183,6 +196,13 @@ export function TaskCreateDialog({
 	issueSummaryEnabled?: boolean;
 	issueSummary?: string;
 	onIssueSummaryChange?: (value: string) => void;
+	difficulty?: TaskDifficulty;
+	onDifficultyChange?: (value: TaskDifficulty | undefined) => void;
+	difficultyModelMap?: DifficultyModelMap;
+	agentModel?: string;
+	agentReasoningEffort?: string;
+	onAgentModelChange?: (model: string | undefined) => void;
+	onAgentReasoningEffortChange?: (effort: string | undefined) => void;
 }): ReactElement {
 	const [mode, setMode] = useState<"single" | "multi">("single");
 	const [createMore, setCreateMore] = useState(false);
@@ -218,6 +238,8 @@ export function TaskCreateDialog({
 		defaultProviderId,
 		defaultModelId,
 	});
+
+	const { catalogs: modelCatalogs } = useAgentModelCatalogs(open && onAgentModelChange !== undefined, workspaceId);
 
 	const detectedItems = useMemo(() => parseListItems(prompt), [prompt]);
 	const validTaskCount = useMemo(() => taskPrompts.filter((p) => p.trim()).length, [taskPrompts]);
@@ -631,6 +653,8 @@ export function TaskCreateDialog({
 						</NativeSelect>
 					</div>
 
+					{onDifficultyChange ? <TaskDifficultySelect value={difficulty} onChange={onDifficultyChange} /> : null}
+
 					{onAgentIdChange && onClineSettingsChange ? (
 						<TaskAgentModelPicker
 							agentId={agentId}
@@ -651,6 +675,13 @@ export function TaskCreateDialog({
 							defaultProviderId={defaultProviderId}
 							defaultReasoningEffort={defaultReasoningEffort}
 							providerDefaultModels={providerDefaultModels}
+							difficulty={difficulty}
+							difficultyModelMap={difficultyModelMap}
+							modelCatalogs={modelCatalogs}
+							agentModel={agentModel}
+							agentReasoningEffort={agentReasoningEffort}
+							onAgentModelChange={onAgentModelChange}
+							onAgentReasoningEffortChange={onAgentReasoningEffortChange}
 						/>
 					) : null}
 				</div>

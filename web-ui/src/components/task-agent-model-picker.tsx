@@ -10,18 +10,21 @@ import {
 	buildClineSelectedModelButtonText,
 	getClineReasoningEnabledModelIds,
 } from "@/components/detail-panels/cline-model-picker-options";
+import { CatalogField } from "@/components/difficulty-model-table";
 import { SearchSelectDropdown } from "@/components/search-select-dropdown";
 import { cn } from "@/components/ui/cn";
 import { NativeSelect } from "@/components/ui/native-select";
 import { fetchClineProviderCatalog, fetchClineProviderModels } from "@/runtime/runtime-config-query";
 import type {
 	RuntimeAgentId,
+	RuntimeAgentModelCatalogsResponse,
 	RuntimeClaudeModel,
 	RuntimeClineProviderCatalogItem,
 	RuntimeClineProviderModel,
 	RuntimeClineReasoningEffort,
 	RuntimeTaskClineSettings,
 } from "@/runtime/types";
+import { type DifficultyModelMap, resolveTaskAgentModel, type TaskDifficulty } from "../../../src/core/agent-model";
 
 // ---------------------------------------------------------------------------
 // Hook: manages fetch state for Cline provider catalog + model lists
@@ -221,6 +224,112 @@ function cloneTaskClineSettings(settings?: RuntimeTaskClineSettings): RuntimeTas
 	};
 }
 
+const DIFFICULTY_OPTIONS: TaskDifficulty[] = [1, 2, 3, 4, 5];
+
+export function TaskDifficultySelect({
+	value,
+	onChange,
+}: {
+	value: TaskDifficulty | undefined;
+	onChange: (value: TaskDifficulty | undefined) => void;
+}): ReactElement {
+	return (
+		<div className="w-full sm:w-1/2 min-w-0">
+			<span className="text-[11px] text-text-secondary block mb-1">Difficulty</span>
+			<NativeSelect
+				size="sm"
+				fill
+				aria-label="Difficulty"
+				value={value ?? ""}
+				onChange={(event) => {
+					const next = event.currentTarget.value;
+					onChange(next ? (Number(next) as TaskDifficulty) : undefined);
+				}}
+			>
+				<option value="">None</option>
+				{DIFFICULTY_OPTIONS.map((option) => (
+					<option key={option} value={option}>
+						{option}
+					</option>
+				))}
+			</NativeSelect>
+		</div>
+	);
+}
+
+function AgentModelFields({
+	agentId,
+	difficulty,
+	difficultyModelMap,
+	modelCatalogs,
+	agentModel,
+	agentReasoningEffort,
+	onAgentModelChange,
+	onAgentReasoningEffortChange,
+}: {
+	agentId: "codex" | "opencode";
+	difficulty: TaskDifficulty | undefined;
+	difficultyModelMap: DifficultyModelMap;
+	modelCatalogs: RuntimeAgentModelCatalogsResponse | null;
+	agentModel: string | undefined;
+	agentReasoningEffort: string | undefined;
+	onAgentModelChange: (model: string | undefined) => void;
+	onAgentReasoningEffortChange?: (effort: string | undefined) => void;
+}): ReactElement {
+	const agentLabel = agentId === "codex" ? "Codex" : "OpenCode";
+	const catalog = modelCatalogs?.[agentId];
+	const models = catalog?.ok ? catalog.models : [];
+	// What Auto means: resolved with no explicit card model or effort.
+	const auto = resolveTaskAgentModel({
+		agentId,
+		card: { difficulty },
+		map: difficultyModelMap,
+		claudeDefaultModel: "opus",
+	});
+	const effortsOf = (modelId: string | null | undefined): string[] =>
+		models.find((model) => model.id === modelId)?.efforts ?? [];
+	const efforts = effortsOf(agentModel ?? auto.model);
+	const showEffort =
+		agentId === "codex" && (catalog?.ok === false || efforts.length > 0 || agentReasoningEffort !== undefined);
+	return (
+		<div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+			<div className="min-w-0">
+				<span className="text-[11px] text-text-secondary block mb-1">{agentLabel} model</span>
+				<CatalogField
+					ariaLabel={`${agentLabel} model`}
+					value={agentModel}
+					options={models.map((model) => model.id)}
+					emptyLabel={auto.model ? `Auto (difficulty ${difficulty} → ${auto.model})` : "Auto (agent default)"}
+					freeText={catalog?.ok === false}
+					onChange={(model) => {
+						onAgentModelChange(model);
+						if (
+							catalog?.ok &&
+							agentReasoningEffort &&
+							!effortsOf(model ?? auto.model).includes(agentReasoningEffort)
+						) {
+							onAgentReasoningEffortChange?.(undefined);
+						}
+					}}
+				/>
+			</div>
+			{showEffort && onAgentReasoningEffortChange ? (
+				<div className="min-w-0">
+					<span className="text-[11px] text-text-secondary block mb-1">Reasoning effort</span>
+					<CatalogField
+						ariaLabel={`${agentLabel} reasoning effort`}
+						value={agentReasoningEffort}
+						options={efforts}
+						emptyLabel={!agentModel && auto.reasoningEffort ? `Auto (${auto.reasoningEffort})` : "Auto"}
+						freeText={catalog?.ok === false}
+						onChange={onAgentReasoningEffortChange}
+					/>
+				</div>
+			) : null}
+		</div>
+	);
+}
+
 // ---------------------------------------------------------------------------
 // Component: renders Agent, Cline provider, and Cline model pickers
 // ---------------------------------------------------------------------------
@@ -245,6 +354,13 @@ export function TaskAgentModelPicker({
 	claudeDefaultModel = "opus",
 	onClaudeModelChange,
 	providerDefaultModels,
+	difficulty,
+	difficultyModelMap = {},
+	modelCatalogs = null,
+	agentModel,
+	agentReasoningEffort,
+	onAgentModelChange,
+	onAgentReasoningEffortChange,
 }: {
 	agentId: RuntimeAgentId | undefined;
 	onAgentIdChange: (value: RuntimeAgentId | undefined) => void;
@@ -269,6 +385,13 @@ export function TaskAgentModelPicker({
 	onClaudeModelChange?: (model: RuntimeClaudeModel | undefined) => void;
 	/** Map of provider ID → its default model ID (from the provider catalog). */
 	providerDefaultModels?: Record<string, string>;
+	difficulty?: TaskDifficulty;
+	difficultyModelMap?: DifficultyModelMap;
+	modelCatalogs?: RuntimeAgentModelCatalogsResponse | null;
+	agentModel?: string;
+	agentReasoningEffort?: string;
+	onAgentModelChange?: (model: string | undefined) => void;
+	onAgentReasoningEffortChange?: (effort: string | undefined) => void;
 }): ReactElement {
 	const clineProviderId = clineSettings?.providerId;
 	const clineModelId = clineSettings?.modelId;
@@ -286,6 +409,12 @@ export function TaskAgentModelPicker({
 	const effectiveAgentId = agentId ?? defaultAgentId ?? null;
 	const showClineProviderPicker = effectiveAgentId === "cline";
 	const showClaudeModelPicker = effectiveAgentId === "claude" && onClaudeModelChange !== undefined;
+	const claudeAuto = resolveTaskAgentModel({
+		agentId: "claude",
+		card: { difficulty },
+		map: difficultyModelMap,
+		claudeDefaultModel,
+	});
 
 	// Show the Cline model picker when a provider is effectively selected
 	// (either explicitly overridden, or the global default provider is set)
@@ -481,6 +610,8 @@ export function TaskAgentModelPicker({
 								onChange={(e) => {
 									const value = e.currentTarget.value;
 									onAgentIdChange(value ? (value as RuntimeAgentId) : undefined);
+									onAgentModelChange?.(undefined);
+									onAgentReasoningEffortChange?.(undefined);
 									if (value !== "cline") {
 										onClineSettingsChange?.(undefined);
 										setReasoningEffort("");
@@ -510,12 +641,28 @@ export function TaskAgentModelPicker({
 										)
 									}
 								>
-									<option value="">Default ({claudeDefaultModel})</option>
+									<option value="">
+										{claudeAuto.source === "difficulty"
+											? `Auto (difficulty ${difficulty} → ${claudeAuto.model})`
+											: `Default (${claudeDefaultModel})`}
+									</option>
 									<option value="haiku">haiku</option>
 									<option value="sonnet">sonnet</option>
 									<option value="opus">opus</option>
 								</NativeSelect>
 							</div>
+						) : null}
+						{(effectiveAgentId === "codex" || effectiveAgentId === "opencode") && onAgentModelChange ? (
+							<AgentModelFields
+								agentId={effectiveAgentId}
+								difficulty={difficulty}
+								difficultyModelMap={difficultyModelMap}
+								modelCatalogs={modelCatalogs}
+								agentModel={agentModel}
+								agentReasoningEffort={agentReasoningEffort}
+								onAgentModelChange={onAgentModelChange}
+								onAgentReasoningEffortChange={onAgentReasoningEffortChange}
+							/>
 						) : null}
 						{showClineProviderPicker ? (
 							<div className="grid grid-cols-1 gap-2 sm:grid-cols-2">

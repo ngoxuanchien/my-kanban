@@ -16,6 +16,7 @@ import { toTelemetrySelectedAgentId, trackTaskCreated } from "@/telemetry/events
 import type { BoardCard, BoardData, TaskAutoReviewMode, TaskImage } from "@/types";
 import { resolveTaskAutoReviewMode } from "@/types";
 import { useBooleanLocalStorageValue, useRawLocalStorageValue } from "@/utils/react-use";
+import type { TaskDifficulty } from "../../../src/core/agent-model";
 
 interface UseTaskEditorInput {
 	board: BoardData;
@@ -56,13 +57,20 @@ export interface UseTaskEditorResult {
 	newTaskBranchRef: string;
 	setNewTaskBranchRef: Dispatch<SetStateAction<string>>;
 	newTaskAgentId: RuntimeAgentId | undefined;
-	setNewTaskAgentId: Dispatch<SetStateAction<RuntimeAgentId | undefined>>;
+	/** Also clears the explicit model and effort: they belong to the previous agent. */
+	setNewTaskAgentId: (value: RuntimeAgentId | undefined) => void;
 	newTaskClineSettings: RuntimeTaskClineSettings | undefined;
 	setNewTaskClineSettings: Dispatch<SetStateAction<RuntimeTaskClineSettings | undefined>>;
 	newTaskClaudeModel: RuntimeClaudeModel | undefined;
 	setNewTaskClaudeModel: Dispatch<SetStateAction<RuntimeClaudeModel | undefined>>;
 	newTaskIssueSummary: string;
 	setNewTaskIssueSummary: Dispatch<SetStateAction<string>>;
+	newTaskDifficulty: TaskDifficulty | undefined;
+	setNewTaskDifficulty: Dispatch<SetStateAction<TaskDifficulty | undefined>>;
+	newTaskAgentModel: string | undefined;
+	setNewTaskAgentModel: Dispatch<SetStateAction<string | undefined>>;
+	newTaskAgentReasoningEffort: string | undefined;
+	setNewTaskAgentReasoningEffort: Dispatch<SetStateAction<string | undefined>>;
 	editingTaskId: string | null;
 	editTaskPrompt: string;
 	setEditTaskPrompt: Dispatch<SetStateAction<string>>;
@@ -80,11 +88,18 @@ export interface UseTaskEditorResult {
 	editTaskBranchRef: string;
 	setEditTaskBranchRef: Dispatch<SetStateAction<string>>;
 	editTaskAgentId: RuntimeAgentId | undefined;
-	setEditTaskAgentId: Dispatch<SetStateAction<RuntimeAgentId | undefined>>;
+	/** Also clears the explicit model and effort: they belong to the previous agent. */
+	setEditTaskAgentId: (value: RuntimeAgentId | undefined) => void;
 	editTaskClineSettings: RuntimeTaskClineSettings | undefined;
 	setEditTaskClineSettings: Dispatch<SetStateAction<RuntimeTaskClineSettings | undefined>>;
 	editTaskClaudeModel: RuntimeClaudeModel | undefined;
 	setEditTaskClaudeModel: Dispatch<SetStateAction<RuntimeClaudeModel | undefined>>;
+	editTaskDifficulty: TaskDifficulty | undefined;
+	setEditTaskDifficulty: Dispatch<SetStateAction<TaskDifficulty | undefined>>;
+	editTaskAgentModel: string | undefined;
+	setEditTaskAgentModel: Dispatch<SetStateAction<string | undefined>>;
+	editTaskAgentReasoningEffort: string | undefined;
+	setEditTaskAgentReasoningEffort: Dispatch<SetStateAction<string | undefined>>;
 	handleOpenCreateTask: () => void;
 	handleCancelCreateTask: () => void;
 	handleOpenEditTask: (task: BoardCard, options?: OpenEditTaskOptions) => void;
@@ -145,9 +160,26 @@ export function useTaskEditor({
 	const [newTaskClaudeModel, setNewTaskClaudeModel] = useState<RuntimeClaudeModel | undefined>(undefined);
 	const [newTaskIssueSummary, setNewTaskIssueSummary] = useState("");
 	const pendingIssueSummaryWritesRef = useRef<Promise<void>[]>([]);
+	const [newTaskDifficulty, setNewTaskDifficulty] = useState<TaskDifficulty | undefined>(undefined);
+	const [newTaskAgentModel, setNewTaskAgentModel] = useState<string | undefined>(undefined);
+	const [newTaskAgentReasoningEffort, setNewTaskAgentReasoningEffort] = useState<string | undefined>(undefined);
 	const [editTaskAgentId, setEditTaskAgentId] = useState<RuntimeAgentId | undefined>(undefined);
 	const [editTaskClineSettings, setEditTaskClineSettings] = useState<RuntimeTaskClineSettings | undefined>(undefined);
 	const [editTaskClaudeModel, setEditTaskClaudeModel] = useState<RuntimeClaudeModel | undefined>(undefined);
+	const [editTaskDifficulty, setEditTaskDifficulty] = useState<TaskDifficulty | undefined>(undefined);
+	const [editTaskAgentModel, setEditTaskAgentModel] = useState<string | undefined>(undefined);
+	const [editTaskAgentReasoningEffort, setEditTaskAgentReasoningEffort] = useState<string | undefined>(undefined);
+
+	const changeNewTaskAgentId = useCallback((value: RuntimeAgentId | undefined) => {
+		setNewTaskAgentId(value);
+		setNewTaskAgentModel(undefined);
+		setNewTaskAgentReasoningEffort(undefined);
+	}, []);
+	const changeEditTaskAgentId = useCallback((value: RuntimeAgentId | undefined) => {
+		setEditTaskAgentId(value);
+		setEditTaskAgentModel(undefined);
+		setEditTaskAgentReasoningEffort(undefined);
+	}, []);
 
 	const lastCreatedTaskBranchRef = useMemo(() => {
 		if (!currentProjectId) {
@@ -234,6 +266,9 @@ export function useTaskEditor({
 		setNewTaskAgentId(undefined);
 		setNewTaskClineSettings(undefined);
 		setNewTaskClaudeModel(undefined);
+		setNewTaskDifficulty(undefined);
+		setNewTaskAgentModel(undefined);
+		setNewTaskAgentReasoningEffort(undefined);
 		setIsInlineTaskCreateOpen(true);
 	}, []);
 
@@ -246,6 +281,9 @@ export function useTaskEditor({
 		setNewTaskAgentId(undefined);
 		setNewTaskClineSettings(undefined);
 		setNewTaskClaudeModel(undefined);
+		setNewTaskDifficulty(undefined);
+		setNewTaskAgentModel(undefined);
+		setNewTaskAgentReasoningEffort(undefined);
 	}, [resolvedDefaultTaskBranchRef]);
 
 	const handleOpenEditTask = useCallback(
@@ -271,6 +309,9 @@ export function useTaskEditor({
 			setEditTaskAgentId(task.agentId);
 			setEditTaskClineSettings(task.clineSettings);
 			setEditTaskClaudeModel(task.claudeModel);
+			setEditTaskDifficulty(task.difficulty);
+			setEditTaskAgentModel(task.agentModel);
+			setEditTaskAgentReasoningEffort(task.agentReasoningEffort);
 		},
 		[resolvedDefaultTaskBranchRef, setSelectedTaskId],
 	);
@@ -286,6 +327,9 @@ export function useTaskEditor({
 		setEditTaskImages([]);
 		setEditTaskBranchRef("");
 		setEditTaskClaudeModel(undefined);
+		setEditTaskDifficulty(undefined);
+		setEditTaskAgentModel(undefined);
+		setEditTaskAgentReasoningEffort(undefined);
 	}, []);
 
 	const handleSaveEditedTask = useCallback((): string | null => {
@@ -317,6 +361,9 @@ export function useTaskEditor({
 				agentId: editTaskAgentId,
 				clineSettings: editTaskClineSettings,
 				claudeModel: editTaskClaudeModel,
+				difficulty: editTaskDifficulty ?? null,
+				agentModel: editTaskAgentModel ?? null,
+				agentReasoningEffort: editTaskAgentReasoningEffort ?? null,
 				baseRef,
 			});
 			return updated.updated ? updated.board : currentBoard;
@@ -333,6 +380,9 @@ export function useTaskEditor({
 		setEditTaskAgentId(undefined);
 		setEditTaskClineSettings(undefined);
 		setEditTaskClaudeModel(undefined);
+		setEditTaskDifficulty(undefined);
+		setEditTaskAgentModel(undefined);
+		setEditTaskAgentReasoningEffort(undefined);
 		return savedTaskId;
 	}, [
 		editTaskAgentId,
@@ -342,6 +392,9 @@ export function useTaskEditor({
 		editTaskBranchRef,
 		editTaskClineSettings,
 		editTaskClaudeModel,
+		editTaskDifficulty,
+		editTaskAgentModel,
+		editTaskAgentReasoningEffort,
 		editTaskPrompt,
 		editTaskImages,
 		editTaskStartInPlanMode,
@@ -390,6 +443,9 @@ export function useTaskEditor({
 				agentId: newTaskAgentId,
 				clineSettings: newTaskClineSettings,
 				claudeModel: newTaskClaudeModel,
+				difficulty: newTaskDifficulty,
+				agentModel: newTaskAgentModel,
+				agentReasoningEffort: newTaskAgentReasoningEffort,
 				baseRef,
 			});
 			const issueSummary = newTaskIssueSummary.trim();
@@ -427,6 +483,9 @@ export function useTaskEditor({
 			setNewTaskClineSettings(undefined);
 			setNewTaskClaudeModel(undefined);
 			setNewTaskIssueSummary("");
+			setNewTaskDifficulty(undefined);
+			setNewTaskAgentModel(undefined);
+			setNewTaskAgentReasoningEffort(undefined);
 			if (!options?.keepDialogOpen) {
 				setIsInlineTaskCreateOpen(false);
 			}
@@ -442,6 +501,9 @@ export function useTaskEditor({
 			newTaskBranchRef,
 			newTaskClineSettings,
 			newTaskClaudeModel,
+			newTaskDifficulty,
+			newTaskAgentModel,
+			newTaskAgentReasoningEffort,
 			newTaskImages,
 			newTaskIssueSummary,
 			newTaskPrompt,
@@ -479,6 +541,9 @@ export function useTaskEditor({
 					agentId: newTaskAgentId,
 					clineSettings: newTaskClineSettings,
 					claudeModel: newTaskClaudeModel,
+					difficulty: newTaskDifficulty,
+					agentModel: newTaskAgentModel,
+					agentReasoningEffort: newTaskAgentReasoningEffort,
 					baseRef,
 				});
 				updatedBoard = created.board;
@@ -507,6 +572,9 @@ export function useTaskEditor({
 			setNewTaskAgentId(undefined);
 			setNewTaskClineSettings(undefined);
 			setNewTaskClaudeModel(undefined);
+			setNewTaskDifficulty(undefined);
+			setNewTaskAgentModel(undefined);
+			setNewTaskAgentReasoningEffort(undefined);
 			if (!options?.keepDialogOpen) {
 				setIsInlineTaskCreateOpen(false);
 			}
@@ -522,6 +590,9 @@ export function useTaskEditor({
 			newTaskBranchRef,
 			newTaskClineSettings,
 			newTaskClaudeModel,
+			newTaskDifficulty,
+			newTaskAgentModel,
+			newTaskAgentReasoningEffort,
 			newTaskImages,
 			newTaskStartInPlanMode,
 			resolvedDefaultTaskBranchRef,
@@ -549,12 +620,18 @@ export function useTaskEditor({
 		setEditTaskAgentId(undefined);
 		setEditTaskClineSettings(undefined);
 		setEditTaskClaudeModel(undefined);
+		setEditTaskDifficulty(undefined);
+		setEditTaskAgentModel(undefined);
+		setEditTaskAgentReasoningEffort(undefined);
 		setNewTaskImages([]);
 		setNewTaskAgentReviewEnabled(true);
 		setNewTaskAgentId(undefined);
 		setNewTaskClineSettings(undefined);
 		setNewTaskClaudeModel(undefined);
 		setNewTaskIssueSummary("");
+		setNewTaskDifficulty(undefined);
+		setNewTaskAgentModel(undefined);
+		setNewTaskAgentReasoningEffort(undefined);
 	}, []);
 
 	const waitForIssueSummaryWrites = useCallback(async () => {
@@ -581,13 +658,19 @@ export function useTaskEditor({
 		newTaskBranchRef,
 		setNewTaskBranchRef,
 		newTaskAgentId,
-		setNewTaskAgentId,
+		setNewTaskAgentId: changeNewTaskAgentId,
 		newTaskClineSettings,
 		setNewTaskClineSettings,
 		newTaskClaudeModel,
 		setNewTaskClaudeModel,
 		newTaskIssueSummary,
 		setNewTaskIssueSummary,
+		newTaskDifficulty,
+		setNewTaskDifficulty,
+		newTaskAgentModel,
+		setNewTaskAgentModel,
+		newTaskAgentReasoningEffort,
+		setNewTaskAgentReasoningEffort,
 		editingTaskId,
 		editTaskPrompt,
 		setEditTaskPrompt,
@@ -605,11 +688,17 @@ export function useTaskEditor({
 		editTaskBranchRef,
 		setEditTaskBranchRef,
 		editTaskAgentId,
-		setEditTaskAgentId,
+		setEditTaskAgentId: changeEditTaskAgentId,
 		editTaskClineSettings,
 		setEditTaskClineSettings,
 		editTaskClaudeModel,
 		setEditTaskClaudeModel,
+		editTaskDifficulty,
+		setEditTaskDifficulty,
+		editTaskAgentModel,
+		setEditTaskAgentModel,
+		editTaskAgentReasoningEffort,
+		setEditTaskAgentReasoningEffort,
 		handleOpenCreateTask,
 		handleCancelCreateTask,
 		handleOpenEditTask,

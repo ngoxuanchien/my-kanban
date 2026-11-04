@@ -3,12 +3,15 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { UseTaskAgentModelPickerResult } from "@/components/task-agent-model-picker";
+import { TaskAgentModelPicker } from "@/components/task-agent-model-picker";
 import type {
 	RuntimeAgentId,
+	RuntimeAgentModelCatalogsResponse,
 	RuntimeClineProviderCatalogItem,
 	RuntimeClineProviderModel,
 	RuntimeTaskClineSettings,
 } from "@/runtime/types";
+import { DEFAULT_DIFFICULTY_MODEL_MAP } from "../../../src/core/agent-model";
 
 const fetchClineProviderCatalogMock = vi.hoisted(() => vi.fn());
 const fetchClineProviderModelsMock = vi.hoisted(() => vi.fn());
@@ -837,5 +840,148 @@ describe("TaskAgentModelPicker – inherited default reasoning effort", () => {
 
 		expect(container.textContent).toContain("GPT-5.3 Codex");
 		expect(container.textContent).not.toContain("GPT-5.3 Codex (High)");
+	});
+});
+
+describe("TaskAgentModelPicker – Codex and OpenCode models", () => {
+	const catalogs: RuntimeAgentModelCatalogsResponse = {
+		codex: {
+			ok: true,
+			models: [
+				{ id: "gpt-6-luna", efforts: ["low", "medium"] },
+				{ id: "gpt-6.1-sol", efforts: ["medium", "high"] },
+			],
+		},
+		opencode: { ok: true, models: [{ id: "zen/free", efforts: [] }] },
+		claude: { ok: true, models: [] },
+	};
+
+	const renderPicker = async (props: Partial<Parameters<typeof TaskAgentModelPicker>[0]> = {}) => {
+		await act(async () =>
+			root.render(
+				<TaskAgentModelPicker
+					key={props.agentId ?? "codex"}
+					agentId="codex"
+					onAgentIdChange={() => {}}
+					agentOptions={[
+						{ value: "codex", label: "Codex" },
+						{ value: "opencode", label: "OpenCode" },
+					]}
+					clineProviderOptions={[]}
+					clineModelOptions={[]}
+					isLoadingProviders={false}
+					isLoadingModels={false}
+					difficulty={3}
+					difficultyModelMap={DEFAULT_DIFFICULTY_MODEL_MAP}
+					modelCatalogs={catalogs}
+					onAgentModelChange={() => {}}
+					onAgentReasoningEffortChange={() => {}}
+					{...props}
+				/>,
+			),
+		);
+		const trigger = Array.from(container.querySelectorAll("button")).find((button) =>
+			button.textContent?.includes("Override Agent Settings"),
+		);
+		await act(async () => trigger?.click());
+	};
+
+	const optionsOf = (label: string) =>
+		Array.from(container.querySelector<HTMLSelectElement>(`select[aria-label="${label}"]`)?.options ?? []).map(
+			(option) => option.textContent,
+		);
+
+	const change = async (label: string, value: string) => {
+		const select = container.querySelector<HTMLSelectElement>(`select[aria-label="${label}"]`);
+		await act(async () => {
+			if (select) {
+				select.value = value;
+				select.dispatchEvent(new Event("change", { bubbles: true }));
+			}
+		});
+	};
+
+	it("shows Auto with the table model first, then the catalog models", async () => {
+		await renderPicker();
+		expect(optionsOf("Codex model")).toEqual(["Auto (difficulty 3 → gpt-6.1-sol)", "gpt-6-luna", "gpt-6.1-sol"]);
+	});
+
+	it("shows Auto without a table model when the task has no difficulty", async () => {
+		await renderPicker({ difficulty: undefined });
+		expect(optionsOf("Codex model")[0]).toBe("Auto (agent default)");
+	});
+
+	it("limits effort options to the chosen model", async () => {
+		await renderPicker({ agentModel: "gpt-6-luna" });
+		expect(optionsOf("Codex reasoning effort")).toEqual(["Auto", "low", "medium"]);
+	});
+
+	it("has a model picker but no effort picker for OpenCode", async () => {
+		await renderPicker({ agentId: "opencode" });
+		expect(optionsOf("OpenCode model")).toEqual(["Auto (agent default)", "zen/free"]);
+		expect(container.querySelector('select[aria-label="OpenCode reasoning effort"]')).toBeNull();
+	});
+
+	it("uses the table model's efforts while the model is Auto", async () => {
+		await renderPicker();
+		expect(optionsOf("Codex reasoning effort")).toEqual(["Auto (medium)", "medium", "high"]);
+	});
+
+	it("clears an effort the newly chosen model does not support", async () => {
+		const onAgentModelChange = vi.fn();
+		const onAgentReasoningEffortChange = vi.fn();
+		await renderPicker({
+			agentModel: "gpt-6.1-sol",
+			agentReasoningEffort: "high",
+			onAgentModelChange,
+			onAgentReasoningEffortChange,
+		});
+		await change("Codex model", "gpt-6-luna");
+		expect(onAgentModelChange).toHaveBeenLastCalledWith("gpt-6-luna");
+		expect(onAgentReasoningEffortChange).toHaveBeenLastCalledWith(undefined);
+	});
+
+	it("falls back to a free-text model input when the catalog is unavailable", async () => {
+		const onAgentModelChange = vi.fn();
+		await renderPicker({
+			modelCatalogs: { ...catalogs, codex: { ok: false, error: "no codex" } },
+			onAgentModelChange,
+		});
+		expect(container.querySelector('select[aria-label="Codex model"]')).toBeNull();
+		const input = container.querySelector<HTMLInputElement>('input[aria-label="Codex model"]');
+		expect(input).not.toBeNull();
+		const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+		await act(async () => {
+			setValue?.call(input, "my-model");
+			input?.dispatchEvent(new Event("input", { bubbles: true }));
+		});
+		expect(onAgentModelChange).toHaveBeenLastCalledWith("my-model");
+	});
+
+	it("clears the model and effort when the agent changes", async () => {
+		const onAgentIdChange = vi.fn();
+		const onAgentModelChange = vi.fn();
+		const onAgentReasoningEffortChange = vi.fn();
+		await renderPicker({
+			agentModel: "gpt-6.1-sol",
+			onAgentIdChange,
+			onAgentModelChange,
+			onAgentReasoningEffortChange,
+		});
+		const agentSelect = container.querySelector<HTMLSelectElement>("select");
+		await act(async () => {
+			if (agentSelect) {
+				agentSelect.value = "opencode";
+				agentSelect.dispatchEvent(new Event("change", { bubbles: true }));
+			}
+		});
+		expect(onAgentIdChange).toHaveBeenLastCalledWith("opencode");
+		expect(onAgentModelChange).toHaveBeenLastCalledWith(undefined);
+		expect(onAgentReasoningEffortChange).toHaveBeenLastCalledWith(undefined);
+	});
+
+	it("labels the Claude default from the difficulty table", async () => {
+		await renderPicker({ agentId: "claude", claudeDefaultModel: "opus", onClaudeModelChange: () => {} });
+		expect(optionsOf("Claude model")[0]).toBe("Auto (difficulty 3 → sonnet)");
 	});
 });

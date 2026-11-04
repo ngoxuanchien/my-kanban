@@ -7,6 +7,7 @@ import { BoardCard, getCardReviewLabel } from "@/components/board-card";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import type { RuntimeTaskSessionSummary } from "@/runtime/types";
 import type { ReviewTaskWorkspaceSnapshot } from "@/types";
+import { DEFAULT_DIFFICULTY_MODEL_MAP } from "../../../src/core/agent-model";
 
 let mockWorkspaceSnapshot: ReviewTaskWorkspaceSnapshot | undefined;
 let mockGithubIssue: { number: number; url: string } | null = null;
@@ -240,6 +241,39 @@ describe("BoardCard", () => {
 
 	it("does not show an agent when no override, session, or project default is set", async () => {
 		expect(await renderAgentLabel(createCard())).toBeNull();
+	});
+
+	it("shows the difficulty badge", async () => {
+		await renderAgentLabel(createCard({ difficulty: 3 }));
+		expect(container.querySelector('[data-testid="card-difficulty"]')?.textContent).toBe("D3");
+	});
+
+	it("shows no difficulty badge without a difficulty", async () => {
+		await renderAgentLabel(createCard());
+		expect(container.querySelector('[data-testid="card-difficulty"]')).toBeNull();
+	});
+
+	it("shows the table model and effort on the agent line", async () => {
+		await act(async () => {
+			root.render(
+				<BoardCard
+					card={createCard({ agentId: "codex", difficulty: 4 })}
+					index={0}
+					columnId="backlog"
+					difficultyModelMap={DEFAULT_DIFFICULTY_MODEL_MAP}
+				/>,
+			);
+		});
+		expect(container.querySelector("span.truncate")?.textContent).toBe("OpenAI Codex · gpt-6.1-sol/high");
+	});
+
+	it("shows an explicit model without the table", async () => {
+		expect(await renderAgentLabel(createCard({ agentId: "codex", agentModel: "gpt-6-astra" }))).toBe(
+			"OpenAI Codex · gpt-6-astra",
+		);
+		expect(await renderAgentLabel(createCard({ agentId: "claude", claudeModel: "haiku" }))).toBe(
+			"Claude Code · haiku",
+		);
 	});
 
 	it("returns the agent review label for each review state", () => {

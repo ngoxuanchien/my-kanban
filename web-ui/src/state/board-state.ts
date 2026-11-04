@@ -22,6 +22,7 @@ import {
 	type TaskAutoReviewMode,
 	type TaskImage,
 } from "@/types";
+import { runtimeTaskDifficultySchema, type TaskDifficulty } from "../../../src/core/agent-model";
 
 export interface TaskDraft {
 	title?: string;
@@ -33,6 +34,10 @@ export interface TaskDraft {
 	images?: TaskImage[];
 	agentId?: RuntimeAgentId;
 	claudeModel?: RuntimeClaudeModel;
+	/** For these three fields: undefined keeps the card's value, null clears it. */
+	difficulty?: TaskDifficulty | null;
+	agentModel?: string | null;
+	agentReasoningEffort?: string | null;
 	clineSettings?: RuntimeTaskClineSettings;
 	baseRef: string;
 }
@@ -151,6 +156,18 @@ function normalizeTaskClineSettings(input: {
 	};
 }
 
+/** An explicit model and effort belong to the card's current agent, so an agent change drops them. */
+function resolveAgentOverride(
+	next: string | null | undefined,
+	current: string | undefined,
+	agentChanged: boolean,
+): string | undefined {
+	if (next === undefined) {
+		return agentChanged ? undefined : current;
+	}
+	return next ?? undefined;
+}
+
 function normalizeCard(rawCard: unknown): BoardCard | null {
 	if (!rawCard || typeof rawCard !== "object") {
 		return null;
@@ -172,6 +189,9 @@ function normalizeCard(rawCard: unknown): BoardCard | null {
 		baseRef?: unknown;
 		agentId?: unknown;
 		claudeModel?: unknown;
+		difficulty?: unknown;
+		agentModel?: unknown;
+		agentReasoningEffort?: unknown;
 		clineSettings?: unknown;
 		clineProviderId?: unknown;
 		clineModelId?: unknown;
@@ -197,6 +217,9 @@ function normalizeCard(rawCard: unknown): BoardCard | null {
 		legacyModelId: card.clineModelId,
 		legacyReasoningEffort: card.clineReasoningEffort,
 	});
+	const difficulty = runtimeTaskDifficultySchema.safeParse(card.difficulty);
+	const agentModel = typeof card.agentModel === "string" ? card.agentModel.trim() : "";
+	const agentReasoningEffort = typeof card.agentReasoningEffort === "string" ? card.agentReasoningEffort.trim() : "";
 
 	const now = Date.now();
 
@@ -229,6 +252,9 @@ function normalizeCard(rawCard: unknown): BoardCard | null {
 		...(card.claudeModel === "haiku" || card.claudeModel === "sonnet" || card.claudeModel === "opus"
 			? { claudeModel: card.claudeModel }
 			: {}),
+		...(difficulty.success ? { difficulty: difficulty.data } : {}),
+		...(agentModel ? { agentModel } : {}),
+		...(agentReasoningEffort ? { agentReasoningEffort } : {}),
 		...(clineSettings !== undefined ? { clineSettings } : {}),
 		createdAt: typeof card.createdAt === "number" ? card.createdAt : now,
 		updatedAt: typeof card.updatedAt === "number" ? card.updatedAt : now,
@@ -386,6 +412,9 @@ export function addTaskToColumnWithResult(
 		...result.task,
 		agentReviewEnabled: draft.agentReviewEnabled === true,
 		...(draft.claudeModel !== undefined ? { claudeModel: draft.claudeModel } : {}),
+		...(draft.difficulty ? { difficulty: draft.difficulty } : {}),
+		...(draft.agentModel ? { agentModel: draft.agentModel } : {}),
+		...(draft.agentReasoningEffort ? { agentReasoningEffort: draft.agentReasoningEffort } : {}),
 	};
 	return {
 		board: {
@@ -573,6 +602,7 @@ export function updateTask(board: BoardData, taskId: string, draft: TaskDraft): 
 			}
 			columnUpdated = true;
 			updated = true;
+			const agentChanged = draft.agentId !== card.agentId;
 			return {
 				...card,
 				title: title || card.title,
@@ -590,6 +620,13 @@ export function updateTask(board: BoardData, taskId: string, draft: TaskDraft): 
 							: undefined,
 				agentId: draft.agentId,
 				claudeModel: draft.claudeModel,
+				difficulty: draft.difficulty === undefined ? card.difficulty : (draft.difficulty ?? undefined),
+				agentModel: resolveAgentOverride(draft.agentModel, card.agentModel, agentChanged),
+				agentReasoningEffort: resolveAgentOverride(
+					draft.agentReasoningEffort,
+					card.agentReasoningEffort,
+					agentChanged,
+				),
 				clineSettings: draft.clineSettings,
 				baseRef,
 				updatedAt: Date.now(),

@@ -26,6 +26,7 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { notifyError, showAppToast } from "@/components/app-toaster";
+import { DifficultyModelTable } from "@/components/difficulty-model-table";
 import { AccountOrganizationSection } from "@/components/shared/account-organization-section";
 import { ClineSetupSection } from "@/components/shared/cline-setup-section";
 import {
@@ -40,6 +41,7 @@ import { cn } from "@/components/ui/cn";
 import { Dialog, DialogFooter, DialogHeader } from "@/components/ui/dialog";
 import { NativeSelect } from "@/components/ui/native-select";
 import { TASK_GIT_BASE_REF_PROMPT_VARIABLE, type TaskGitAction } from "@/git-actions/build-task-git-action-prompt";
+import { useAgentModelCatalogs } from "@/hooks/use-agent-model-catalogs";
 import { useRuntimeSettingsClineController } from "@/hooks/use-runtime-settings-cline-controller";
 import { useRuntimeSettingsClineMcpController } from "@/hooks/use-runtime-settings-cline-mcp-controller";
 import { previewThemeId, readStoredThemeId, saveThemeId, THEME_GROUPS, THEMES, type ThemeId } from "@/hooks/use-theme";
@@ -61,6 +63,7 @@ import {
 } from "@/utils/notification-permission";
 import { formatPathForDisplay } from "@/utils/path-display";
 import { useUnmount, useWindowEvent } from "@/utils/react-use";
+import { DEFAULT_DIFFICULTY_MODEL_MAP, type DifficultyModelMap } from "../../../src/core/agent-model";
 
 interface RuntimeSettingsAgentRowModel {
 	id: RuntimeAgentId;
@@ -372,6 +375,8 @@ export function RuntimeSettingsDialog({
 	const { resetLayoutCustomizations } = useLayoutCustomizations();
 	const [selectedAgentId, setSelectedAgentId] = useState<RuntimeAgentId>("claude");
 	const [claudeDefaultModel, setClaudeDefaultModel] = useState<RuntimeClaudeModel>("opus");
+	const [difficultyModelMap, setDifficultyModelMap] = useState<DifficultyModelMap>(DEFAULT_DIFFICULTY_MODEL_MAP);
+	const { catalogs: modelCatalogs, refresh: refreshModelCatalogs } = useAgentModelCatalogs(open, workspaceId);
 	const [agentAutonomousModeEnabled, setAgentAutonomousModeEnabled] = useState(true);
 	const [readyForReviewNotificationsEnabled, setReadyForReviewNotificationsEnabled] = useState(true);
 	const [githubIssueSyncEnabled, setGithubIssueSyncEnabled] = useState(false);
@@ -484,6 +489,7 @@ export function RuntimeSettingsDialog({
 	const initialSelectedAgentId = configuredAgentId ?? fallbackAgentId;
 	const initialAgentAutonomousModeEnabled = config?.agentAutonomousModeEnabled ?? true;
 	const initialClaudeDefaultModel = config?.claudeDefaultModel ?? "opus";
+	const initialDifficultyModelMap = config?.difficultyModelMap ?? DEFAULT_DIFFICULTY_MODEL_MAP;
 	const initialReadyForReviewNotificationsEnabled = config?.readyForReviewNotificationsEnabled ?? true;
 	const initialShortcuts = config?.shortcuts ?? [];
 	const initialCommitPromptTemplate = config?.commitPromptTemplate ?? "";
@@ -508,6 +514,9 @@ export function RuntimeSettingsDialog({
 			return true;
 		}
 		if (claudeDefaultModel !== initialClaudeDefaultModel) {
+			return true;
+		}
+		if (JSON.stringify(difficultyModelMap) !== JSON.stringify(initialDifficultyModelMap)) {
 			return true;
 		}
 		if (agentAutonomousModeEnabled !== initialAgentAutonomousModeEnabled) {
@@ -547,6 +556,8 @@ export function RuntimeSettingsDialog({
 		draftThemeId,
 		initialAgentAutonomousModeEnabled,
 		initialClaudeDefaultModel,
+		initialDifficultyModelMap,
+		difficultyModelMap,
 		initialCommitPromptTemplate,
 		initialOpenPrPromptTemplate,
 		initialReadyForReviewNotificationsEnabled,
@@ -566,6 +577,7 @@ export function RuntimeSettingsDialog({
 		}
 		setSelectedAgentId(configuredAgentId ?? fallbackAgentId);
 		setClaudeDefaultModel(config?.claudeDefaultModel ?? "opus");
+		setDifficultyModelMap(config?.difficultyModelMap ?? DEFAULT_DIFFICULTY_MODEL_MAP);
 		setAgentAutonomousModeEnabled(config?.agentAutonomousModeEnabled ?? true);
 		setReadyForReviewNotificationsEnabled(config?.readyForReviewNotificationsEnabled ?? true);
 		setGithubIssueSyncEnabled(config?.githubIssueSyncEnabled ?? false);
@@ -576,6 +588,7 @@ export function RuntimeSettingsDialog({
 	}, [
 		config?.agentAutonomousModeEnabled,
 		config?.claudeDefaultModel,
+		config?.difficultyModelMap,
 		config?.commitPromptTemplate,
 		config?.githubIssueSyncEnabled,
 		config?.openPrPromptTemplate,
@@ -749,15 +762,19 @@ export function RuntimeSettingsDialog({
 				return;
 			}
 		}
-		const saved = await save({
+		// save() forwards this object to runtime.saveConfig, whose schema accepts difficultyModelMap;
+		// its parameter type in use-runtime-config.ts does not list the field yet.
+		const nextConfig = {
 			selectedAgentId,
 			claudeDefaultModel,
+			difficultyModelMap,
 			agentAutonomousModeEnabled,
 			readyForReviewNotificationsEnabled,
 			shortcuts,
 			commitPromptTemplate,
 			openPrPromptTemplate,
-		});
+		};
+		const saved = await save(nextConfig);
 		if (!saved) {
 			setSaveError("Could not save runtime settings. Check runtime logs and try again.");
 			return;
@@ -883,6 +900,19 @@ export function RuntimeSettingsDialog({
 								<option value="opus">opus</option>
 							</NativeSelect>
 						</label>
+						<div className="mt-4">
+							<h3 className="text-[13px] font-medium text-text-primary m-0">Model by difficulty</h3>
+							<p className="text-[12px] text-text-secondary mt-1 mb-2">
+								Used when a task has a difficulty and no model of its own. Default keeps the agent's own model.
+							</p>
+							<DifficultyModelTable
+								value={difficultyModelMap}
+								catalogs={modelCatalogs}
+								disabled={controlsDisabled}
+								onChange={setDifficultyModelMap}
+								onRefresh={refreshModelCatalogs}
+							/>
+						</div>
 					</div>
 
 					{/* ---- Cline ---- */}

@@ -314,6 +314,12 @@ export default function App(): ReactElement {
 		setNewTaskClaudeModel,
 		newTaskIssueSummary,
 		setNewTaskIssueSummary,
+		newTaskDifficulty,
+		setNewTaskDifficulty,
+		newTaskAgentModel,
+		setNewTaskAgentModel,
+		newTaskAgentReasoningEffort,
+		setNewTaskAgentReasoningEffort,
 		editingTaskId,
 		editTaskPrompt,
 		setEditTaskPrompt,
@@ -336,6 +342,12 @@ export default function App(): ReactElement {
 		setEditTaskClineSettings,
 		editTaskClaudeModel,
 		setEditTaskClaudeModel,
+		editTaskDifficulty,
+		setEditTaskDifficulty,
+		editTaskAgentModel,
+		setEditTaskAgentModel,
+		editTaskAgentReasoningEffort,
+		setEditTaskAgentReasoningEffort,
 		handleOpenCreateTask,
 		handleCancelCreateTask,
 		handleOpenEditTask,
@@ -811,6 +823,13 @@ export default function App(): ReactElement {
 			claudeModel={editTaskClaudeModel}
 			claudeDefaultModel={runtimeProjectConfig?.claudeDefaultModel ?? "opus"}
 			onClaudeModelChange={setEditTaskClaudeModel}
+			difficulty={editTaskDifficulty}
+			onDifficultyChange={setEditTaskDifficulty}
+			difficultyModelMap={runtimeProjectConfig?.difficultyModelMap}
+			agentModel={editTaskAgentModel}
+			agentReasoningEffort={editTaskAgentReasoningEffort}
+			onAgentModelChange={setEditTaskAgentModel}
+			onAgentReasoningEffortChange={setEditTaskAgentReasoningEffort}
 			defaultAgentId={runtimeProjectConfig?.selectedAgentId ?? null}
 			defaultProviderId={defaultTaskClineProviderId}
 			defaultModelId={runtimeProjectConfig?.clineProviderSettings?.modelId ?? null}
@@ -1173,6 +1192,13 @@ export default function App(): ReactElement {
 					issueSummaryEnabled={runtimeProjectConfig?.githubIssueSyncEnabled === true}
 					issueSummary={newTaskIssueSummary}
 					onIssueSummaryChange={setNewTaskIssueSummary}
+					difficulty={newTaskDifficulty}
+					onDifficultyChange={setNewTaskDifficulty}
+					difficultyModelMap={runtimeProjectConfig?.difficultyModelMap}
+					agentModel={newTaskAgentModel}
+					agentReasoningEffort={newTaskAgentReasoningEffort}
+					onAgentModelChange={setNewTaskAgentModel}
+					onAgentReasoningEffortChange={setNewTaskAgentReasoningEffort}
 					defaultAgentId={runtimeProjectConfig?.selectedAgentId ?? null}
 					defaultProviderId={defaultTaskClineProviderId}
 					defaultModelId={runtimeProjectConfig?.clineProviderSettings?.modelId ?? null}

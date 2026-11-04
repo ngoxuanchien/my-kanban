@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { RuntimeSettingsDialog } from "@/components/runtime-settings-dialog";
 import type { RuntimeConfigResponse } from "@/runtime/types";
+import { DEFAULT_DIFFICULTY_MODEL_MAP } from "../../../src/core/agent-model";
 
 /*
  * Radix Select depends on pointer-capture APIs that jsdom lacks.
@@ -123,6 +124,10 @@ vi.mock("@/hooks/use-runtime-settings-cline-controller", () => ({
 	}),
 }));
 
+vi.mock("@/hooks/use-agent-model-catalogs", () => ({
+	useAgentModelCatalogs: () => ({ catalogs: null, isLoading: false, refresh: () => {} }),
+}));
+
 vi.mock("@/hooks/use-runtime-settings-cline-mcp-controller", () => ({
 	useRuntimeSettingsClineMcpController: () => ({
 		hasUnsavedChanges: false,
@@ -230,6 +235,7 @@ const savedClineOauthConfig = {
 		oauthExpiresAt: 1_800_000_000_000,
 	},
 	claudeDefaultModel: "opus",
+	difficultyModelMap: DEFAULT_DIFFICULTY_MODEL_MAP,
 } as unknown as RuntimeConfigResponse;
 
 describe("RuntimeSettingsDialog", () => {
@@ -338,6 +344,35 @@ describe("RuntimeSettingsDialog", () => {
 
 		expect(notifyErrorMock).toHaveBeenCalledWith(expect.stringContaining("gh: not logged in"));
 		expect(showAppToastMock).not.toHaveBeenCalledWith(expect.objectContaining({ intent: "success" }));
+	});
+
+	it("saves difficultyModelMap edited in the Model by difficulty table", async () => {
+		await act(async () => {
+			root.render(
+				<RuntimeSettingsDialog
+					open={true}
+					workspaceId="workspace-1"
+					initialConfig={savedClineOauthConfig}
+					onOpenChange={() => {}}
+				/>,
+			);
+		});
+		expect(document.body.textContent).toContain("Model by difficulty");
+		const select = document.querySelector<HTMLSelectElement>('select[aria-label="Claude model for difficulty 2"]');
+		expect(select).not.toBeNull();
+		await act(async () => {
+			select!.value = "opus";
+			select!.dispatchEvent(new Event("change", { bubbles: true }));
+		});
+		await act(async () => findButtonByText(document.body, "Save")?.click());
+
+		expect(saveRuntimeConfigMock).toHaveBeenCalledWith(
+			expect.objectContaining({
+				difficultyModelMap: expect.objectContaining({
+					claude: expect.objectContaining({ 2: { model: "opus" } }),
+				}),
+			}),
+		);
 	});
 
 	afterEach(() => {

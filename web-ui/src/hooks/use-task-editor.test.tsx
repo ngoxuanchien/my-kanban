@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { type UseTaskEditorResult, useTaskEditor } from "@/hooks/use-task-editor";
 import type { RuntimeAgentId, RuntimeTaskClineSettings } from "@/runtime/types";
 import type { BoardCard, BoardData, TaskAutoReviewMode, TaskImage } from "@/types";
+import type { TaskDifficulty } from "../../../src/core/agent-model";
 
 const setTaskIssueSummaryMock = vi.hoisted(() =>
 	vi.fn(async (_input: { taskId: string; summary: string }) => ({ ok: true as const })),
@@ -68,6 +69,15 @@ interface HookSnapshot {
 	setNewTaskAgentId: (value: RuntimeAgentId | undefined) => void;
 	setNewTaskClineSettings: (value: RuntimeTaskClineSettings | undefined) => void;
 	setNewTaskAgentReviewEnabled: (value: boolean) => void;
+	newTaskDifficulty: TaskDifficulty | undefined;
+	newTaskAgentModel: string | undefined;
+	newTaskAgentReasoningEffort: string | undefined;
+	setNewTaskDifficulty: (value: TaskDifficulty | undefined) => void;
+	setNewTaskAgentModel: (value: string | undefined) => void;
+	setNewTaskAgentReasoningEffort: (value: string | undefined) => void;
+	setEditTaskAgentId: (value: RuntimeAgentId | undefined) => void;
+	setEditTaskDifficulty: (value: TaskDifficulty | undefined) => void;
+	setEditTaskAgentModel: (value: string | undefined) => void;
 }
 
 function requireSnapshot(snapshot: HookSnapshot | null): HookSnapshot {
@@ -127,6 +137,15 @@ function HookHarness({
 			setNewTaskAgentId: editor.setNewTaskAgentId,
 			setNewTaskClineSettings: editor.setNewTaskClineSettings,
 			setNewTaskAgentReviewEnabled: editor.setNewTaskAgentReviewEnabled,
+			newTaskDifficulty: editor.newTaskDifficulty,
+			newTaskAgentModel: editor.newTaskAgentModel,
+			newTaskAgentReasoningEffort: editor.newTaskAgentReasoningEffort,
+			setNewTaskDifficulty: editor.setNewTaskDifficulty,
+			setNewTaskAgentModel: editor.setNewTaskAgentModel,
+			setNewTaskAgentReasoningEffort: editor.setNewTaskAgentReasoningEffort,
+			setEditTaskAgentId: editor.setEditTaskAgentId,
+			setEditTaskDifficulty: editor.setEditTaskDifficulty,
+			setEditTaskAgentModel: editor.setEditTaskAgentModel,
 		});
 	}, [
 		board,
@@ -139,6 +158,9 @@ function HookHarness({
 		editor.handleOpenEditTask,
 		editor.handleSaveEditedTask,
 		editor.handleSaveAndStartEditedTask,
+		editor.newTaskDifficulty,
+		editor.newTaskAgentModel,
+		editor.newTaskAgentReasoningEffort,
 		editor.isEditTaskStartInPlanModeDisabled,
 		editor.isInlineTaskCreateOpen,
 		editor.newTaskPrompt,
@@ -555,6 +577,161 @@ describe("useTaskEditor", () => {
 
 		expect(requireSnapshot(latestSnapshot).board.columns[0]?.cards[0]?.agentReviewEnabled).toBe(true);
 		expect(requireSnapshot(latestSnapshot).newTaskAgentReviewEnabled).toBe(true);
+	});
+
+	async function renderHarness(initialBoard: BoardData): Promise<() => HookSnapshot> {
+		let latestSnapshot: HookSnapshot | null = null;
+		await act(async () => {
+			root.render(
+				<HookHarness
+					initialBoard={initialBoard}
+					onSnapshot={(snapshot) => {
+						latestSnapshot = snapshot;
+					}}
+				/>,
+			);
+		});
+		return () => requireSnapshot(latestSnapshot);
+	}
+
+	it("stores difficulty, agent model, and effort on a created task and resets the draft", async () => {
+		const snapshot = await renderHarness(createBoard());
+
+		await act(async () => {
+			snapshot().handleOpenCreateTask();
+		});
+		await act(async () => {
+			snapshot().setNewTaskPrompt("Hard task");
+			snapshot().setNewTaskDifficulty(3);
+			snapshot().setNewTaskAgentId("codex");
+			snapshot().setNewTaskAgentModel("gpt-6.1-sol");
+			snapshot().setNewTaskAgentReasoningEffort("high");
+		});
+		await act(async () => {
+			snapshot().handleCreateTask();
+		});
+
+		const card = snapshot().board.columns[0]?.cards[0];
+		expect(card?.agentId).toBe("codex");
+		expect(card?.difficulty).toBe(3);
+		expect(card?.agentModel).toBe("gpt-6.1-sol");
+		expect(card?.agentReasoningEffort).toBe("high");
+		expect(snapshot().newTaskDifficulty).toBeUndefined();
+		expect(snapshot().newTaskAgentModel).toBeUndefined();
+		expect(snapshot().newTaskAgentReasoningEffort).toBeUndefined();
+	});
+
+	it("stores difficulty and agent model on every split task", async () => {
+		const snapshot = await renderHarness(createBoard());
+
+		await act(async () => {
+			snapshot().handleOpenCreateTask();
+		});
+		await act(async () => {
+			snapshot().setNewTaskDifficulty(2);
+			snapshot().setNewTaskAgentId("codex");
+			snapshot().setNewTaskAgentModel("gpt-6.1-sol");
+		});
+		await act(async () => {
+			snapshot().handleCreateTasks(["Task A", "Task B"]);
+		});
+
+		const cards = snapshot().board.columns[0]?.cards ?? [];
+		expect(cards.map((card) => [card.difficulty, card.agentModel])).toEqual([
+			[2, "gpt-6.1-sol"],
+			[2, "gpt-6.1-sol"],
+		]);
+	});
+
+	it("drops the draft model and effort when the agent changes while creating", async () => {
+		const snapshot = await renderHarness(createBoard());
+
+		await act(async () => {
+			snapshot().handleOpenCreateTask();
+		});
+		await act(async () => {
+			snapshot().setNewTaskPrompt("Switched agent");
+			snapshot().setNewTaskDifficulty(4);
+			snapshot().setNewTaskAgentId("codex");
+			snapshot().setNewTaskAgentModel("gpt-6.1-sol");
+			snapshot().setNewTaskAgentReasoningEffort("high");
+		});
+		await act(async () => {
+			snapshot().setNewTaskAgentId("opencode");
+		});
+		await act(async () => {
+			snapshot().handleCreateTask();
+		});
+
+		const card = snapshot().board.columns[0]?.cards[0];
+		expect(card?.difficulty).toBe(4);
+		expect(card?.agentModel).toBeUndefined();
+		expect(card?.agentReasoningEffort).toBeUndefined();
+	});
+
+	it("saves a changed difficulty and clears the agent model when the agent changes", async () => {
+		const task = createTask("task-1", "Prompt", 1, {
+			agentId: "codex",
+			difficulty: 2,
+			agentModel: "gpt-6.1-sol",
+			agentReasoningEffort: "high",
+		});
+		const snapshot = await renderHarness(createBoard([task]));
+
+		await act(async () => {
+			snapshot().handleOpenEditTask(task);
+		});
+		await act(async () => {
+			snapshot().setEditTaskDifficulty(4);
+			snapshot().setEditTaskAgentId("opencode");
+		});
+		await act(async () => {
+			snapshot().handleSaveEditedTask();
+		});
+
+		const card = snapshot().board.columns[0]?.cards[0];
+		expect(card?.agentId).toBe("opencode");
+		expect(card?.difficulty).toBe(4);
+		expect(card?.agentModel).toBeUndefined();
+		expect(card?.agentReasoningEffort).toBeUndefined();
+	});
+
+	it("keeps the card's fields on an untouched edit and clears them when set back to auto", async () => {
+		const task = createTask("task-1", "Prompt", 1, {
+			agentId: "codex",
+			difficulty: 2,
+			agentModel: "gpt-6.1-sol",
+			agentReasoningEffort: "high",
+		});
+		const snapshot = await renderHarness(createBoard([task]));
+
+		await act(async () => {
+			snapshot().handleOpenEditTask(task);
+		});
+		await act(async () => {
+			snapshot().handleSaveEditedTask();
+		});
+
+		const kept = snapshot().board.columns[0]?.cards[0];
+		expect(kept?.difficulty).toBe(2);
+		expect(kept?.agentModel).toBe("gpt-6.1-sol");
+		expect(kept?.agentReasoningEffort).toBe("high");
+
+		await act(async () => {
+			snapshot().handleOpenEditTask(task);
+		});
+		await act(async () => {
+			snapshot().setEditTaskDifficulty(undefined);
+			snapshot().setEditTaskAgentModel(undefined);
+		});
+		await act(async () => {
+			snapshot().handleSaveEditedTask();
+		});
+
+		const cleared = snapshot().board.columns[0]?.cards[0];
+		expect(cleared?.difficulty).toBeUndefined();
+		expect(cleared?.agentModel).toBeUndefined();
+		expect(cleared?.agentReasoningEffort).toBe("high");
 	});
 });
 

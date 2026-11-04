@@ -17,7 +17,7 @@ import { cn } from "@/components/ui/cn";
 import { Spinner } from "@/components/ui/spinner";
 import { Tooltip } from "@/components/ui/tooltip";
 import { useGithubIssue } from "@/hooks/use-github-issues";
-import type { RuntimeAgentId, RuntimeTaskSessionSummary } from "@/runtime/types";
+import type { RuntimeAgentId, RuntimeClaudeModel, RuntimeTaskSessionSummary } from "@/runtime/types";
 import { useTaskWorkspaceSnapshotValue } from "@/stores/workspace-metadata-store";
 import type { BoardCard as BoardCardModel, BoardColumnId } from "@/types";
 import { getTaskAutoReviewCancelButtonLabel } from "@/types";
@@ -30,6 +30,7 @@ import {
 	truncateTaskPromptLabel,
 } from "@/utils/task-prompt";
 import { DEFAULT_TEXT_MEASURE_FONT, measureTextWidth, readElementFontShorthand } from "@/utils/text-measure";
+import { type DifficultyModelMap, resolveTaskAgentModel } from "../../../src/core/agent-model";
 
 interface CardSessionActivity {
 	dotColor: string;
@@ -244,6 +245,8 @@ export function BoardCard({
 	isDependencyLinking = false,
 	workspacePath,
 	defaultClineModelId = null,
+	difficultyModelMap,
+	claudeDefaultModel,
 }: {
 	card: BoardCardModel;
 	index: number;
@@ -269,6 +272,9 @@ export function BoardCard({
 	isDependencyLinking?: boolean;
 	workspacePath?: string | null;
 	defaultClineModelId?: string | null;
+	/** Without the table and default, the card shows only models set explicitly on the task. */
+	difficultyModelMap?: DifficultyModelMap;
+	claudeDefaultModel?: RuntimeClaudeModel;
 }): React.ReactElement {
 	const [isHovered, setIsHovered] = useState(false);
 	const [isEditingTitle, setIsEditingTitle] = useState(false);
@@ -442,10 +448,25 @@ export function BoardCard({
 	const isAnyGitActionLoading = isCommitLoading || isOpenPrLoading;
 	const cancelAutomaticActionLabel =
 		!isTrashCard && card.autoReviewEnabled ? getTaskAutoReviewCancelButtonLabel(card.autoReviewMode) : null;
+	const effectiveAgentId = card.agentId ?? sessionSummary?.agentId ?? defaultAgentId;
 	const agentLabel = useMemo(() => {
-		const agentId = card.agentId ?? sessionSummary?.agentId ?? defaultAgentId;
-		return agentId ? (getRuntimeAgentCatalogEntry(agentId)?.label ?? agentId) : null;
-	}, [card.agentId, sessionSummary?.agentId, defaultAgentId]);
+		return effectiveAgentId ? (getRuntimeAgentCatalogEntry(effectiveAgentId)?.label ?? effectiveAgentId) : null;
+	}, [effectiveAgentId]);
+	const resolvedModelLabel = useMemo(() => {
+		if (!effectiveAgentId) {
+			return null;
+		}
+		const resolved = resolveTaskAgentModel({
+			agentId: effectiveAgentId,
+			card,
+			map: difficultyModelMap ?? {},
+			claudeDefaultModel: claudeDefaultModel ?? "opus",
+		});
+		if (!resolved.model || (resolved.source === "default" && !claudeDefaultModel)) {
+			return null;
+		}
+		return resolved.reasoningEffort ? `${resolved.model}/${resolved.reasoningEffort}` : resolved.model;
+	}, [card, claudeDefaultModel, difficultyModelMap, effectiveAgentId]);
 	const modelOverrideLabel = useMemo(() => {
 		if (card.clineSettings === undefined) {
 			return null;
@@ -479,12 +500,18 @@ export function BoardCard({
 		const handoffLabel = handOffCount === 1 ? "Handed off" : handOffCount > 1 ? `Handed off ×${handOffCount}` : null;
 		const reviewLabel = getCardReviewLabel(card);
 		const quotaBlockedLabel = columnId === "review" && card.quotaBlockedAt ? "Out of quota" : null;
-		const parts = [agentLabel, modelOverrideLabel, handoffLabel, reviewLabel, quotaBlockedLabel].filter(
-			(value): value is string => Boolean(value),
-		);
+		const parts = [
+			agentLabel,
+			resolvedModelLabel,
+			modelOverrideLabel,
+			handoffLabel,
+			reviewLabel,
+			quotaBlockedLabel,
+		].filter((value): value is string => Boolean(value));
 		return parts.length > 0 ? parts.join(" · ") : null;
 	}, [
 		agentLabel,
+		resolvedModelLabel,
 		modelOverrideLabel,
 		card.handOffCount,
 		card.handedOff,
@@ -735,6 +762,17 @@ export function BoardCard({
 											</>
 										) : null}
 									</p>
+								</div>
+							) : null}
+							{card.difficulty ? (
+								<div className="mt-1">
+									<span
+										data-testid="card-difficulty"
+										title={`Difficulty ${card.difficulty}`}
+										className="inline-flex items-center rounded-md border border-border-bright bg-surface-1 px-1.5 py-0.5 text-xs text-text-secondary"
+									>
+										D{card.difficulty}
+									</span>
 								</div>
 							) : null}
 							{taskAgentSettingsLabel || githubIssue ? (

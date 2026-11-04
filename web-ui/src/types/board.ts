@@ -6,6 +6,7 @@ import type {
 	RuntimeTaskClineSettings,
 	RuntimeTaskImage,
 } from "@/runtime/types";
+import type { TaskDifficulty } from "../../../src/core/agent-model";
 
 export type BoardColumnId = RuntimeBoardColumnId;
 
@@ -52,6 +53,9 @@ export interface BoardCard {
 	images?: TaskImage[];
 	agentId?: RuntimeAgentId;
 	claudeModel?: RuntimeClaudeModel;
+	difficulty?: TaskDifficulty;
+	agentModel?: string;
+	agentReasoningEffort?: string;
 	clineSettings?: RuntimeTaskClineSettings;
 	baseRef: string;
 	createdAt: number;

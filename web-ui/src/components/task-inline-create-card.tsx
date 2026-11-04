@@ -5,10 +5,15 @@ import { type Dispatch, type ReactElement, type SetStateAction, useCallback, use
 import { useHotkeys } from "react-hotkeys-hook";
 
 import { BranchSelectDropdown, type BranchSelectOption } from "@/components/branch-select-dropdown";
-import { TaskAgentModelPicker, useTaskAgentModelPicker } from "@/components/task-agent-model-picker";
+import {
+	TaskAgentModelPicker,
+	TaskDifficultySelect,
+	useTaskAgentModelPicker,
+} from "@/components/task-agent-model-picker";
 import { TaskPromptComposer } from "@/components/task-prompt-composer";
 import { Button } from "@/components/ui/button";
 import { NativeSelect } from "@/components/ui/native-select";
+import { useAgentModelCatalogs } from "@/hooks/use-agent-model-catalogs";
 import type {
 	RuntimeAgentId,
 	RuntimeClaudeModel,
@@ -18,6 +23,7 @@ import type {
 import type { TaskAutoReviewMode, TaskImage } from "@/types";
 import { pasteShortcutLabel } from "@/utils/platform";
 import { useDocumentEvent, useMeasure } from "@/utils/react-use";
+import type { DifficultyModelMap, TaskDifficulty } from "../../../src/core/agent-model";
 
 export type TaskInlineCardMode = "create" | "edit";
 
@@ -85,6 +91,13 @@ export function TaskInlineCreateCard({
 	claudeModel,
 	claudeDefaultModel,
 	onClaudeModelChange,
+	difficulty,
+	onDifficultyChange,
+	difficultyModelMap,
+	agentModel,
+	agentReasoningEffort,
+	onAgentModelChange,
+	onAgentReasoningEffortChange,
 }: {
 	title?: string;
 	onTitleChange?: (value: string) => void;
@@ -126,6 +139,13 @@ export function TaskInlineCreateCard({
 	claudeModel?: RuntimeClaudeModel;
 	claudeDefaultModel?: RuntimeClaudeModel;
 	onClaudeModelChange?: (model: RuntimeClaudeModel | undefined) => void;
+	difficulty?: TaskDifficulty;
+	onDifficultyChange?: (value: TaskDifficulty | undefined) => void;
+	difficultyModelMap?: DifficultyModelMap;
+	agentModel?: string;
+	agentReasoningEffort?: string;
+	onAgentModelChange?: (model: string | undefined) => void;
+	onAgentReasoningEffortChange?: (effort: string | undefined) => void;
 }): ReactElement {
 	const promptId = `${idPrefix}-prompt-input`;
 	const planModeId = `${idPrefix}-plan-mode-toggle`;
@@ -171,6 +191,8 @@ export function TaskInlineCreateCard({
 		defaultProviderId,
 		defaultModelId,
 	});
+
+	const { catalogs: modelCatalogs } = useAgentModelCatalogs(onAgentModelChange !== undefined, workspaceId);
 
 	useHotkeys(
 		"escape",
@@ -344,6 +366,7 @@ export function TaskInlineCreateCard({
 						))}
 					</NativeSelect>
 				</div>
+				{onDifficultyChange ? <TaskDifficultySelect value={difficulty} onChange={onDifficultyChange} /> : null}
 				{onAgentIdChange && onClineSettingsChange ? (
 					<TaskAgentModelPicker
 						agentId={agentId}
@@ -364,6 +387,13 @@ export function TaskInlineCreateCard({
 						defaultProviderId={defaultProviderId}
 						defaultReasoningEffort={defaultReasoningEffort}
 						providerDefaultModels={providerDefaultModels}
+						difficulty={difficulty}
+						difficultyModelMap={difficultyModelMap}
+						modelCatalogs={modelCatalogs}
+						agentModel={agentModel}
+						agentReasoningEffort={agentReasoningEffort}
+						onAgentModelChange={onAgentModelChange}
+						onAgentReasoningEffortChange={onAgentReasoningEffortChange}
 						onPopoverOpenChange={setIsModelPickerPopoverOpen}
 					/>
 				) : null}
