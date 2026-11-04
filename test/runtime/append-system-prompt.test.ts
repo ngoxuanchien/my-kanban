@@ -255,6 +255,16 @@ describe("renderAppendSystemPrompt", () => {
 		expect(rendered).not.toContain("codex mcp add linear --url https://mcp.linear.app/mcp");
 	});
 
+	it("review step fails out-of-scope changes", () => {
+		const rendered = renderAppendSystemPrompt("kanban");
+		const reviewSection = rendered.slice(rendered.indexOf("# Reviewing tasks"));
+
+		expect(reviewSection).toContain(
+			`changes outside the task prompt's scope or "Files you may change" fail the round`,
+		);
+		expect(reviewSection).toContain("suggest a separate task to the user in chat; do not create it");
+	});
+
 	it("renders only the active-agent Linear MCP guidance when an agent is provided", () => {
 		const rendered = renderAppendSystemPrompt("kanban", {
 			agentId: "codex",
