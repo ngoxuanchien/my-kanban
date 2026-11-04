@@ -70,6 +70,7 @@ import type {
 	RuntimeProjectRemoveResponse,
 	RuntimeProjectsResponse,
 	RuntimeRunUpdateResponse,
+	RuntimeSetTaskIssueMetadataRequest,
 	RuntimeSetTaskIssueSummaryRequest,
 	RuntimeShellSessionStartRequest,
 	RuntimeShellSessionStartResponse,
@@ -182,6 +183,7 @@ import {
 	runtimeProjectRemoveResponseSchema,
 	runtimeProjectsResponseSchema,
 	runtimeRunUpdateResponseSchema,
+	runtimeSetTaskIssueMetadataRequestSchema,
 	runtimeSetTaskIssueSummaryRequestSchema,
 	runtimeShellSessionStartRequestSchema,
 	runtimeShellSessionStartResponseSchema,
@@ -381,6 +383,10 @@ export interface RuntimeTrpcContext {
 		setTaskIssueSummary: (
 			scope: RuntimeTrpcWorkspaceScope,
 			input: RuntimeSetTaskIssueSummaryRequest,
+		) => Promise<{ ok: true }>;
+		setTaskIssueMetadata: (
+			scope: RuntimeTrpcWorkspaceScope,
+			input: RuntimeSetTaskIssueMetadataRequest,
 		) => Promise<{ ok: true }>;
 		syncGithubIssues: (scope: RuntimeTrpcWorkspaceScope) => Promise<GithubIssueSyncResult>;
 		getGithubIssues: (scope: RuntimeTrpcWorkspaceScope) => Promise<RuntimeGithubIssuesResponse>;
@@ -772,6 +778,10 @@ export const runtimeAppRouter = t.router({
 			.input(runtimeSetTaskIssueSummaryRequestSchema)
 			.output(z.object({ ok: z.literal(true) }))
 			.mutation(async ({ ctx, input }) => await ctx.workspaceApi.setTaskIssueSummary(ctx.workspaceScope, input)),
+		setTaskIssueMetadata: workspaceProcedure
+			.input(runtimeSetTaskIssueMetadataRequestSchema)
+			.output(z.object({ ok: z.literal(true) }))
+			.mutation(async ({ ctx, input }) => await ctx.workspaceApi.setTaskIssueMetadata(ctx.workspaceScope, input)),
 		syncGithubIssues: workspaceProcedure
 			.output(runtimeGithubIssueSyncResultSchema)
 			.mutation(async ({ ctx }) => await ctx.workspaceApi.syncGithubIssues(ctx.workspaceScope)),

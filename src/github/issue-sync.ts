@@ -95,6 +95,39 @@ export async function reconcileGithubIssues(
 						ensured.add(label);
 					}
 				};
+				// ponytail: a skipped label is retried (one `gh label list` plus a warning) on every reconcile.
+				let repoLabels: Set<string> | undefined;
+				// `kanban:` labels are created (--force); any other label must already exist, so a user's label is never rewritten.
+				const usableLabels = async (wanted: string[]): Promise<string[]> => {
+					const usable: string[] = [];
+					for (const label of wanted) {
+						if (label.startsWith("kanban:")) {
+							await ensureLabel(label);
+							usable.push(label);
+							continue;
+						}
+						repoLabels ??= new Set(
+							(
+								JSON.parse((await gh(["label", "list", "--limit", "1000", "--json", "name"])).stdout) as {
+									name: string;
+								}[]
+							).map((entry) => entry.name),
+						);
+						if (repoLabels.has(label)) usable.push(label);
+						else deps.warn(`[kanban] GitHub label "${label}" does not exist on ${repo}; skipped.`);
+					}
+					return usable;
+				};
+				const withMilestone = async <T>(milestone: string | undefined, run: () => Promise<T>): Promise<T> => {
+					try {
+						return await run();
+					} catch (error) {
+						const message = error instanceof Error ? error.message : String(error);
+						if (milestone && /milestone/i.test(message))
+							throw new Error(`Milestone "${milestone}" was not found or could not be set: ${message}`);
+						throw error;
+					}
+				};
 				const present = new Set<string>();
 				for (const column of board.columns)
 					for (const card of column.cards) {
@@ -120,7 +153,12 @@ export async function reconcileGithubIssues(
 								if (label) await ensureLabel(label);
 								const args = ["issue", "create", "--title", title, "--body", body];
 								if (label) args.push("--label", label);
-								const url = (await gh(args)).stdout.trim();
+								const userLabels = await usableLabels(entry.labels ?? []);
+								const assignee = entry.assignee ?? "@me";
+								for (const userLabel of userLabels) args.push("--label", userLabel);
+								if (entry.milestone) args.push("--milestone", entry.milestone);
+								args.push("--assignee", assignee);
+								const url = (await withMilestone(entry.milestone, () => gh(args))).stdout.trim();
 								const match = /\/issues\/(\d+)$/.exec(url);
 								if (!match || !/^https?:\/\//.test(url))
 									throw new Error("gh issue create returned an invalid issue URL");
@@ -132,6 +170,9 @@ export async function reconcileGithubIssues(
 									closed: false,
 									syncedSummary: entry.summary,
 									syncedTitle: title,
+									syncedLabels: userLabels.length > 0 ? userLabels : undefined,
+									syncedMilestone: entry.milestone,
+									syncedAssignee: assignee,
 								};
 								map[card.id] = entry;
 								await save();
@@ -162,6 +203,35 @@ export async function reconcileGithubIssues(
 								await save();
 								changed = true;
 								changedForBroadcast = true;
+							}
+							const wantedLabels = entry.labels ?? [];
+							const ownedLabels = entry.syncedLabels ?? [];
+							const addLabels = await usableLabels(wantedLabels.filter((label) => !ownedLabels.includes(label)));
+							const removeLabels = ownedLabels.filter((label) => !wantedLabels.includes(label));
+							const milestone = entry.milestone !== entry.syncedMilestone ? entry.milestone : undefined;
+							const assignee = entry.assignee !== entry.syncedAssignee ? entry.assignee : undefined;
+							if (addLabels.length > 0 || removeLabels.length > 0 || milestone || assignee) {
+								const editArgs = ["issue", "edit", number];
+								for (const label of addLabels) editArgs.push("--add-label", label);
+								for (const label of removeLabels) editArgs.push("--remove-label", label);
+								if (milestone) editArgs.push("--milestone", milestone);
+								if (assignee) {
+									editArgs.push("--add-assignee", assignee);
+									if (entry.syncedAssignee) editArgs.push("--remove-assignee", entry.syncedAssignee);
+								}
+								await withMilestone(milestone, () => gh(editArgs));
+								entry = {
+									...entry,
+									syncedLabels: [
+										...ownedLabels.filter((label) => !removeLabels.includes(label)),
+										...addLabels,
+									],
+									syncedMilestone: milestone ?? entry.syncedMilestone,
+									syncedAssignee: assignee ?? entry.syncedAssignee,
+								};
+								map[card.id] = entry;
+								await save();
+								changed = true;
 							}
 							if (column.id === "review") {
 								let worktree: string | null = null;

@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { readGithubIssueMap, setGithubIssueSummary } from "../../../src/github/issue-map";
+import { readGithubIssueMap, setGithubIssueMetadata, setGithubIssueSummary } from "../../../src/github/issue-map";
 import { getWorkspaceDirectoryPath } from "../../../src/state/workspace-state";
 import { createTempDir } from "../../utilities/temp-dir";
 
@@ -37,6 +37,15 @@ it("preserves issue metadata when updating a summary", async () => {
 	await writeFile(join(dir, "github-issues.json"), JSON.stringify({ task: entry }));
 	await setGithubIssueSummary("workspace", "task", "new");
 	expect(await readGithubIssueMap("workspace")).toEqual({ task: { ...entry, summary: "new" } });
+});
+it("stores metadata without losing the entry or other fields", async () => {
+	await setGithubIssueSummary("workspace", "task", "body");
+	await setGithubIssueMetadata("workspace", "task", { labels: [" a ", "b", "a", ""], milestone: " M " });
+	await setGithubIssueMetadata("workspace", "task", { assignee: "u" });
+	await setGithubIssueMetadata("workspace", "task", { labels: [], milestone: "  " });
+	expect(await readGithubIssueMap("workspace")).toEqual({
+		task: { summary: "body", labels: ["a", "b"], milestone: "M", assignee: "u" },
+	});
 });
 it("rejects corrupt mappings instead of silently recreating issues", async () => {
 	const dir = getWorkspaceDirectoryPath("workspace");

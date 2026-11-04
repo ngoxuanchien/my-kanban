@@ -53,6 +53,7 @@ let temp: ReturnType<typeof createTempDir>;
 let calls: string[][];
 let rawCalls: string[][];
 let expectedRepo = "own/project";
+let repoLabelNames: string[] = [];
 let mapPath: string;
 const warn = vi.fn();
 const runFakeGh = async (args: string[], options: { cwd: string }) => {
@@ -60,6 +61,8 @@ const runFakeGh = async (args: string[], options: { cwd: string }) => {
 	expect(args.slice(-2)).toEqual(["--repo", expectedRepo]);
 	rawCalls.push(args);
 	calls.push(args.filter((arg, index) => !(arg === "--repo" || args[index - 1] === "--repo")));
+	if (args[0] === "label" && args[1] === "list")
+		return { stdout: JSON.stringify(repoLabelNames.map((name) => ({ name }))) };
 	return { stdout: args[0] === "issue" && args[1] === "create" ? "https://github.com/o/r/issues/12\n" : "" };
 };
 const gh = vi.fn(runFakeGh);
@@ -86,6 +89,7 @@ beforeEach(async () => {
 	calls = [];
 	rawCalls = [];
 	expectedRepo = "own/project";
+	repoLabelNames = ["type: bug", "area: ui"];
 	gh.mockReset();
 	gh.mockImplementation(runFakeGh);
 	warn.mockClear();
@@ -193,6 +197,8 @@ describe("reconcileGithubIssues", () => {
 			"Public summary\n\n---\nKanban task: one",
 			"--label",
 			"kanban: backlog",
+			"--assignee",
+			"@me",
 		]);
 		expect(JSON.stringify(calls)).not.toContain(secret);
 		expect(await readGithubIssueMap(input.workspaceId)).toEqual({
@@ -201,6 +207,7 @@ describe("reconcileGithubIssues", () => {
 				summary: "Public summary",
 				syncedSummary: "Public summary",
 				syncedTitle: task.title,
+				syncedAssignee: "@me",
 				closed: false,
 			},
 		});
@@ -459,6 +466,8 @@ describe("reconcileGithubIssues", () => {
 			`${summary}\n\n---\nKanban task: one`,
 			"--label",
 			"kanban: backlog",
+			"--assignee",
+			"@me",
 		]);
 	});
 	it("posts a Review report once, saves its hash, and deletes the file", async () => {
@@ -538,6 +547,128 @@ describe("reconcileGithubIssues", () => {
 		expect(result.error).toBe("first failed");
 		expect((await readGithubIssueMap(input.workspaceId)).one.lastError).toBe("first failed");
 		expect(calls.some((args) => args.includes("13") && args[1] === "comment")).toBe(true);
+	});
+	it("creates an issue with labels, milestone and assignee in one gh call", async () => {
+		await seed({ one: { labels: ["type: bug", "area: ui"], milestone: "M1", assignee: "octocat" } });
+		await reconcile();
+		const creates = calls.filter((args) => args[0] === "issue" && args[1] === "create");
+		expect(creates).toEqual([
+			[
+				"issue",
+				"create",
+				"--title",
+				task.title,
+				"--body",
+				"Kanban task: one",
+				"--label",
+				"kanban: backlog",
+				"--label",
+				"type: bug",
+				"--label",
+				"area: ui",
+				"--milestone",
+				"M1",
+				"--assignee",
+				"octocat",
+			],
+		]);
+		expect((await readGithubIssueMap(input.workspaceId)).one).toMatchObject({
+			labels: ["type: bug", "area: ui"],
+			syncedLabels: ["type: bug", "area: ui"],
+			syncedMilestone: "M1",
+			syncedAssignee: "octocat",
+		});
+	});
+	it("removes only labels sync added, never one a user added to the issue", async () => {
+		await seed({ one: { ...mapped, labels: ["type: bug"], syncedLabels: ["type: bug", "area: ui"] } });
+		await reconcile();
+		// "area: ui" was dropped from `labels` and sync owns it; a label the user added is not in either list.
+		expect(calls).toEqual([["issue", "edit", "12", "--remove-label", "area: ui"]]);
+		expect((await readGithubIssueMap(input.workspaceId)).one.syncedLabels).toEqual(["type: bug"]);
+		calls.length = 0;
+		await reconcile();
+		expect(calls).toEqual([]);
+	});
+	it("adds a new label and swaps the assignee on an existing issue", async () => {
+		await seed({
+			one: { ...mapped, labels: ["area: ui"], assignee: "new", syncedAssignee: "old", milestone: "M2" },
+		});
+		await reconcile();
+		expect(calls).toEqual([
+			["label", "list", "--limit", "1000", "--json", "name"],
+			[
+				"issue",
+				"edit",
+				"12",
+				"--add-label",
+				"area: ui",
+				"--milestone",
+				"M2",
+				"--add-assignee",
+				"new",
+				"--remove-assignee",
+				"old",
+			],
+		]);
+	});
+	it("force-creates only kanban: labels and never overwrites or creates a user label", async () => {
+		await seed({ one: { labels: ["type: bug", "type: missing"] } });
+		await reconcile();
+		const labelCreates = calls.filter((args) => args[0] === "label" && args[1] === "create");
+		expect(labelCreates).toEqual([["label", "create", "kanban: backlog", "--force"]]);
+		const create = calls.find((args) => args[0] === "issue" && args[1] === "create") ?? [];
+		expect(create).toContain("type: bug");
+		expect(create).not.toContain("type: missing");
+		expect(warn).toHaveBeenCalledWith(expect.stringContaining('"type: missing"'));
+		expect((await readGithubIssueMap(input.workspaceId)).one.syncedLabels).toEqual(["type: bug"]);
+	});
+	it("a missing milestone fails only that task", async () => {
+		const second = { ...task, id: "two", title: "Second" };
+		mocks.board.mockResolvedValue({
+			columns: [{ id: "backlog", title: "Backlog", cards: [task, second] }],
+			dependencies: [],
+		});
+		await seed({ one: { milestone: "Nope" } });
+		gh.mockImplementation(async (args, options) => {
+			if (args.includes("--milestone")) throw new Error("could not add to milestone 'Nope': 'Nope' not found");
+			return runFakeGh(args, options);
+		});
+		const result = await reconcile();
+		expect(result.ok).toBe(false);
+		expect(result.error).toContain('Milestone "Nope"');
+		const map = await readGithubIssueMap(input.workspaceId);
+		expect(map.one.lastError).toContain('Milestone "Nope"');
+		expect(map.one.issueNumber).toBeUndefined();
+		expect(map.two.issueNumber).toBe(12);
+		expect(warn).toHaveBeenCalledWith(expect.stringContaining('Milestone "Nope"'));
+	});
+	it("workspace tRPC stores metadata in the map file, not on the card", async () => {
+		const api = createWorkspaceApi({
+			ensureTerminalManagerForWorkspace: vi.fn(),
+			getScopedClineTaskSessionService: vi.fn(),
+			broadcastRuntimeWorkspaceStateUpdated: vi.fn(),
+			broadcastRuntimeProjectsUpdated: vi.fn(),
+			buildWorkspaceStateSnapshot: vi.fn(),
+		});
+		const caller = runtimeAppRouter.createCaller({
+			requestedWorkspaceId: input.workspaceId,
+			workspaceScope: { workspaceId: input.workspaceId, workspacePath: input.repoPath },
+			workspaceApi: api,
+		} as RuntimeTrpcContext);
+		expect(
+			await caller.workspace.setTaskIssueMetadata({
+				taskId: "one",
+				labels: ["a", "b"],
+				milestone: "M",
+				assignee: "u",
+			}),
+		).toEqual({ ok: true });
+		expect((await readGithubIssueMap(input.workspaceId)).one).toEqual({
+			labels: ["a", "b"],
+			milestone: "M",
+			assignee: "u",
+		});
+		expect(JSON.stringify(task)).not.toContain("milestone");
 	});
 	it("concurrent requestSync creates one issue", async () => {
 		let release!: () => void;

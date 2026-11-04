@@ -11,6 +11,13 @@ const cliMocks = vi.hoisted(() => ({
 			deleteWorktree: { mutate: vi.fn(async () => ({ ok: true, removed: true })) },
 			ensureWorktree: { mutate: vi.fn(async () => ({ ok: true })) },
 			setTaskIssueSummary: { mutate: vi.fn(async (_input: { taskId: string; summary: string }) => ({ ok: true })) },
+			setTaskIssueMetadata: {
+				mutate: vi.fn(
+					async (_input: { taskId: string; labels?: string[]; milestone?: string; assignee?: string }) => ({
+						ok: true,
+					}),
+				),
+			},
 		},
 		runtime: {
 			getConfig: { query: vi.fn(async () => ({ selectedAgentId: "claude" })) },
@@ -226,6 +233,79 @@ describe("task create --summary", () => {
 
 		expect(warnings.join("")).toContain("could not store the issue summary: runtime down");
 		expect(backlogIds()).toEqual([created.task.id]);
+	});
+});
+
+describe("task create and update issue metadata", () => {
+	beforeEach(() => {
+		cliMocks.workspaceState.board.columns[0]?.cards.splice(0);
+		cliMocks.client.workspace.getState.query.mockImplementation(async () => cliMocks.workspaceState as never);
+		cliMocks.client.workspace.setTaskIssueMetadata.mutate.mockClear();
+		cliMocks.client.workspace.setTaskIssueSummary.mutate.mockClear();
+		process.exitCode = 0;
+	});
+
+	async function run(args: string[]): Promise<{ ok: boolean; task?: { id: string } }> {
+		let output = "";
+		const write = vi.spyOn(process.stdout, "write").mockImplementation(((chunk: string | Uint8Array) => {
+			output += chunk.toString();
+			return true;
+		}) as typeof process.stdout.write);
+		const program = new Command();
+		registerTaskCommand(program);
+		await program.parseAsync(["node", "kanban", "task", ...args]);
+		write.mockRestore();
+		return JSON.parse(output) as { ok: boolean; task?: { id: string } };
+	}
+
+	it("create stores labels, milestone and assignee before the task reaches the board", async () => {
+		const created = await run([
+			"create",
+			"--prompt",
+			"Ship it",
+			"--labels",
+			" a, b ,,",
+			"--milestone",
+			"M1",
+			"--assignee",
+			"octocat",
+		]);
+		expect(cliMocks.client.workspace.setTaskIssueMetadata.mutate).toHaveBeenCalledWith({
+			taskId: created.task?.id,
+			labels: ["a", "b"],
+			milestone: "M1",
+			assignee: "octocat",
+		});
+		expect(cliMocks.client.workspace.setTaskIssueSummary.mutate).not.toHaveBeenCalled();
+	});
+
+	it("create without metadata options does not call setTaskIssueMetadata", async () => {
+		await run(["create", "--prompt", "Ship it"]);
+		expect(cliMocks.client.workspace.setTaskIssueMetadata.mutate).not.toHaveBeenCalled();
+	});
+
+	it("update stores metadata as the only change and rejects an unknown task", async () => {
+		(cliMocks.workspaceState.board.columns[0]?.cards as unknown[]).push({
+			id: "task-1",
+			title: "Task",
+			prompt: "Ship it",
+			baseRef: "main",
+			startInPlanMode: false,
+			createdAt: 1,
+			updatedAt: 1,
+		});
+		const updated = await run(["update", "--task-id", "task-1", "--labels", "x", "--assignee", "u"]);
+		expect(updated.ok).toBe(true);
+		expect(cliMocks.client.workspace.setTaskIssueMetadata.mutate).toHaveBeenCalledWith({
+			taskId: "task-1",
+			labels: ["x"],
+			assignee: "u",
+		});
+		cliMocks.client.workspace.setTaskIssueMetadata.mutate.mockClear();
+		const missing = await run(["update", "--task-id", "nope", "--milestone", "M"]);
+		expect(missing.ok).toBe(false);
+		expect(cliMocks.client.workspace.setTaskIssueMetadata.mutate).not.toHaveBeenCalled();
+		process.exitCode = 0;
 	});
 });
 
@@ -1290,6 +1370,24 @@ describe("compact task list and task show", () => {
 		});
 		const shown = JSON.parse(await execute(["show", "--task-id", "active-1"]));
 		expect(shown.task.issueReport).toBe(issueReport);
+	});
+
+	it("shows the issue number, URL and sync state when sync is on, and sync off otherwise", async () => {
+		cliMocks.client.workspace.getGithubIssues.query.mockResolvedValue({
+			enabled: true,
+			issues: { "active-1": { number: 12, url: "https://github.com/o/r/issues/12" } },
+			reports: {},
+		});
+		const on = JSON.parse(await execute(["show", "--task-id", "active-1"]));
+		expect(on.task).toMatchObject({
+			issueNumber: 12,
+			issueUrl: "https://github.com/o/r/issues/12",
+			issueSyncEnabled: true,
+		});
+		cliMocks.client.workspace.getGithubIssues.query.mockResolvedValue({ enabled: false, issues: {}, reports: {} });
+		const off = JSON.parse(await execute(["show", "--task-id", "active-1"]));
+		expect(off.task).toMatchObject({ issueSyncEnabled: false });
+		expect(off.task).not.toHaveProperty("issueNumber");
 	});
 
 	it("records comments using --task-id or KANBAN_HOOK_TASK_ID", async () => {

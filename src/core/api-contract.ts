@@ -1463,6 +1463,13 @@ export const runtimeSetTaskIssueSummaryRequestSchema = z.object({
 	taskId: z.string().trim().min(1),
 	summary: z.string(),
 });
+export const runtimeSetTaskIssueMetadataRequestSchema = z.object({
+	taskId: z.string().trim().min(1),
+	labels: z.array(z.string()).optional(),
+	milestone: z.string().optional(),
+	assignee: z.string().optional(),
+});
+export type RuntimeSetTaskIssueMetadataRequest = z.infer<typeof runtimeSetTaskIssueMetadataRequestSchema>;
 export const runtimeGithubIssueSyncResultSchema = z.object({
 	ok: z.boolean(),
 	created: z.number().int().nonnegative(),

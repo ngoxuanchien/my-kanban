@@ -847,6 +847,10 @@ async function showTask(input: { cwd: string; projectPath?: string; taskId: stri
 			...formatTaskRecord(state, record.task, record.columnId),
 			comments,
 			issueReport: issueState.reports[input.taskId] ?? "none",
+			issueSyncEnabled: issueState.enabled,
+			...(issueState.issues[input.taskId]
+				? { issueNumber: issueState.issues[input.taskId]?.number, issueUrl: issueState.issues[input.taskId]?.url }
+				: {}),
 		},
 	};
 }
@@ -909,24 +913,53 @@ async function deleteTaskWorkspace(
 
 // The issue summary must be stored before the task reaches the board, so the GitHub
 // sync never creates the issue without it. Returns the pre-generated task id.
-async function storeTaskIssueSummary(
+async function storeTaskIssueFields(
 	runtimeClient: ReturnType<typeof createRuntimeTrpcClient>,
-	summary: string | undefined,
+	input: { summary?: string; metadata?: TaskIssueMetadata },
 ): Promise<string | undefined> {
-	const trimmed = summary?.trim();
-	if (!trimmed) {
+	const trimmed = input.summary?.trim();
+	if (!trimmed && !input.metadata) {
 		return undefined;
 	}
+	let storing = trimmed ? "summary" : "metadata";
 	try {
 		const state = await runtimeClient.workspace.getState.query();
 		const existingIds = new Set(state.board.columns.flatMap((column) => column.cards.map((card) => card.id)));
 		const taskId = createUniqueTaskId(existingIds, () => globalThis.crypto.randomUUID());
-		await runtimeClient.workspace.setTaskIssueSummary.mutate({ taskId, summary: trimmed });
+		if (trimmed) await runtimeClient.workspace.setTaskIssueSummary.mutate({ taskId, summary: trimmed });
+		storing = "metadata";
+		if (input.metadata) await runtimeClient.workspace.setTaskIssueMetadata.mutate({ taskId, ...input.metadata });
 		return taskId;
 	} catch (error) {
-		process.stderr.write(`Warning: could not store the issue summary: ${toErrorMessage(error)}\n`);
+		process.stderr.write(`Warning: could not store the issue ${storing}: ${toErrorMessage(error)}\n`);
 		return undefined;
 	}
+}
+
+interface TaskIssueMetadata {
+	labels?: string[];
+	milestone?: string;
+	assignee?: string;
+}
+
+// Returns undefined when no metadata option was given, so callers skip the runtime call.
+function parseTaskIssueMetadata(options: {
+	labels?: string;
+	milestone?: string;
+	assignee?: string;
+}): TaskIssueMetadata | undefined {
+	const labels = options.labels
+		?.split(",")
+		.map((label) => label.trim())
+		.filter(Boolean);
+	const milestone = options.milestone?.trim();
+	const assignee = options.assignee?.trim();
+	if (!labels?.length && !milestone && !assignee) return undefined;
+	return {
+		...(labels?.length ? { labels } : {}),
+		...(milestone ? { milestone } : {}),
+		...(assignee ? { assignee } : {}),
+	};
 }
 
 async function createTask(input: {
@@ -945,6 +978,7 @@ async function createTask(input: {
 	difficulty?: string;
 	clineSettings?: RuntimeTaskClineSettings;
 	summary?: string;
+	issueMetadata?: TaskIssueMetadata;
 }): Promise<JsonRecord> {
 	const difficulty = parseTaskDifficulty(input.difficulty);
 	const configClient = createRuntimeTrpcClient(null);
@@ -962,7 +996,7 @@ async function createTask(input: {
 	const workspaceRepoPath = await resolveWorkspaceRepoPath(input.projectPath, input.cwd);
 	const workspaceId = await ensureRuntimeWorkspace(workspaceRepoPath);
 	const runtimeClient = createRuntimeTrpcClient(workspaceId);
-	const taskId = await storeTaskIssueSummary(runtimeClient, input.summary);
+	const taskId = await storeTaskIssueFields(runtimeClient, { summary: input.summary, metadata: input.issueMetadata });
 	const created = await updateRuntimeWorkspaceState(runtimeClient, workspaceRepoPath, (state) => {
 		const resolvedBaseRef = (input.baseRef ?? "").trim() || resolveTaskBaseRef(state);
 		if (!resolvedBaseRef) {
@@ -1032,6 +1066,7 @@ async function updateTaskCommand(input: {
 	clineModelId?: string | null;
 	clineReasoningEffort?: ParsedTaskClineReasoningEffort;
 	summary?: string;
+	issueMetadata?: TaskIssueMetadata;
 }): Promise<JsonRecord> {
 	const summary = input.summary?.trim();
 	if (input.summary !== undefined && !summary) throw new Error("Task issue summary must not be empty.");
@@ -1050,7 +1085,8 @@ async function updateTaskCommand(input: {
 		input.clineProviderId === undefined &&
 		input.clineModelId === undefined &&
 		input.clineReasoningEffort === undefined &&
-		input.summary === undefined
+		input.summary === undefined &&
+		input.issueMetadata === undefined
 	) {
 		throw new Error("task update requires at least one field to change.");
 	}
@@ -1059,11 +1095,13 @@ async function updateTaskCommand(input: {
 	const workspaceRepoPath = await resolveWorkspaceRepoPath(input.projectPath, input.cwd);
 	const workspaceId = await ensureRuntimeWorkspace(workspaceRepoPath);
 	const runtimeClient = createRuntimeTrpcClient(workspaceId);
-	if (summary) {
+	if (summary || input.issueMetadata) {
 		const state = await runtimeClient.workspace.getState.query();
 		if (!state.board.columns.some((column) => column.cards.some((card) => card.id === input.taskId)))
 			throw new Error(`Task "${input.taskId}" was not found in workspace ${workspaceRepoPath}.`);
-		await runtimeClient.workspace.setTaskIssueSummary.mutate({ taskId: input.taskId, summary });
+		if (summary) await runtimeClient.workspace.setTaskIssueSummary.mutate({ taskId: input.taskId, summary });
+		if (input.issueMetadata)
+			await runtimeClient.workspace.setTaskIssueMetadata.mutate({ taskId: input.taskId, ...input.issueMetadata });
 	}
 	const config =
 		input.model !== undefined || input.reasoningEffort !== undefined
@@ -1795,6 +1833,9 @@ export function registerTaskCommand(program: Command): void {
 		.option("--reasoning-effort <level>", "Codex reasoning effort.")
 		.option("--difficulty <1-5>", "Task difficulty, from 1 (one-file change) to 5 (multi-layer change).")
 		.option("--summary <text>", "Short summary for the GitHub issue body when issue sync is on.")
+		.option("--labels <a,b>", "Comma-separated GitHub issue labels (must already exist on the repo).")
+		.option("--milestone <name>", "GitHub issue milestone (must already exist on the repo).")
+		.option("--assignee <login>", "GitHub issue assignee. Defaults to @me on create.")
 		.option(
 			"--cline-provider <id>",
 			'Cline provider override (e.g. anthropic, openai, cline). Use "default" for workspace default.',
@@ -1812,6 +1853,9 @@ export function registerTaskCommand(program: Command): void {
 				title?: string;
 				prompt: string;
 				summary?: string;
+				labels?: string;
+				milestone?: string;
+				assignee?: string;
 				projectPath?: string;
 				baseRef?: string;
 				startInPlanMode?: unknown;
@@ -1846,6 +1890,7 @@ export function registerTaskCommand(program: Command): void {
 							reasoningEffort: options.reasoningEffort,
 							difficulty: options.difficulty,
 							summary: options.summary,
+							issueMetadata: parseTaskIssueMetadata(options),
 							clineSettings: buildTaskClineSettingsForCreate({
 								providerId: parseOptionalStringOrDefault(options.clineProvider) ?? undefined,
 								modelId: parseOptionalStringOrDefault(options.clineModel) ?? undefined,
@@ -1862,6 +1907,9 @@ export function registerTaskCommand(program: Command): void {
 		.requiredOption("--task-id <id>", "Task ID.")
 		.option("--title <text>", "Replacement task title.")
 		.option("--summary <text>", "Replacement GitHub issue body summary.")
+		.option("--labels <a,b>", "Comma-separated GitHub issue labels (must already exist on the repo).")
+		.option("--milestone <name>", "GitHub issue milestone (must already exist on the repo).")
+		.option("--assignee <login>", "GitHub issue assignee.")
 		.option("--prompt <text>", "Replacement task prompt.")
 		.option("--project-path <path>", "Workspace path. Defaults to current directory workspace.")
 		.option("--base-ref <branch>", "Replacement base branch/ref.")
@@ -1890,6 +1938,9 @@ export function registerTaskCommand(program: Command): void {
 				taskId: string;
 				title?: string;
 				summary?: string;
+				labels?: string;
+				milestone?: string;
+				assignee?: string;
 				prompt?: string;
 				projectPath?: string;
 				baseRef?: string;
@@ -1912,6 +1963,7 @@ export function registerTaskCommand(program: Command): void {
 							taskId: options.taskId,
 							title: options.title,
 							summary: options.summary,
+							issueMetadata: parseTaskIssueMetadata(options),
 							projectPath: options.projectPath,
 							prompt: options.prompt,
 							baseRef: options.baseRef,

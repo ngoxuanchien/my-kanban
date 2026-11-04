@@ -19,7 +19,7 @@ import {
 	parseWorktreeEnsureRequest,
 } from "../core/api-validation";
 import { trashTaskAndGetReadyLinkedTaskIds } from "../core/task-board-mutations";
-import { readGithubIssueMap, setGithubIssueSummary } from "../github/issue-map";
+import { readGithubIssueMap, setGithubIssueMetadata, setGithubIssueSummary } from "../github/issue-map";
 import { readIssueReport } from "../github/issue-report";
 import type { GithubIssueSyncService } from "../github/issue-sync";
 import { deleteTaskHistory } from "../state/task-history";
@@ -218,6 +218,11 @@ export function createWorkspaceApi(deps: CreateWorkspaceApiDependencies): Runtim
 	return {
 		setTaskIssueSummary: async (scope, input) => {
 			await setGithubIssueSummary(scope.workspaceId, input.taskId, input.summary);
+			deps.githubIssueSync?.requestSync(scope.workspaceId, scope.workspacePath);
+			return { ok: true };
+		},
+		setTaskIssueMetadata: async (scope, { taskId, ...metadata }) => {
+			await setGithubIssueMetadata(scope.workspaceId, taskId, metadata);
 			deps.githubIssueSync?.requestSync(scope.workspaceId, scope.workspacePath);
 			return { ok: true };
 		},
