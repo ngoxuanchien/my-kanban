@@ -19,7 +19,7 @@ Order: 1 → 3, 1 → 4, 4 → 5, 3 + 5 → 6. Task 2 is independent.
 
 ## Global Constraints
 
-- Before and after each task: `npm run typecheck`, `npm run lint`, `npm run test:fast`, `npm run web:typecheck` all pass; paste the output.
+- Before and after each task: `npm run typecheck`, `npm run lint`, `npm run test:fast`, `npm run web:typecheck`, `npm --prefix web-ui run test` all pass; paste the output. (`test:fast` runs only `test/runtime` and `test/utilities`; web-ui tests need the last command. Added 2026-11-05.)
 - No new dependency.
 - Every test that spawns `git` passes `env: createGitTestEnv()` (`test/utilities/git-env.ts`).
 - A new optional card field is threaded through every card rebuild in `web-ui/src/state/board-state.ts` (AGENTS.md list), with one web-ui test per path.
