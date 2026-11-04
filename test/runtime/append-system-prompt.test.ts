@@ -252,9 +252,11 @@ describe("renderAppendSystemPrompt", () => {
 		expect(rendered).toContain("[--all] [--json] [--full]");
 		expect(rendered).toContain("Use `task show --task-id <task_id>` to read its prompt");
 		const reviewSection = rendered.slice(rendered.indexOf("# Reviewing tasks"));
-		expect(reviewSection).toContain("always run `npm run web:typecheck` and `npm --prefix web-ui run test`");
 		expect(reviewSection).toContain(
-			"when none are specified, run `npm run typecheck`, `npm run lint`, `npm run test:fast`, `npm run web:typecheck`, and `npm --prefix web-ui run test`.",
+			"always run `npm run web:typecheck`, `npm --prefix web-ui run test`, and `npm run web:build`",
+		);
+		expect(reviewSection).toContain(
+			"when none are specified, run `npm run typecheck`, `npm run lint`, `npm run test:fast`, `npm run web:typecheck`, `npm --prefix web-ui run test`, and `npm run web:build`.",
 		);
 		expect(rendered).toContain("Provide exactly one of");
 		expect(rendered).toContain("task delete --column done");
