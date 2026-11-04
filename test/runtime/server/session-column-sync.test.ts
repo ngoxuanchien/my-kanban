@@ -367,9 +367,14 @@ describe.sequential("session column sync", () => {
 			return state.board.columns.flatMap((column) => column.cards).find((card) => card.id === "task-1");
 		};
 		const emitRunning = async (updatedAt: number) => {
-			service.onSummary((event) => void clearBlockedReportOnRun(workspacePath, event));
+			let clearBlockedReport: ReturnType<typeof clearBlockedReportOnRun> | undefined;
+			const unsubscribe = service.onSummary((event) => {
+				clearBlockedReport = clearBlockedReportOnRun(workspacePath, event);
+			});
 			terminal.emit({ ...summary("running"), updatedAt });
-			await new Promise((resolve) => setTimeout(resolve, 100));
+			await vi.waitFor(() => expect(clearBlockedReport).toBeDefined());
+			unsubscribe();
+			await clearBlockedReport;
 		};
 
 		it("clears when the session transitions to running after reportedAt", async () => {
