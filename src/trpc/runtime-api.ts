@@ -229,11 +229,16 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 			return isRuntimeClaudeModel(resolved.model) ? { claudeModel: resolved.model } : {};
 		}
 		if (!resolved.model) return {};
-		const checked = checkAgentModelAgainstCatalog(
-			agentId,
-			{ model: resolved.model, reasoningEffort: resolved.reasoningEffort },
-			await loadAgentModelCatalog(agentId),
-		);
+		const resolvedModel = { model: resolved.model, reasoningEffort: resolved.reasoningEffort };
+		const catalog = await loadAgentModelCatalog(agentId);
+		let checked = checkAgentModelAgainstCatalog(agentId, resolvedModel, catalog);
+		if (catalog.ok && checked.warning?.includes("is not in the")) {
+			checked = checkAgentModelAgainstCatalog(
+				agentId,
+				resolvedModel,
+				await loadAgentModelCatalog(agentId, { refresh: true }),
+			);
+		}
 		if (checked.warning) {
 			try {
 				await recordTaskHistoryEvent(workspaceScope.workspaceId, taskId, {

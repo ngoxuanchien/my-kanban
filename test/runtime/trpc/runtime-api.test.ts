@@ -702,11 +702,26 @@ describe("createRuntimeApi startTaskSession", () => {
 		});
 
 		it("launches without model and effort and comments when the model is not in the catalog", async () => {
+			agentModelCatalogMocks.loadAgentModelCatalog
+				.mockResolvedValueOnce({ ok: true, models: [] })
+				.mockResolvedValueOnce({ ok: true, models: [] });
 			const request = await startWithCard("codex", { agentModel: "gone-model", agentReasoningEffort: "high" });
 			expect(request?.agentModel).toBeUndefined();
 			expect(request?.agentReasoningEffort).toBeUndefined();
 			expect(comments()).toHaveLength(1);
 			expect(comments()[0]?.detail).toContain("gone-model");
+			expect(agentModelCatalogMocks.loadAgentModelCatalog).toHaveBeenNthCalledWith(2, "codex", { refresh: true });
+		});
+
+		it("refreshes once when the cached catalog misses a model added after runtime start", async () => {
+			agentModelCatalogMocks.loadAgentModelCatalog
+				.mockResolvedValueOnce({ ok: true, models: [] })
+				.mockResolvedValueOnce({ ok: true, models: [sol] });
+			const request = await startWithCard("codex", { agentModel: sol.id, agentReasoningEffort: "high" });
+			expect(request).toMatchObject({ agentModel: sol.id, agentReasoningEffort: "high" });
+			expect(comments()).toEqual([]);
+			expect(agentModelCatalogMocks.loadAgentModelCatalog).toHaveBeenCalledTimes(2);
+			expect(agentModelCatalogMocks.loadAgentModelCatalog).toHaveBeenNthCalledWith(2, "codex", { refresh: true });
 		});
 
 		it("passes the model unchecked when the catalog is unreadable", async () => {
@@ -721,6 +736,7 @@ describe("createRuntimeApi startTaskSession", () => {
 			expect(request?.agentModel).toBe("gpt-6.1-sol");
 			expect(request?.agentReasoningEffort).toBeUndefined();
 			expect(comments()[0]?.detail).toContain("ultra");
+			expect(agentModelCatalogMocks.loadAgentModelCatalog).toHaveBeenCalledTimes(1);
 		});
 
 		it("scores the assignment under the launched model", async () => {
