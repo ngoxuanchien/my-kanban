@@ -5,8 +5,8 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { RuntimeBoardColumnId, RuntimeTaskSessionSummary } from "../../../src/core/api-contract";
-import { clearBlockedReportOnRun } from "../../../src/core/blocked-report";
 import { type LockRequest, lockedFileSystem } from "../../../src/fs/locked-file-system";
+import { clearBlockedReportOnRun } from "../../../src/server/blocked-report-clearing";
 import { createSessionColumnSync } from "../../../src/server/session-column-sync";
 import {
 	getWorkspaceDirectoryPath,

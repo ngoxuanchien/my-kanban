@@ -17,7 +17,6 @@ import type {
 	RuntimeUpdateStatusResponse,
 	RuntimeWorkspaceStateResponse,
 } from "../core/api-contract";
-import { clearBlockedReportOnRun } from "../core/blocked-report";
 import {
 	buildKanbanRuntimeUrl,
 	getKanbanRuntimeHost,
@@ -55,6 +54,7 @@ import { type CreateRuntimeApiDependencies, createRuntimeApi } from "../trpc/run
 import { createWorkspaceApi } from "../trpc/workspace-api";
 import { readAntigravityLogs } from "./antigravity-log-usage-limit";
 import { getWebUiDir, normalizeRequestPath, readAsset } from "./assets";
+import { clearBlockedReportOnRun } from "./blocked-report-clearing";
 import { handleHttpRequest, handleSocketUpgrade } from "./middleware";
 import { readOpenCodeLogTail } from "./opencode-log-usage-limit";
 import { resumeInterruptedTasks } from "./resume-interrupted-tasks";
