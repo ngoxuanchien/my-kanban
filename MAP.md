@@ -126,6 +126,7 @@ Update this file whenever a file or folder is created or moved.
 | `contexte/web-ui-layout.md` | Web UI layout lessons (measuring/flex pitfalls) from reviews. |
 | `contexte/github-issue-sync.md` | GitHub issue sync: implementation decisions, known gaps, review lessons (web-ui typecheck). |
 | `contexte/difficulty-model-selection.md` | Difficulty-based model selection: implementation decisions and review notes. |
+| `contexte/permission-wait.md` | Permission wait: stored-wait detection by activity text, Stop replaces the wait, review lesson on dropped callback params. |
 | `contexte/kanban-cli-oom.md` | Kanban CLI V8 OOM crash: `2>&1 | head` closes the merged pipe, unhandled EPIPE recurses; proposed fix; how to recover argv from Claude transcripts. |
 
 ## livrables/
