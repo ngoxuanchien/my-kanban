@@ -249,10 +249,11 @@ Parameters:
 Purpose: update an existing task, including prompt, base ref, plan mode, and auto-review behavior.
 
 Command:
-\`${kanbanCommand} task update --task-id <task_id> [--title "<text>"] [--prompt "<text>"] [--project-path <path>] [--base-ref <branch>] [--start-in-plan-mode <true|false>] [--auto-review-enabled <true|false>] [--auto-review-mode commit|pr] [--agent-id <${RUNTIME_AGENT_IDS_TEXT}|default>] [--difficulty <1-5>] [--model <model|default>] [--reasoning-effort <level|default>] [--agent-review-enabled <true|false>]\`
+\`${kanbanCommand} task update --task-id <task_id> [--summary "<text>"] [--title "<text>"] [--prompt "<text>"] [--project-path <path>] [--base-ref <branch>] [--start-in-plan-mode <true|false>] [--auto-review-enabled <true|false>] [--auto-review-mode commit|pr] [--agent-id <${RUNTIME_AGENT_IDS_TEXT}|default>] [--difficulty <1-5>] [--model <model|default>] [--reasoning-effort <level|default>] [--agent-review-enabled <true|false>]\`
 
 Parameters:
 - \`--task-id <task_id>\` required task ID.
+- \`--summary "<text>"\` optional GitHub issue body summary. When the project has GitHub issue sync on, pass a 1–3 sentence lecturer-facing summary with no file paths, no \`contexte/\` content, and no secrets. The task prompt itself never goes to GitHub.
 - \`--project-path <path>\` optional workspace path. If not already registered in Kanban, it is auto-added for git repos.
 - \`--title "<text>"\` optional replacement title.
 - \`--prompt "<text>"\` optional replacement prompt text.

@@ -88,6 +88,13 @@ describe("renderAppendSystemPrompt", () => {
 		expect(createSection).toContain("no file paths, no `contexte/` content, and no secrets");
 	});
 
+	it("documents updating the GitHub issue summary", () => {
+		const rendered = renderAppendSystemPrompt("kanban");
+		const updateSection = rendered.slice(rendered.indexOf("## task update"), rendered.indexOf("## task done"));
+		expect(updateSection).toContain('[--summary "<text>"]');
+		expect(updateSection).toContain("The task prompt itself never goes to GitHub.");
+	});
+
 	it("documents model selection for user-requested models", () => {
 		const rendered = renderAppendSystemPrompt("kanban");
 		const createSection = rendered.slice(rendered.indexOf("## task create"), rendered.indexOf("## task update"));

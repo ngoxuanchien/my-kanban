@@ -3,6 +3,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { RuntimeBoardCard, RuntimeBoardColumnId, RuntimeBoardData } from "../../../src/core/api-contract";
+import { getOriginRemoteUrl } from "../../../src/github/gh-runner";
 import { type GithubIssueMap, readGithubIssueMap, setGithubIssueSummary } from "../../../src/github/issue-map";
 import { createGithubIssueSyncService, reconcileGithubIssues } from "../../../src/github/issue-sync";
 import { createRuntimeStateHub } from "../../../src/server/runtime-state-hub";
@@ -43,15 +44,19 @@ const task = {
 };
 let temp: ReturnType<typeof createTempDir>;
 let calls: string[][];
+let rawCalls: string[][];
+let expectedRepo = "own/project";
 let mapPath: string;
 const warn = vi.fn();
 const runFakeGh = async (args: string[], options: { cwd: string }) => {
 	expect(options.cwd).toBe(input.repoPath);
-	calls.push(args);
+	expect(args.slice(-2)).toEqual(["--repo", expectedRepo]);
+	rawCalls.push(args);
+	calls.push(args.filter((arg, index) => !(arg === "--repo" || args[index - 1] === "--repo")));
 	return { stdout: args[0] === "issue" && args[1] === "create" ? "https://github.com/o/r/issues/12\n" : "" };
 };
 const gh = vi.fn(runFakeGh);
-const deps = { runGh: gh, warn };
+const deps = { runGh: gh, getOriginRemoteUrl: async () => "git@github.com:own/project.git", warn };
 function board(column: RuntimeBoardColumnId = "backlog"): RuntimeBoardData {
 	return { columns: [{ id: column, title: column, cards: [task] }], dependencies: [] };
 }
@@ -67,6 +72,8 @@ beforeEach(async () => {
 	mapPath = join(getWorkspaceDirectoryPath(input.workspaceId), "github-issues.json");
 	await mkdir(getWorkspaceDirectoryPath(input.workspaceId), { recursive: true });
 	calls = [];
+	rawCalls = [];
+	expectedRepo = "own/project";
 	gh.mockReset();
 	gh.mockImplementation(runFakeGh);
 	warn.mockClear();
@@ -81,10 +88,86 @@ afterEach(() => {
 });
 
 describe("reconcileGithubIssues", () => {
+	it("resolves origin when upstream is also configured", async () => {
+		const repoPath = join(temp.path, "repo-with-remotes");
+		await mkdir(repoPath);
+		execFileSync("git", ["init", repoPath], { env: createGitTestEnv(), stdio: "ignore" });
+		execFileSync("git", ["remote", "add", "origin", "git@github.com:own/project.git"], {
+			cwd: repoPath,
+			env: createGitTestEnv(),
+		});
+		execFileSync("git", ["remote", "add", "upstream", "git@github.com:cline/kanban.git"], {
+			cwd: repoPath,
+			env: createGitTestEnv(),
+		});
+		expect(await getOriginRemoteUrl(repoPath)).toBe("git@github.com:own/project.git");
+	});
+
 	it("does nothing when disabled", async () => {
 		mocks.config.mockResolvedValue({ githubIssueSyncEnabled: false });
 		expect(await reconcile()).toEqual({ ok: true, created: 0, updated: 0, closed: 0 });
 		expect(gh).not.toHaveBeenCalled();
+	});
+	it("targets origin on every gh call, accepts GitHub origin URL forms, and rejects an invalid origin", async () => {
+		await reconcile();
+		await seed({ one: { ...mapped, closed: true, syncedColumn: "trash" } });
+		await reconcile();
+		mocks.board.mockResolvedValue(board("trash"));
+		await reconcile();
+		expect(rawCalls.map((args) => args.slice(0, 2))).toEqual(
+			expect.arrayContaining([
+				["label", "create"],
+				["issue", "create"],
+				["issue", "reopen"],
+				["issue", "close"],
+			]),
+		);
+		for (const origin of ["ssh://git@github.com/o/r.git", "https://github.com/o/r/"]) {
+			expectedRepo = "o/r";
+			const withSupportedOrigin = await reconcileGithubIssues(input, {
+				...deps,
+				getOriginRemoteUrl: async () => origin,
+			});
+			expect(withSupportedOrigin.ok).toBe(true);
+		}
+		expectedRepo = "own/project";
+		gh.mockClear();
+		const noOrigin = await reconcileGithubIssues(input, {
+			...deps,
+			getOriginRemoteUrl: async () => {
+				throw new Error("missing");
+			},
+		});
+		expect(noOrigin).toMatchObject({ ok: false, error: expect.stringContaining("origin remote") });
+		expect(gh).not.toHaveBeenCalled();
+		const invalid = await reconcileGithubIssues(input, {
+			...deps,
+			getOriginRemoteUrl: async () => "https://example.com/o/r",
+		});
+		expect(invalid).toMatchObject({ ok: false, error: expect.stringContaining("parse") });
+		expect(gh).not.toHaveBeenCalled();
+	});
+	it("edits a changed summary once and retries a failed edit", async () => {
+		await seed({ one: { ...mapped, summary: "old", syncedSummary: "old" } });
+		await setGithubIssueSummary(input.workspaceId, "one", "new summary");
+		gh.mockRejectedValueOnce(new Error("edit failed"));
+		expect((await reconcile()).ok).toBe(false);
+		expect((await readGithubIssueMap(input.workspaceId)).one.syncedSummary).toBe("old");
+		await reconcile();
+		expect(calls).toContainEqual(["issue", "edit", "12", "--body", "new summary\n\n---\nKanban task: one"]);
+		expect((await readGithubIssueMap(input.workspaceId)).one.syncedSummary).toBe("new summary");
+		const length = rawCalls.length;
+		await reconcile();
+		expect(rawCalls.length).toBe(length);
+	});
+	it("edits a changed summary on a closed issue without reopening it", async () => {
+		await seed({ one: { ...mapped, closed: true, syncedColumn: "trash", summary: "old", syncedSummary: "old" } });
+		await setGithubIssueSummary(input.workspaceId, "one", "new summary");
+		mocks.board.mockResolvedValue(board("trash"));
+		await reconcile();
+		expect(calls).toContainEqual(["issue", "edit", "12", "--body", "new summary\n\n---\nKanban task: one"]);
+		expect(calls.filter((args) => args[1] === "edit" && args.includes("--body"))).toHaveLength(1);
+		expect(calls.some((args) => args[1] === "reopen")).toBe(false);
 	});
 	it("creates issue for backlog task", async () => {
 		await setGithubIssueSummary(input.workspaceId, "one", "Public summary");
@@ -101,7 +184,7 @@ describe("reconcileGithubIssues", () => {
 		]);
 		expect(JSON.stringify(calls)).not.toContain(secret);
 		expect(await readGithubIssueMap(input.workspaceId)).toEqual({
-			one: { ...mapped, summary: "Public summary", closed: false },
+			one: { ...mapped, summary: "Public summary", syncedSummary: "Public summary", closed: false },
 		});
 	});
 	it("ensures labels before first use", async () => {
@@ -343,6 +426,7 @@ describe("reconcileGithubIssues", () => {
 
 it("workspace tRPC endpoints store summaries, sync now, and return open and closed issues", async () => {
 	const service = createGithubIssueSyncService(deps);
+	const requestSync = vi.spyOn(service, "requestSync");
 	const api = createWorkspaceApi({
 		ensureTerminalManagerForWorkspace: vi.fn(),
 		getScopedClineTaskSessionService: vi.fn(),
@@ -360,8 +444,9 @@ it("workspace tRPC endpoints store summaries, sync now, and return open and clos
 	expect(await caller.workspace.setTaskIssueSummary({ taskId: "one", summary: "UI supplied summary" })).toEqual({
 		ok: true,
 	});
-	expect(calls).toEqual([]);
-	expect(await caller.workspace.syncGithubIssues()).toEqual({ ok: true, created: 1, updated: 0, closed: 0 });
+	expect(requestSync).toHaveBeenCalledWith(input.workspaceId, input.repoPath);
+	await vi.waitFor(async () => expect((await readGithubIssueMap(input.workspaceId)).one.issueNumber).toBe(12));
+	expect(await caller.workspace.syncGithubIssues()).toEqual({ ok: true, created: 0, updated: 0, closed: 0 });
 	expect(calls.find((args) => args[0] === "issue" && args[1] === "create")?.[5]).toBe(
 		"UI supplied summary\n\n---\nKanban task: one",
 	);

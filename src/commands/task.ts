@@ -1023,7 +1023,10 @@ async function updateTaskCommand(input: {
 	clineProviderId?: string | null;
 	clineModelId?: string | null;
 	clineReasoningEffort?: ParsedTaskClineReasoningEffort;
+	summary?: string;
 }): Promise<JsonRecord> {
+	const summary = input.summary?.trim();
+	if (input.summary !== undefined && !summary) throw new Error("Task issue summary must not be empty.");
 	if (
 		input.title === undefined &&
 		input.prompt === undefined &&
@@ -1038,7 +1041,8 @@ async function updateTaskCommand(input: {
 		input.difficulty === undefined &&
 		input.clineProviderId === undefined &&
 		input.clineModelId === undefined &&
-		input.clineReasoningEffort === undefined
+		input.clineReasoningEffort === undefined &&
+		input.summary === undefined
 	) {
 		throw new Error("task update requires at least one field to change.");
 	}
@@ -1047,6 +1051,12 @@ async function updateTaskCommand(input: {
 	const workspaceRepoPath = await resolveWorkspaceRepoPath(input.projectPath, input.cwd);
 	const workspaceId = await ensureRuntimeWorkspace(workspaceRepoPath);
 	const runtimeClient = createRuntimeTrpcClient(workspaceId);
+	if (summary) {
+		const state = await runtimeClient.workspace.getState.query();
+		if (!state.board.columns.some((column) => column.cards.some((card) => card.id === input.taskId)))
+			throw new Error(`Task "${input.taskId}" was not found in workspace ${workspaceRepoPath}.`);
+		await runtimeClient.workspace.setTaskIssueSummary.mutate({ taskId: input.taskId, summary });
+	}
 	const config =
 		input.model !== undefined || input.reasoningEffort !== undefined
 			? await runtimeClient.runtime.getConfig.query()
@@ -1838,6 +1848,7 @@ export function registerTaskCommand(program: Command): void {
 		.description("Update an existing task.")
 		.requiredOption("--task-id <id>", "Task ID.")
 		.option("--title <text>", "Replacement task title.")
+		.option("--summary <text>", "Replacement GitHub issue body summary.")
 		.option("--prompt <text>", "Replacement task prompt.")
 		.option("--project-path <path>", "Workspace path. Defaults to current directory workspace.")
 		.option("--base-ref <branch>", "Replacement base branch/ref.")
@@ -1865,6 +1876,7 @@ export function registerTaskCommand(program: Command): void {
 			async (options: {
 				taskId: string;
 				title?: string;
+				summary?: string;
 				prompt?: string;
 				projectPath?: string;
 				baseRef?: string;
@@ -1886,6 +1898,7 @@ export function registerTaskCommand(program: Command): void {
 							cwd: process.cwd(),
 							taskId: options.taskId,
 							title: options.title,
+							summary: options.summary,
 							projectPath: options.projectPath,
 							prompt: options.prompt,
 							baseRef: options.baseRef,

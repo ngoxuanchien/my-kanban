@@ -228,6 +228,62 @@ describe("task create --summary", () => {
 	});
 });
 
+describe("task update --summary", () => {
+	beforeEach(() => {
+		cliMocks.workspaceState.board.columns[0]?.cards.splice(0);
+		cliMocks.client.workspace.getState.query.mockImplementation(async () => cliMocks.workspaceState as never);
+		cliMocks.client.workspace.setTaskIssueSummary.mutate.mockReset();
+		cliMocks.client.workspace.setTaskIssueSummary.mutate.mockResolvedValue({ ok: true });
+		process.exitCode = 0;
+	});
+
+	async function update(args: string[]): Promise<{ ok: boolean; error?: string }> {
+		let output = "";
+		const write = vi.spyOn(process.stdout, "write").mockImplementation(((chunk: string | Uint8Array) => {
+			output += chunk.toString();
+			return true;
+		}) as typeof process.stdout.write);
+		const program = new Command();
+		registerTaskCommand(program);
+		await program.parseAsync(["node", "kanban", "task", "update", "--task-id", "task-1", ...args]);
+		write.mockRestore();
+		return JSON.parse(output) as { ok: boolean; error?: string };
+	}
+
+	const existingTask = {
+		id: "task-1",
+		title: "Task",
+		prompt: "Ship it",
+		baseRef: "main",
+		startInPlanMode: false,
+		createdAt: 1,
+		updatedAt: 1,
+	};
+
+	it("stores a summary as the only update", async () => {
+		(cliMocks.workspaceState.board.columns[0]?.cards as (typeof existingTask)[]).push(existingTask);
+		const result = await update(["--summary", "Public issue body"]);
+		expect(result.ok).toBe(true);
+		expect(cliMocks.client.workspace.setTaskIssueSummary.mutate).toHaveBeenCalledWith({
+			taskId: "task-1",
+			summary: "Public issue body",
+		});
+	});
+
+	it("rejects whitespace-only summary without storing it", async () => {
+		(cliMocks.workspaceState.board.columns[0]?.cards as (typeof existingTask)[]).push(existingTask);
+		const result = await update(["--summary", "  \n  "]);
+		expect(result).toMatchObject({ ok: false, error: expect.stringContaining("must not be empty") });
+		expect(cliMocks.client.workspace.setTaskIssueSummary.mutate).not.toHaveBeenCalled();
+	});
+
+	it("rejects an unknown task without storing its summary", async () => {
+		const result = await update(["--summary", "Public issue body"]);
+		expect(result).toMatchObject({ ok: false, error: expect.stringContaining("was not found") });
+		expect(cliMocks.client.workspace.setTaskIssueSummary.mutate).not.toHaveBeenCalled();
+	});
+});
+
 describe("task command Claude model option", () => {
 	beforeEach(() => {
 		cliMocks.workspaceState.board.columns[0]?.cards.splice(0);

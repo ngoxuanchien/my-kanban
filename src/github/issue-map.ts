@@ -11,6 +11,7 @@ export interface GithubIssueEntry {
 	syncedColumn?: RuntimeBoardColumnId;
 	closed?: boolean;
 	summary?: string;
+	syncedSummary?: string;
 	skipped?: boolean;
 }
 export type GithubIssueMap = Record<string, GithubIssueEntry>;
@@ -22,6 +23,7 @@ const issueMapSchema = z.record(
 		syncedColumn: runtimeBoardColumnIdSchema.optional(),
 		closed: z.boolean().optional(),
 		summary: z.string().optional(),
+		syncedSummary: z.string().optional(),
 		skipped: z.boolean().optional(),
 	}),
 );

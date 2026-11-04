@@ -30,7 +30,7 @@ import {
 	setKanbanRuntimePort,
 	setKanbanRuntimeTls,
 } from "./core/runtime-endpoint";
-import { runGh } from "./github/gh-runner";
+import { getOriginRemoteUrl, runGh } from "./github/gh-runner";
 import { createGithubIssueSyncService } from "./github/issue-sync";
 import { disablePasscode, generateInternalToken, generatePasscode } from "./security/passcode-manager";
 import { runScopedCommand } from "./server/run-scoped-command";
@@ -361,7 +361,11 @@ async function startServer(): Promise<{
 			runtimeStateHub?.trackTerminalManager(workspaceId, manager);
 		},
 	});
-	const githubIssueSync = createGithubIssueSyncService({ runGh, warn: (message) => console.warn(message) });
+	const githubIssueSync = createGithubIssueSyncService({
+		runGh,
+		getOriginRemoteUrl,
+		warn: (message) => console.warn(message),
+	});
 	runtimeStateHub = createRuntimeStateHub({
 		workspaceRegistry,
 		onWorkspaceStateChanged: githubIssueSync.requestSync,

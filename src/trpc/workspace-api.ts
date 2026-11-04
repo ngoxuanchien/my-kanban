@@ -216,6 +216,7 @@ export function createWorkspaceApi(deps: CreateWorkspaceApiDependencies): Runtim
 	return {
 		setTaskIssueSummary: async (scope, input) => {
 			await setGithubIssueSummary(scope.workspaceId, input.taskId, input.summary);
+			deps.githubIssueSync?.requestSync(scope.workspaceId, scope.workspacePath);
 			return { ok: true };
 		},
 		syncGithubIssues: async (scope) => {

@@ -9,6 +9,7 @@ import { getGithubIssueMapPath, readGithubIssueMap } from "./issue-map";
 
 export interface GithubIssueSyncDeps {
 	runGh: GhRunner;
+	getOriginRemoteUrl: (repoPath: string) => Promise<string>;
 	warn: (message: string) => void;
 }
 export interface GithubIssueSyncResult {
@@ -59,6 +60,17 @@ export async function reconcileGithubIssues(
 	try {
 		const config = await loadRuntimeConfig(input.repoPath);
 		if (!config.githubIssueSyncEnabled) return result;
+		let origin: string;
+		try {
+			origin = await deps.getOriginRemoteUrl(input.repoPath);
+		} catch {
+			throw new Error("Could not resolve the project's origin remote URL.");
+		}
+		const remote = /^(?:https?:\/\/github\.com\/|(?:ssh:\/\/)?git@github\.com[:/])([^/]+\/[^/]+?)(?:\.git)?\/?$/.exec(
+			origin,
+		);
+		if (!remote) throw new Error(`Could not parse the project's origin remote URL: ${origin || "empty URL"}`);
+		const repo = remote[1];
 		const path = getGithubIssueMapPath(input.workspaceId);
 		await lockedFileSystem.withLock(
 			{ path, type: "file", retries: { retries: 1200, minTimeout: 50, maxTimeout: 50, factor: 1 } },
@@ -66,7 +78,7 @@ export async function reconcileGithubIssues(
 				const map = await readGithubIssueMap(input.workspaceId);
 				const board = await loadWorkspaceBoardById(input.workspaceId);
 				const save = () => lockedFileSystem.writeJsonFileAtomic(path, map, { lock: null });
-				const gh = (args: string[]) => deps.runGh(args, { cwd: input.repoPath });
+				const gh = (args: string[]) => deps.runGh([...args, "--repo", repo], { cwd: input.repoPath });
 				const ensured = new Set<string>();
 				const ensureLabel = async (label: string) => {
 					if (ensured.has(label)) return;
@@ -110,6 +122,7 @@ export async function reconcileGithubIssues(
 								issueUrl: url,
 								syncedColumn: column.id,
 								closed: false,
+								syncedSummary: entry.summary,
 							};
 							map[card.id] = entry;
 							await save();
@@ -117,6 +130,12 @@ export async function reconcileGithubIssues(
 							if (column.id !== "trash") continue;
 						}
 						const number = String(entry.issueNumber);
+						if (entry.summary !== entry.syncedSummary) {
+							await gh(["issue", "edit", number, "--body", `${entry.summary}\n\n---\nKanban task: ${card.id}`]);
+							entry = { ...entry, syncedSummary: entry.summary };
+							map[card.id] = entry;
+							await save();
+						}
 						if (column.id === "trash") {
 							if (entry.closed) continue;
 							const history = await loadTaskHistory(input.workspaceId, card.id);
