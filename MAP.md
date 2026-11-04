@@ -92,6 +92,11 @@ Update this file whenever a file or folder is created or moved.
 | `docs/superpowers/specs/2026-11-04-codex-model-not-found-design.md` | Spec: read Codex rollout `task_complete.error.codex_error_info == "model_not_found"` and hand off at once (1 Kanban task, no separate plan). |
 | `docs/superpowers/specs/2026-11-04-github-issue-format-design.md` | Spec: 10-section issue body, structured comments (Implementation Update, Issue Review), agent report file, sanitizer, metadata, polled reverse sync; replaces three old sync non-goals. |
 | `docs/superpowers/plans/2026-11-04-github-issue-format.md` | Plan for the issue format spec, split into 4 Kanban tasks (1 → 2 → 3, 1 → 4). |
+| `docs/superpowers/specs/2026-11-04-permission-wait-design.md` | Spec: an agent's permission request keeps the task running in In Progress with "Waiting for approval"; no review round, no nudge; notification "needs approval". |
+| `docs/superpowers/specs/2026-11-04-needs-owner-label-design.md` | Spec: Review cards labeled "Needs you" / "Sidebar" (Sidebar only when the runtime will act); owner cards and approval waits sorted first. |
+| `docs/superpowers/specs/2026-11-04-runtime-column-sync-design.md` | Spec: runtime (not the UI) moves cards In Progress ↔ Review on session state transitions. |
+| `docs/superpowers/specs/2026-11-04-blocked-report-design.md` | Spec: `task report --state blocked --question` stores one question on the card; all automation skips it; clears on next run/Done/handoff. |
+| `docs/superpowers/plans/2026-11-04-dsh-lessons.md` | Plan for the four specs above plus a sidebar scope-check prompt change, split into 6 Kanban tasks (1 → 3, 1 → 4 → 5, 3 + 5 → 6; 2 independent). |
 | `docs/agents/task-prompt-template.md` | Prompt template the planner fills in for every Kanban task. |
 | `.plan/` | Older internal plans, handoffs, investigations (`.plan/docs/`). |
 
