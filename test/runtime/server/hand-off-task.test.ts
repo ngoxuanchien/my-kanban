@@ -70,6 +70,23 @@ describe("handOffTask", () => {
 		taskHistory.formatRecentTaskComments.mockReturnValue("");
 	});
 
+	it("handoff clears agentModel and keeps difficulty", async () => {
+		workspaceState.board.columns[2]?.cards.splice(0, 1, {
+			...card("codex"),
+			difficulty: 4,
+			agentModel: "gpt-6.1-sol",
+			agentReasoningEffort: "high",
+		});
+
+		const result = await handOffTask(dependencies(), { taskId: "task-1", reason: "Stuck" });
+
+		expect(result.ok).toBe(true);
+		const moved = workspaceState.board.columns[1]?.cards[0];
+		expect(moved).toMatchObject({ agentId: "opencode", difficulty: 4 });
+		expect(moved).not.toHaveProperty("agentModel");
+		expect(moved).not.toHaveProperty("agentReasoningEffort");
+	});
+
 	it.each([
 		["codex", "opencode", 1, ["codex"]],
 		["opencode", "antigravity", 2, ["codex", "opencode"]],

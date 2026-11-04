@@ -20,7 +20,11 @@ export function resolveScoreAgentKey(input: {
 	sessionClaudeModel?: string | null;
 	cardClaudeModel?: RuntimeClaudeModel;
 	defaultClaudeModel?: RuntimeClaudeModel;
+	sessionAgentModel?: string | null;
 }): string {
+	if (input.agentId === "codex" || input.agentId === "opencode") {
+		return input.sessionAgentModel ? `${input.agentId}:${input.sessionAgentModel}` : input.agentId;
+	}
 	if (input.agentId !== "claude") return input.agentId;
 	if (input.sessionClaudeModel !== undefined)
 		return isRuntimeClaudeModel(input.sessionClaudeModel) ? input.sessionClaudeModel : "claude";

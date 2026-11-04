@@ -291,6 +291,36 @@ describe("task command Claude model option", () => {
 		const changedAgent = await run(["update", "--task-id", "task-2", "--agent-id", "codex"]);
 		expect(changedAgent.task?.claudeModel).toBe("haiku");
 	});
+
+	it("task update --agent-id clears agentModel and effort, keeps difficulty", async () => {
+		const card = {
+			id: "task-3",
+			title: "Task",
+			prompt: "Ship it",
+			agentId: "codex",
+			difficulty: 4,
+			agentModel: "gpt-6.1-sol",
+			agentReasoningEffort: "high",
+			baseRef: "main",
+			startInPlanMode: false,
+			createdAt: 1,
+			updatedAt: 1,
+		};
+		const cards = () => cliMocks.workspaceState.board.columns[0]?.cards as unknown as Record<string, unknown>[];
+		cards().push(card);
+		await run(["update", "--task-id", "task-3", "--title", "Renamed"]);
+		await run(["update", "--task-id", "task-3", "--agent-id", "codex"]);
+		expect(cards().find((candidate) => candidate.id === "task-3")).toMatchObject({
+			agentModel: "gpt-6.1-sol",
+			agentReasoningEffort: "high",
+		});
+
+		await run(["update", "--task-id", "task-3", "--agent-id", "opencode"]);
+		const changed = cards().find((candidate) => candidate.id === "task-3");
+		expect(changed).toMatchObject({ agentId: "opencode", difficulty: 4 });
+		expect(changed).not.toHaveProperty("agentModel");
+		expect(changed).not.toHaveProperty("agentReasoningEffort");
+	});
 });
 
 describe("task start from Review", () => {

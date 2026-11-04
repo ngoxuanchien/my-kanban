@@ -91,7 +91,14 @@ export async function handOffTask(
 				...column,
 				cards: column.cards.map((candidate) => {
 					if (candidate.id !== input.taskId) return candidate;
-					const { handedOff: _legacyHandedOff, quotaBlockedAt: _quotaBlockedAt, ...updatedCandidate } = candidate;
+					// An explicit model belongs to the old agent; the new agent resolves its own from the difficulty.
+					const {
+						handedOff: _legacyHandedOff,
+						quotaBlockedAt: _quotaBlockedAt,
+						agentModel: _agentModel,
+						agentReasoningEffort: _agentReasoningEffort,
+						...updatedCandidate
+					} = candidate;
 					return { ...updatedCandidate, agentId: toAgentId, handOffCount: getHandOffCount(candidate) + 1 };
 				}),
 			})),

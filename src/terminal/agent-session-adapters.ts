@@ -1,4 +1,5 @@
-import { readFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { readFile, rm } from "node:fs/promises";
 import { homedir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -37,6 +38,8 @@ export interface AgentAdapterLaunchInput {
 	env?: Record<string, string | undefined>;
 	workspaceId?: string;
 	claudeModel?: RuntimeClaudeModel;
+	agentModel?: string;
+	agentReasoningEffort?: string;
 }
 
 export type AgentOutputTransitionDetector = (
@@ -54,6 +57,9 @@ export interface PreparedAgentLaunch {
 	deferredStartupInput?: string;
 	detectOutputTransition?: AgentOutputTransitionDetector;
 	shouldInspectOutputForTransition?: AgentOutputTransitionInspectionPredicate;
+	/** Codex/OpenCode model and effort this launch really uses, user agent args included. */
+	launchedAgentModel?: string | null;
+	launchedAgentReasoningEffort?: string | null;
 }
 
 interface HookContext {
@@ -543,6 +549,38 @@ function shouldInspectCodexOutputForTransition(summary: RuntimeTaskSessionSummar
 	);
 }
 
+function unquoteTomlString(value: string): string {
+	return value.replace(/^["']|["']$/gu, "");
+}
+
+function readCodexLaunchedModel(args: string[]): { model: string | null; reasoningEffort: string | null } {
+	let model: string | null = null;
+	let reasoningEffort: string | null = null;
+	const readOverride = (override: string | undefined) => {
+		if (override?.startsWith("model=")) model = unquoteTomlString(override.slice("model=".length));
+		if (override?.startsWith("model_reasoning_effort=")) {
+			reasoningEffort = unquoteTomlString(override.slice("model_reasoning_effort=".length));
+		}
+	};
+	for (let index = 0; index < args.length; index += 1) {
+		const arg = args[index];
+		if (arg === "-m" || arg === "--model") {
+			index += 1;
+			model = args[index] ?? null;
+		} else if (arg?.startsWith("--model=") || arg?.startsWith("-m=")) {
+			model = arg.slice(arg.indexOf("=") + 1);
+		} else if (arg === "-c" || arg === "--config") {
+			index += 1;
+			readOverride(args[index]);
+		} else if (arg?.startsWith("--config=")) {
+			readOverride(arg.slice("--config=".length));
+		} else if (arg?.startsWith("-c")) {
+			readOverride(arg.slice("-c".length));
+		}
+	}
+	return { model, reasoningEffort };
+}
+
 const codexAdapter: AgentSessionAdapter = {
 	async prepare(input) {
 		const codexArgs = [...input.args];
@@ -554,6 +592,19 @@ const codexAdapter: AgentSessionAdapter = {
 		if (!hasCodexConfigOverride(codexArgs, "check_for_update_on_startup")) {
 			codexArgs.push("-c", "check_for_update_on_startup=false");
 		}
+
+		const userSetModel =
+			hasCliOption(codexArgs, "-m") ||
+			hasCliOption(codexArgs, "--model") ||
+			hasCodexConfigOverride(codexArgs, "model");
+		if (input.agentModel && !userSetModel) {
+			codexArgs.push("-m", input.agentModel);
+		}
+		// The resolved effort was chosen for the resolved model, so it does not carry over to the user's own model.
+		if (input.agentReasoningEffort && !userSetModel && !hasCodexConfigOverride(codexArgs, "model_reasoning_effort")) {
+			codexArgs.push("-c", `model_reasoning_effort=${input.agentReasoningEffort}`);
+		}
+		const launched = readCodexLaunchedModel(codexArgs);
 
 		if (input.autonomousModeEnabled && !hasCliOption(codexArgs, "--dangerously-bypass-approvals-and-sandbox")) {
 			codexArgs.push("--dangerously-bypass-approvals-and-sandbox");
@@ -600,6 +651,8 @@ const codexAdapter: AgentSessionAdapter = {
 				deferredStartupInput,
 				detectOutputTransition: codexPromptDetector,
 				shouldInspectOutputForTransition: shouldInspectCodexOutputForTransition,
+				launchedAgentModel: launched.model,
+				launchedAgentReasoningEffort: launched.reasoningEffort,
 			};
 		}
 
@@ -610,6 +663,8 @@ const codexAdapter: AgentSessionAdapter = {
 			deferredStartupInput,
 			detectOutputTransition: codexPromptDetector,
 			shouldInspectOutputForTransition: shouldInspectCodexOutputForTransition,
+			launchedAgentModel: launched.model,
+			launchedAgentReasoningEffort: launched.reasoningEffort,
 		};
 	},
 };
@@ -812,19 +867,40 @@ const opencodeAdapter: AgentSessionAdapter = {
 			}
 		}
 
-		// No --model: OpenCode v2's TUI rejects it (only `opencode run` has it) and uses its configured default model.
+		// No --model: OpenCode v2's TUI rejects it (only `opencode run` has it), so a per-task config carries the model.
+		let cleanup: (() => Promise<void>) | undefined;
+		if (input.agentModel) {
+			// Unique per launch: a restart's new file cannot be removed by the stopped session's cleanup.
+			const taskConfigPath = join(
+				getHookAgentDirectory("opencode"),
+				"tasks",
+				`${encodeURIComponent(input.taskId)}-${randomUUID()}.json`,
+			);
+			const plugin = hooks ? [pathToFileURL(join(getHookAgentDirectory("opencode"), "kanban")).href] : [];
+			await ensureTextFile(taskConfigPath, JSON.stringify({ plugin, model: input.agentModel }));
+			env.OPENCODE_CONFIG = taskConfigPath;
+			cleanup = () => rm(taskConfigPath, { force: true });
+		}
+		const launched = {
+			...(cleanup ? { cleanup } : {}),
+			launchedAgentModel: input.agentModel ?? null,
+			launchedAgentReasoningEffort: null,
+		};
+
 		const trimmed = input.prompt.trim();
 		if (trimmed) {
 			args.push("--prompt", trimmed);
 			return {
 				args,
 				env,
+				...launched,
 			};
 		}
 
 		return {
 			args,
 			env,
+			...launched,
 		};
 	},
 };

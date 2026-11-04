@@ -14,7 +14,9 @@ import { isClineClearSlashCommand } from "../cline-sdk/cline-slash-commands";
 import type { ClineTaskSessionService } from "../cline-sdk/cline-task-session-service";
 import type { RuntimeConfigState } from "../config/runtime-config";
 import { updateGlobalRuntimeConfig, updateRuntimeConfig } from "../config/runtime-config";
+import { checkAgentModelAgainstCatalog, resolveTaskAgentModel } from "../core/agent-model";
 import type {
+	RuntimeAgentId,
 	RuntimeAgentModelCatalogsResponse,
 	RuntimeAgentTranscriptRequest,
 	RuntimeAgentTranscriptResponse,
@@ -55,7 +57,7 @@ import {
 	parseTaskSessionStartRequest,
 	parseTaskSessionStopRequest,
 } from "../core/api-validation";
-import { type RuntimeClaudeModel, resolveEffectiveClaudeModel, resolveScoreAgentKey } from "../core/claude-model";
+import { isRuntimeClaudeModel, type RuntimeClaudeModel, resolveScoreAgentKey } from "../core/claude-model";
 import { resolveEffectiveTaskAgentId } from "../core/effective-task-agent";
 import { isHomeAgentSessionId } from "../core/home-agent-session";
 import { resolveTaskTitle } from "../core/task-title.js";
@@ -173,6 +175,7 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 		defaultAgentId: string | null | undefined,
 		sessionClaudeModel?: string | null,
 		defaultClaudeModel?: RuntimeClaudeModel,
+		sessionAgentModel?: string | null,
 	): Promise<void> => {
 		try {
 			const card = findBoardCard(await loadWorkspaceBoardById(workspaceScope.workspaceId), taskId);
@@ -185,6 +188,7 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 						sessionClaudeModel,
 						cardClaudeModel: card?.claudeModel,
 						defaultClaudeModel,
+						sessionAgentModel,
 					}),
 					taskId,
 				});
@@ -203,6 +207,47 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 		} catch (error) {
 			warnAgentScoreRecording("Could not record task history event.", error);
 		}
+	};
+	const resolveLaunchAgentModel = async (
+		workspaceScope: RuntimeTrpcWorkspaceScope,
+		taskId: string,
+		agentId: RuntimeAgentId,
+		runtimeConfig: RuntimeConfigState,
+	): Promise<{ claudeModel?: RuntimeClaudeModel; agentModel?: string; agentReasoningEffort?: string }> => {
+		if (isHomeAgentSessionId(taskId) || (agentId !== "claude" && agentId !== "codex" && agentId !== "opencode")) {
+			return {};
+		}
+		const board = await loadWorkspaceBoardById(workspaceScope.workspaceId);
+		const resolved = resolveTaskAgentModel({
+			agentId,
+			card: (board ? findBoardCard(board, taskId) : null) ?? {},
+			map: runtimeConfig.difficultyModelMap,
+			claudeDefaultModel: runtimeConfig.claudeDefaultModel,
+		});
+		if (agentId === "claude") {
+			return isRuntimeClaudeModel(resolved.model) ? { claudeModel: resolved.model } : {};
+		}
+		if (!resolved.model) return {};
+		const checked = checkAgentModelAgainstCatalog(
+			agentId,
+			{ model: resolved.model, reasoningEffort: resolved.reasoningEffort },
+			await loadAgentModelCatalog(agentId),
+		);
+		if (checked.warning) {
+			try {
+				await recordTaskHistoryEvent(workspaceScope.workspaceId, taskId, {
+					type: "comment",
+					agentId,
+					detail: checked.warning,
+				});
+			} catch (error) {
+				warnAgentScoreRecording("Could not record task history event.", error);
+			}
+		}
+		return {
+			...(checked.model ? { agentModel: checked.model } : {}),
+			...(checked.reasoningEffort ? { agentReasoningEffort: checked.reasoningEffort } : {}),
+		};
 	};
 	const debugResetTargetPaths = [
 		join(homedir(), ".cline", "data"),
@@ -437,21 +482,20 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 						error: "No runnable agent command is configured. Open Settings, install a supported CLI, and select it.",
 					};
 				}
-				let resolvedClaudeModel: RuntimeClaudeModel | undefined;
-				if (!isHomeAgentSessionId(body.taskId) && resolved.agentId === "claude") {
-					const board = await loadWorkspaceBoardById(workspaceScope.workspaceId);
-					const card = board ? findBoardCard(board, body.taskId) : null;
-					resolvedClaudeModel = resolveEffectiveClaudeModel(
-						card?.claudeModel,
-						scopedRuntimeConfig.claudeDefaultModel,
-					);
-				}
+				const launchModel = await resolveLaunchAgentModel(
+					workspaceScope,
+					body.taskId,
+					resolved.agentId,
+					scopedRuntimeConfig,
+				);
 				const summary = await terminalManager.startTaskSession({
 					taskId: body.taskId,
 					agentId: resolved.agentId,
 					binary: resolved.binary,
 					args: resolved.args,
-					claudeModel: resolved.agentId === "claude" ? resolvedClaudeModel : undefined,
+					claudeModel: launchModel.claudeModel,
+					agentModel: launchModel.agentModel,
+					agentReasoningEffort: launchModel.agentReasoningEffort,
 					autonomousModeEnabled: scopedRuntimeConfig.agentAutonomousModeEnabled,
 					cwd: taskCwd,
 					prompt,
@@ -486,6 +530,7 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 					scopedRuntimeConfig.selectedAgentId,
 					summary.claudeModel,
 					scopedRuntimeConfig.claudeDefaultModel,
+					summary.agentModel,
 				);
 				return {
 					ok: true,
@@ -600,6 +645,7 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 							sessionClaudeModel: sessionSummary?.claudeModel,
 							cardClaudeModel: reviewCard?.claudeModel,
 							defaultClaudeModel: runtimeConfig.claudeDefaultModel,
+							sessionAgentModel: sessionSummary?.agentModel,
 						})
 					: null;
 				if (reviewCard && agentId) {

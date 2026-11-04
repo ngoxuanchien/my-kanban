@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { RuntimeConfigState } from "../../../src/config/runtime-config";
 import { DEFAULT_DIFFICULTY_MODEL_MAP } from "../../../src/core/agent-model";
 import type { RuntimeBoardData, RuntimeTaskSessionSummary } from "../../../src/core/api-contract";
+import type * as TaskHistory from "../../../src/state/task-history";
 
 const agentRegistryMocks = vi.hoisted(() => ({
 	resolveAgentCommand: vi.fn(),
@@ -152,6 +153,18 @@ vi.mock("../../../src/server/browser.js", () => ({
 vi.mock("../../../src/server/hand-off-task.js", () => ({ handOffTask: handOffTaskMocks.handOffTask }));
 
 const agentModelCatalogMocks = vi.hoisted(() => ({ loadAgentModelCatalog: vi.fn() }));
+
+const taskHistoryMocks = vi.hoisted(() => ({ recordTaskHistoryEvent: vi.fn(async () => true) }));
+const agentScoreMocks = vi.hoisted(() => ({ recordAgentScoreEvent: vi.fn(async () => true) }));
+
+vi.mock("../../../src/state/task-history.js", async (importOriginal) => ({
+	...(await importOriginal<typeof TaskHistory>()),
+	recordTaskHistoryEvent: taskHistoryMocks.recordTaskHistoryEvent,
+}));
+
+vi.mock("../../../src/state/agent-scores.js", () => ({
+	recordAgentScoreEvent: agentScoreMocks.recordAgentScoreEvent,
+}));
 
 vi.mock("../../../src/terminal/agent-model-catalog.js", () => ({
 	loadAgentModelCatalog: agentModelCatalogMocks.loadAgentModelCatalog,
@@ -598,6 +611,158 @@ describe("createRuntimeApi startTaskSession", () => {
 		expect(terminalManager.startTaskSession).toHaveBeenCalledWith(
 			expect.objectContaining({ agentId, claudeModel: expectedModel }),
 		);
+	});
+
+	describe("agent model at session start", () => {
+		const sol = { id: "gpt-6.1-sol", efforts: ["medium", "high"] };
+
+		async function startWithCard(
+			agentId: "claude" | "codex" | "opencode",
+			card: Record<string, unknown>,
+			summary: Partial<RuntimeTaskSessionSummary> = {},
+		) {
+			taskWorktreeMocks.resolveTaskCwd.mockResolvedValue("/tmp/existing-worktree");
+			taskHistoryMocks.recordTaskHistoryEvent.mockClear();
+			workspaceStateMocks.loadWorkspaceBoardById.mockResolvedValue({
+				columns: [
+					{
+						id: "in_progress",
+						title: "In Progress",
+						cards: [
+							{
+								id: "task-1",
+								prompt: "Continue",
+								startInPlanMode: false,
+								baseRef: "main",
+								createdAt: 1,
+								updatedAt: 1,
+								agentId,
+								...card,
+							},
+						],
+					},
+				],
+				dependencies: [],
+			});
+			agentRegistryMocks.resolveAgentCommand.mockReturnValue({
+				agentId,
+				label: agentId,
+				command: agentId,
+				binary: agentId,
+				args: [],
+			});
+			const terminalManager = {
+				startTaskSession: vi.fn(async (_input: Record<string, unknown>) => createSummary({ agentId, ...summary })),
+				applyTurnCheckpoint: vi.fn(),
+			};
+			const api = createTestRuntimeApi({
+				getActiveWorkspaceId: vi.fn(() => "workspace-1"),
+				loadScopedRuntimeConfig: vi.fn(async () => createRuntimeConfigState()),
+				setActiveRuntimeConfig: vi.fn(),
+				getScopedTerminalManager: vi.fn(async () => terminalManager as never),
+				getScopedClineTaskSessionService: vi.fn(async () => createClineTaskSessionServiceMock() as never),
+				resolveInteractiveShellCommand: vi.fn(),
+				runCommand: vi.fn(),
+			});
+			const response = await api.startTaskSession(
+				{ workspaceId: "workspace-1", workspacePath: "/tmp/repo" },
+				{ taskId: "task-1", baseRef: "main", prompt: "Continue task", agentId },
+			);
+			expect(response.ok).toBe(true);
+			return terminalManager.startTaskSession.mock.calls[0]?.[0];
+		}
+
+		const comments = () =>
+			taskHistoryMocks.recordTaskHistoryEvent.mock.calls
+				.map((call) => (call as unknown[])[2] as { type: string; detail?: string })
+				.filter((event) => event.type === "comment");
+
+		beforeEach(() => {
+			agentModelCatalogMocks.loadAgentModelCatalog.mockReset();
+			agentModelCatalogMocks.loadAgentModelCatalog.mockResolvedValue({ ok: true, models: [sol] });
+		});
+
+		it("passes the table model and effort for a Codex task with a difficulty", async () => {
+			const request = await startWithCard("codex", { difficulty: 4 });
+			expect(request).toMatchObject({ agentModel: "gpt-6.1-sol", agentReasoningEffort: "high" });
+			expect(request?.claudeModel).toBeUndefined();
+			expect(comments()).toEqual([]);
+		});
+
+		it("uses the difficulty table for a Claude task without a card model", async () => {
+			const request = await startWithCard("claude", { difficulty: 1 });
+			expect(request).toMatchObject({ claudeModel: "haiku" });
+			expect(request?.agentModel).toBeUndefined();
+		});
+
+		it("passes no model when nothing resolves and does not read the catalog", async () => {
+			const request = await startWithCard("opencode", { difficulty: 3 });
+			expect(request?.agentModel).toBeUndefined();
+			expect(agentModelCatalogMocks.loadAgentModelCatalog).not.toHaveBeenCalled();
+		});
+
+		it("launches without model and effort and comments when the model is not in the catalog", async () => {
+			const request = await startWithCard("codex", { agentModel: "gone-model", agentReasoningEffort: "high" });
+			expect(request?.agentModel).toBeUndefined();
+			expect(request?.agentReasoningEffort).toBeUndefined();
+			expect(comments()).toHaveLength(1);
+			expect(comments()[0]?.detail).toContain("gone-model");
+		});
+
+		it("passes the model unchecked when the catalog is unreadable", async () => {
+			agentModelCatalogMocks.loadAgentModelCatalog.mockResolvedValue({ ok: false, error: "no codex" });
+			const request = await startWithCard("codex", { agentModel: "any-model", agentReasoningEffort: "ultra" });
+			expect(request).toMatchObject({ agentModel: "any-model", agentReasoningEffort: "ultra" });
+			expect(comments()).toEqual([]);
+		});
+
+		it("drops an effort the model does not support, with a warning", async () => {
+			const request = await startWithCard("codex", { agentModel: "gpt-6.1-sol", agentReasoningEffort: "ultra" });
+			expect(request?.agentModel).toBe("gpt-6.1-sol");
+			expect(request?.agentReasoningEffort).toBeUndefined();
+			expect(comments()[0]?.detail).toContain("ultra");
+		});
+
+		it("scores the assignment under the launched model", async () => {
+			agentScoreMocks.recordAgentScoreEvent.mockClear();
+			await startWithCard("codex", { difficulty: 4 }, { agentModel: "gpt-6.1-sol" });
+			expect(agentScoreMocks.recordAgentScoreEvent).toHaveBeenCalledWith(
+				"workspace-1",
+				expect.objectContaining({ type: "assigned", agentId: "codex:gpt-6.1-sol" }),
+			);
+		});
+
+		it("never checks home sessions against a card", async () => {
+			const homeTaskId = "__home_agent__:workspace-1:codex";
+			taskWorktreeMocks.resolveTaskCwd.mockResolvedValue("/tmp/repo");
+			workspaceStateMocks.loadWorkspaceBoardById.mockClear();
+			agentRegistryMocks.resolveAgentCommand.mockReturnValue({
+				agentId: "codex",
+				label: "codex",
+				command: "codex",
+				binary: "codex",
+				args: [],
+			});
+			const terminalManager = {
+				startTaskSession: vi.fn(async (_input: Record<string, unknown>) => createSummary({ agentId: "codex" })),
+				applyTurnCheckpoint: vi.fn(),
+			};
+			const api = createTestRuntimeApi({
+				getActiveWorkspaceId: vi.fn(() => "workspace-1"),
+				loadScopedRuntimeConfig: vi.fn(async () => createRuntimeConfigState()),
+				setActiveRuntimeConfig: vi.fn(),
+				getScopedTerminalManager: vi.fn(async () => terminalManager as never),
+				getScopedClineTaskSessionService: vi.fn(async () => createClineTaskSessionServiceMock() as never),
+				resolveInteractiveShellCommand: vi.fn(),
+				runCommand: vi.fn(),
+			});
+			await api.startTaskSession(
+				{ workspaceId: "workspace-1", workspacePath: "/tmp/repo" },
+				{ taskId: homeTaskId, baseRef: "main", prompt: "", agentId: "codex" },
+			);
+			expect(terminalManager.startTaskSession.mock.calls[0]?.[0].agentModel).toBeUndefined();
+			expect(agentModelCatalogMocks.loadAgentModelCatalog).not.toHaveBeenCalled();
+		});
 	});
 
 	it("ensures the worktree when no existing task cwd is available", async () => {

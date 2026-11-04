@@ -61,6 +61,24 @@ describe("runtime claude model helpers", () => {
 	});
 });
 
+describe("score keys for Codex and OpenCode", () => {
+	it("splits per launched model, and uses the plain agent id without one", () => {
+		expect(resolveScoreAgentKey({ agentId: "codex", sessionAgentModel: "gpt-6.1-sol" })).toBe("codex:gpt-6.1-sol");
+		expect(resolveScoreAgentKey({ agentId: "opencode", sessionAgentModel: "opencode/free-1" })).toBe(
+			"opencode:opencode/free-1",
+		);
+		expect(resolveScoreAgentKey({ agentId: "codex", sessionAgentModel: null })).toBe("codex");
+		expect(resolveScoreAgentKey({ agentId: "opencode" })).toBe("opencode");
+	});
+
+	it("ignores the agent model for other agents", () => {
+		expect(resolveScoreAgentKey({ agentId: "antigravity", sessionAgentModel: "x" })).toBe("antigravity");
+		expect(resolveScoreAgentKey({ agentId: "claude", sessionClaudeModel: "haiku", sessionAgentModel: "x" })).toBe(
+			"haiku",
+		);
+	});
+});
+
 describe("claude task session model schemas", () => {
 	it("parses a legacy task card without claudeModel", () => {
 		const card = runtimeBoardCardSchema.parse({

@@ -166,6 +166,23 @@ function setTaskClaudeModel(
 	return { board: { ...board, columns }, task };
 }
 
+function clearTaskAgentModel(
+	board: RuntimeWorkspaceStateResponse["board"],
+	taskId: string,
+): { board: RuntimeWorkspaceStateResponse["board"]; task: RuntimeBoardCard | null } {
+	let task: RuntimeBoardCard | null = null;
+	const columns = board.columns.map((column) => ({
+		...column,
+		cards: column.cards.map((card) => {
+			if (card.id !== taskId) return card;
+			const { agentModel: _agentModel, agentReasoningEffort: _agentReasoningEffort, ...rest } = card;
+			task = rest;
+			return rest;
+		}),
+	}));
+	return { board: { ...board, columns }, task };
+}
+
 type ParsedTaskClineReasoningEffort = RuntimeClineReasoningEffort | "default" | null | undefined;
 
 function parseTaskClineReasoningEffort(value: string | undefined): ParsedTaskClineReasoningEffort {
@@ -929,10 +946,15 @@ async function updateTaskCommand(input: {
 		if (!updatedTask.updated || !updatedTask.task) {
 			throw new Error(`Task "${input.taskId}" could not be updated.`);
 		}
+		// An explicit agent model belongs to the card's agent, so a new agent must not inherit it.
+		const agentChanged = input.agentId !== undefined && (input.agentId ?? undefined) !== taskRecord.task.agentId;
+		const agentUpdated = agentChanged
+			? clearTaskAgentModel(updatedTask.board, input.taskId)
+			: { board: updatedTask.board, task: updatedTask.task };
 		const modelUpdated =
 			model === undefined
-				? { board: updatedTask.board, task: updatedTask.task }
-				: setTaskClaudeModel(updatedTask.board, input.taskId, model === "default" ? undefined : model);
+				? agentUpdated
+				: setTaskClaudeModel(agentUpdated.board, input.taskId, model === "default" ? undefined : model);
 
 		const reviewed =
 			input.agentReviewEnabled === undefined

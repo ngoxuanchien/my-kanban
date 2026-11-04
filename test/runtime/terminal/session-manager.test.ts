@@ -1,3 +1,7 @@
+import { existsSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
 import { describe, expect, it, vi } from "vitest";
 
 import type { RuntimeTaskSessionSummary } from "../../../src/core/api-contract";
@@ -89,6 +93,78 @@ describe("TerminalSessionManager", () => {
 			expect(manager.getSummary("__home_agent__:workspace-1:claude")?.claudeModel).toBeNull();
 		} finally {
 			spawn.mockRestore();
+		}
+	});
+
+	it("records the Codex and OpenCode model that was actually launched", async () => {
+		// The OpenCode adapter writes its config under the runtime home; never touch the real one.
+		const tempHome = mkdtempSync(join(tmpdir(), "kanban-session-manager-"));
+		vi.stubEnv("HOME", tempHome);
+		const spawnRequests: SpawnPtySessionRequest[] = [];
+		const spawn = vi.spyOn(PtySession, "spawn").mockImplementation((request) => {
+			spawnRequests.push(request);
+			return {
+				pid: spawnRequests.length,
+				stop: vi.fn(),
+				write: vi.fn(),
+				wasInterrupted: () => false,
+			} as unknown as PtySession;
+		});
+		try {
+			const manager = new TerminalSessionManager();
+			const base = { binary: "agent", args: [], cwd: "/tmp/worktree", prompt: "" };
+			await manager.startTaskSession({
+				...base,
+				taskId: "codex-model",
+				agentId: "codex",
+				agentModel: "gpt-6.1-sol",
+				agentReasoningEffort: "high",
+			});
+			expect(spawnRequests[0]?.args).toContain("gpt-6.1-sol");
+			expect(manager.getSummary("codex-model")).toMatchObject({
+				agentModel: "gpt-6.1-sol",
+				agentReasoningEffort: "high",
+				claudeModel: null,
+			});
+
+			await manager.startTaskSession({ ...base, taskId: "codex-default", agentId: "codex" });
+			expect(manager.getSummary("codex-default")).toMatchObject({ agentModel: null, agentReasoningEffort: null });
+
+			await manager.startTaskSession({
+				...base,
+				taskId: "codex-user-args",
+				agentId: "codex",
+				args: ["-m", "user-model"],
+				agentModel: "gpt-6.1-sol",
+			});
+			expect(manager.getSummary("codex-user-args")?.agentModel).toBe("user-model");
+
+			await manager.startTaskSession({
+				...base,
+				taskId: "opencode-model",
+				agentId: "opencode",
+				agentModel: "opencode/free-1",
+			});
+			expect(manager.getSummary("opencode-model")).toMatchObject({
+				agentModel: "opencode/free-1",
+				agentReasoningEffort: null,
+			});
+			manager.stopTaskSession("opencode-model");
+
+			await manager.startTaskSession({
+				...base,
+				taskId: "claude-model",
+				agentId: "claude",
+				claudeModel: "opus",
+			});
+			expect(manager.getSummary("claude-model")).toMatchObject({ claudeModel: "opus", agentModel: null });
+			const taskConfigDirectory = join(tempHome, ".cline", "kanban", "hooks", "opencode", "tasks");
+			expect(existsSync(taskConfigDirectory)).toBe(true);
+			expect(readdirSync(taskConfigDirectory).length).toBeLessThanOrEqual(1);
+		} finally {
+			spawn.mockRestore();
+			vi.unstubAllEnvs();
+			rmSync(tempHome, { recursive: true, force: true });
 		}
 	});
 

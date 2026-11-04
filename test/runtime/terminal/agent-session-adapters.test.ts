@@ -299,6 +299,136 @@ describe("prepareAgentLaunch hook strategies", () => {
 		expect(resumed.args).toContain("--continue");
 	});
 
+	describe("per-task agent model", () => {
+		const codexInput = {
+			taskId: "task-codex-model",
+			agentId: "codex" as const,
+			binary: "codex",
+			args: [] as string[],
+			cwd: "/tmp",
+			prompt: "",
+		};
+		const opencodeInput = {
+			agentId: "opencode" as const,
+			binary: "opencode",
+			args: [] as string[],
+			cwd: "/tmp",
+			prompt: "",
+			workspaceId: "workspace-1",
+		};
+
+		it("passes the Codex model and effort when resolved", async () => {
+			setupTempHome();
+			const launch = await prepareAgentLaunch({
+				...codexInput,
+				agentModel: "gpt-6.1-sol",
+				agentReasoningEffort: "high",
+				resumeFromTrash: true,
+			});
+			const modelIndex = launch.args.indexOf("-m");
+			expect(launch.args[modelIndex + 1]).toBe("gpt-6.1-sol");
+			expect(modelIndex).toBeLessThan(launch.args.indexOf("resume"));
+			expect(getCodexConfigOverrideValues(launch.args, "model_reasoning_effort")).toEqual(["high"]);
+			expect(launch.launchedAgentModel).toBe("gpt-6.1-sol");
+			expect(launch.launchedAgentReasoningEffort).toBe("high");
+		});
+
+		it("adds no Codex model flags when nothing is resolved", async () => {
+			setupTempHome();
+			const launch = await prepareAgentLaunch(codexInput);
+			expect(launch.args).not.toContain("-m");
+			expect(getCodexConfigOverrideValues(launch.args, "model_reasoning_effort")).toEqual([]);
+			expect(launch.launchedAgentModel).toBeNull();
+			expect(launch.launchedAgentReasoningEffort).toBeNull();
+		});
+
+		it.each([
+			[["-m", "user-model"]],
+			[["--model", "user-model"]],
+			[["--model=user-model"]],
+			[["-c", 'model="user-model"']],
+		])("respects user args: model %j", async (args) => {
+			setupTempHome();
+			const launch = await prepareAgentLaunch({ ...codexInput, args, agentModel: "gpt-6.1-sol" });
+			expect(launch.args.join(" ")).not.toContain("gpt-6.1-sol");
+			expect(launch.launchedAgentModel).toBe("user-model");
+		});
+
+		it("respects user args: a table effort is not applied to the user's own model", async () => {
+			setupTempHome();
+			const launch = await prepareAgentLaunch({
+				...codexInput,
+				args: ["-m", "user-model"],
+				agentModel: "gpt-6.1-sol",
+				agentReasoningEffort: "high",
+			});
+			expect(getCodexConfigOverrideValues(launch.args, "model_reasoning_effort")).toEqual([]);
+			expect(launch.launchedAgentReasoningEffort).toBeNull();
+		});
+
+		it("respects user args: model_reasoning_effort", async () => {
+			setupTempHome();
+			const launch = await prepareAgentLaunch({
+				...codexInput,
+				args: ["-c", "model_reasoning_effort=low"],
+				agentModel: "gpt-6.1-sol",
+				agentReasoningEffort: "high",
+			});
+			expect(getCodexConfigOverrideValues(launch.args, "model_reasoning_effort")).toEqual(["low"]);
+			expect(launch.launchedAgentModel).toBe("gpt-6.1-sol");
+			expect(launch.launchedAgentReasoningEffort).toBe("low");
+		});
+
+		it("does not read a Codex model from the prompt", async () => {
+			setupTempHome();
+			const launch = await prepareAgentLaunch({ ...codexInput, prompt: "-mfoo" });
+			expect(launch.launchedAgentModel).toBeNull();
+		});
+
+		it("writes a task-specific OpenCode config with the model and the plugin", async () => {
+			setupTempHome();
+			const launch = await prepareAgentLaunch({
+				...opencodeInput,
+				taskId: "task-a",
+				agentModel: "opencode/free-1",
+				agentReasoningEffort: "high",
+			});
+			const hooksDir = join(homedir(), ".cline", "kanban", "hooks", "opencode");
+			const configPath = launch.env.OPENCODE_CONFIG as string;
+			expect(configPath).not.toBe(join(hooksDir, "opencode.json"));
+			expect(configPath).toContain("task-a");
+			const config = JSON.parse(readFileSync(configPath, "utf8")) as { model: string; plugin: string[] };
+			expect(config.model).toBe("opencode/free-1");
+			expect(config.plugin).toEqual([pathToFileURL(join(hooksDir, "kanban")).href]);
+			expect(launch.args).not.toContain("--model");
+			expect(launch.launchedAgentModel).toBe("opencode/free-1");
+			expect(launch.launchedAgentReasoningEffort).toBeNull();
+			await launch.cleanup?.();
+			expect(existsSync(configPath)).toBe(false);
+		});
+
+		it("gives two OpenCode tasks different config files", async () => {
+			setupTempHome();
+			const first = await prepareAgentLaunch({ ...opencodeInput, taskId: "task-a", agentModel: "opencode/free-1" });
+			const second = await prepareAgentLaunch({ ...opencodeInput, taskId: "task-b", agentModel: "opencode/free-2" });
+			expect(first.env.OPENCODE_CONFIG).not.toBe(second.env.OPENCODE_CONFIG);
+			const read = (path: unknown) =>
+				JSON.parse(readFileSync(path as string, "utf8")) as { model: string; plugin: string[] };
+			expect(read(first.env.OPENCODE_CONFIG).model).toBe("opencode/free-1");
+			expect(read(second.env.OPENCODE_CONFIG).model).toBe("opencode/free-2");
+			expect(read(second.env.OPENCODE_CONFIG).plugin).toHaveLength(1);
+		});
+
+		it("keeps the shared OpenCode config without a model", async () => {
+			setupTempHome();
+			const launch = await prepareAgentLaunch({ ...opencodeInput, taskId: "task-a" });
+			const hooksDir = join(homedir(), ".cline", "kanban", "hooks", "opencode");
+			expect(launch.env.OPENCODE_CONFIG).toBe(join(hooksDir, "opencode.json"));
+			expect(launch.cleanup).toBeUndefined();
+			expect(launch.launchedAgentModel).toBeNull();
+		});
+	});
+
 	it("writes an OpenCode v2 plugin directory and launches with a private server", async () => {
 		setupTempHome();
 		const launch = await prepareAgentLaunch({

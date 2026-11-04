@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { RuntimeAgentId, RuntimeBoardCard } from "./api-contract";
+import type { RuntimeAgentId, RuntimeAgentModelCatalog, RuntimeBoardCard } from "./api-contract";
 import { type RuntimeClaudeModel, runtimeClaudeModelSchema } from "./claude-model";
 
 export const runtimeTaskDifficultySchema = z.union([
@@ -91,4 +91,33 @@ export function resolveTaskAgentModel(input: {
 	if (!cell?.model) return NO_OVERRIDE;
 	const tableEffort = agentId === "codex" ? (cell.reasoningEffort ?? null) : null;
 	return { model: cell.model, reasoningEffort: explicitEffort ?? tableEffort, source: "difficulty" };
+}
+
+/**
+ * A model the catalog does not list is dropped with its effort, so the agent starts on its own default.
+ * An unreadable catalog proves nothing: the values pass unchecked and the crash handoff covers a rejected model.
+ */
+export function checkAgentModelAgainstCatalog(
+	agentId: string,
+	resolved: { model: string; reasoningEffort: string | null },
+	catalog: RuntimeAgentModelCatalog,
+): { model: string | null; reasoningEffort: string | null; warning: string | null } {
+	const { model, reasoningEffort } = resolved;
+	if (!catalog.ok) return { model, reasoningEffort, warning: null };
+	const entry = catalog.models.find((candidate) => candidate.id === model);
+	if (!entry) {
+		return {
+			model: null,
+			reasoningEffort: null,
+			warning: `Model ${model} is not in the ${agentId} model list; launched with the agent's own default model.`,
+		};
+	}
+	if (reasoningEffort && !entry.efforts.includes(reasoningEffort)) {
+		return {
+			model,
+			reasoningEffort: null,
+			warning: `Model ${model} does not support reasoning effort ${reasoningEffort}; launched without it.`,
+		};
+	}
+	return { model, reasoningEffort, warning: null };
 }

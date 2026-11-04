@@ -96,6 +96,8 @@ export interface StartTaskSessionRequest {
 	env?: Record<string, string | undefined>;
 	workspaceId?: string;
 	claudeModel?: RuntimeClaudeModel;
+	agentModel?: string;
+	agentReasoningEffort?: string;
 }
 
 export interface StartShellSessionRequest {
@@ -338,6 +340,8 @@ export class TerminalSessionManager implements TerminalSessionService {
 			binary: request.binary,
 			args: request.args,
 			claudeModel: request.claudeModel,
+			agentModel: request.agentModel,
+			agentReasoningEffort: request.agentReasoningEffort,
 			autonomousModeEnabled: request.autonomousModeEnabled,
 			cwd: request.cwd,
 			prompt: request.prompt,
@@ -517,6 +521,8 @@ export class TerminalSessionManager implements TerminalSessionService {
 				latestTurnCheckpoint: null,
 				previousTurnCheckpoint: null,
 				claudeModel: null,
+				agentModel: null,
+				agentReasoningEffort: null,
 			});
 			this.emitSummary(summary);
 			throw new Error(formatSpawnFailure(commandBinary, error));
@@ -564,6 +570,8 @@ export class TerminalSessionManager implements TerminalSessionService {
 			latestTurnCheckpoint: null,
 			previousTurnCheckpoint: null,
 			claudeModel: request.agentId === "claude" ? claudeModel : null,
+			agentModel: launch.launchedAgentModel ?? null,
+			agentReasoningEffort: launch.launchedAgentReasoningEffort ?? null,
 		});
 		this.emitSummary(entry.summary);
 
