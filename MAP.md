@@ -84,6 +84,8 @@ Update this file whenever a file or folder is created or moved.
 | `docs/superpowers/plans/2026-11-03-compact-task-list-and-comments.md` | Plan for the compact task list and comments spec (2 chained Kanban tasks). |
 | `docs/superpowers/specs/2026-11-03-dependency-start-after-review-pass-design.md` | Spec: `task done --review-passed` from In Progress starts linked backlog tasks; find why a handed-off task stays In Progress. |
 | `docs/superpowers/plans/2026-11-03-dependency-start-after-review-pass.md` | Plan for the dependency start after review pass spec (1 Kanban task). |
+| `docs/superpowers/specs/2026-11-04-github-issue-sync-design.md` | Spec: opt-in per project, mirror tasks to GitHub issues via `gh` (status label, column comments, commit + close on Done); never the prompt; UI summary field, card `#issue` link, Sync now. |
+| `docs/superpowers/plans/2026-11-04-github-issue-sync.md` | Plan for the GitHub issue sync spec, split into 3 Kanban tasks (1 → 2, 3). |
 | `docs/agents/task-prompt-template.md` | Prompt template the planner fills in for every Kanban task. |
 | `.plan/` | Older internal plans, handoffs, investigations (`.plan/docs/`). |
 
