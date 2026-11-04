@@ -51,7 +51,7 @@
   - `does nothing when disabled` → zero runner calls.
   - `creates issue for backlog task` → argv `["issue","create","--title",<title>,"--body",<body>,"--label","kanban: backlog"]`; body equals `"<summary>\n\n---\nKanban task: <id>"` when a summary exists, `"Kanban task: <id>"` otherwise; body never contains the prompt string; mapping gets `issueNumber`, `issueUrl`, `syncedColumn: "backlog"`.
   - `ensures labels before first use` → `["label","create",<label>,"--force", ...]` precedes `issue create`/`issue edit` once per run.
-  - `column move swaps label and comments` → `issue edit <n> --add-label "kanban: in progress" --remove-label "kanban: backlog"` then `issue comment <n> --body "Moved to In progress"`; assert no comment or body contains the card's `agentId` (e.g. `codex`, `claude`, `opencode`).
+  - `column move swaps label and comments` → `issue edit <n> --add-label "kanban: in progress" --remove-label "kanban: backlog"` then `issue comment <n> --body "Moved to In progress (agent: codex)"` (omit ` (agent: …)` when the card has no `agentId`).
   - `done with commit` → `issue comment <n> --body "Done in commit <sha>"` (sha from the latest `pass` event with `commit`), `issue edit` removing the status label, `issue close <n> --reason completed`; `closed: true`.
   - `done without commit` → comment `Moved to Done`, then close completed.
   - `task back from done reopens` → `issue reopen <n>`, add label for the new column, comment `Reopened, moved to <Column title>`.
