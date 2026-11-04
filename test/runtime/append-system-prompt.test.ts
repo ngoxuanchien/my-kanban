@@ -193,6 +193,9 @@ describe("renderAppendSystemPrompt", () => {
 		expect(rendered).toContain("task show --task-id <task_id>");
 		expect(rendered).toContain("[--all] [--json] [--full]");
 		expect(rendered).toContain("Use `task show --task-id <task_id>` to read its prompt");
+		expect(rendered).toContain(
+			"Run the acceptance commands in the prompt and always run `npm run web:typecheck`; when none are specified, run `npm run typecheck`, `npm run lint`, `npm run test:fast`, and `npm run web:typecheck`.",
+		);
 		expect(rendered).toContain("Provide exactly one of");
 		expect(rendered).toContain("task delete --column done");
 		expect(rendered).toContain("kanban task link");
