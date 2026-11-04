@@ -208,12 +208,26 @@ Purpose: send a concrete fix list to a running task agent after a failed sidebar
 Command:
 \`${kanbanCommand} task send --task-id <task_id> --message "<text>" [--project-path <path>]\`
 
+## task models
+
+Purpose: show each agent's difficulty table, available models with their efforts, and review pass/fail counts per model.
+
+Command:
+\`${kanbanCommand} task models [--agent codex|opencode|claude] [--project-path <path>]\`
+
+## task comment
+
+Purpose: add a short note to a task's history for later agents.
+
+Command:
+\`${kanbanCommand} task comment --task-id <task_id> --message "<text>" [--project-path <path>]\`
+
 ## task create
 
 Purpose: create a new task in \`backlog\`, with optional plan mode and auto-review behavior.
 
 Command:
-\`${kanbanCommand} task create [--title "<text>"] --prompt "<text>" [--project-path <path>] [--base-ref <branch>] [--start-in-plan-mode <true|false>] [--auto-review-enabled <true|false>] [--auto-review-mode commit|pr] [--agent-id <${RUNTIME_AGENT_IDS_TEXT}>] [--model <haiku|sonnet|opus>] [--agent-review-enabled <true|false>] [--summary "<text>"]\`
+\`${kanbanCommand} task create [--title "<text>"] --prompt "<text>" [--project-path <path>] [--base-ref <branch>] [--start-in-plan-mode <true|false>] [--auto-review-enabled <true|false>] [--auto-review-mode commit|pr] [--agent-id <${RUNTIME_AGENT_IDS_TEXT}>] [--difficulty <1-5>] [--model <model>] [--reasoning-effort <level>] [--agent-review-enabled <true|false>] [--summary "<text>"]\`
 
 Parameters:
 - \`--title "<text>"\` optional task title. If omitted, Kanban derives one from the prompt.
@@ -224,7 +238,9 @@ Parameters:
 - \`--auto-review-enabled <true|false>\` optional. Default false. Enables automatic action once task reaches review.
 - \`--auto-review-mode commit|pr\` optional auto-review action. Default \`commit\`.
 - \`--agent-id <${RUNTIME_AGENT_IDS_TEXT}>\` optional runtime agent for this task.
-- \`--model <haiku|sonnet|opus>\` optional Claude model. Use it only when the user names a Claude model.
+- \`--difficulty <1-5>\` task difficulty. See "Task difficulty" below.
+- \`--model <model>\` optional model: \`haiku\`, \`sonnet\`, or \`opus\` for claude, a model id from \`task models\` for codex or opencode. Pass it only when the user names a model.
+- \`--reasoning-effort <level>\` optional Codex reasoning effort. Pass it only when the user names a model or effort.
 - \`--agent-review-enabled <true|false>\` optional. Default false. When true, the sidebar agent reviews the task when it reaches Review, with up to 3 fix rounds before \`task handoff\`.
 - \`--summary "<text>"\` optional GitHub issue body. When the project has GitHub issue sync on, pass a 1–3 sentence lecturer-facing summary of the task with no file paths, no \`contexte/\` content, and no secrets. The task prompt itself never goes to GitHub.
 
@@ -233,7 +249,7 @@ Parameters:
 Purpose: update an existing task, including prompt, base ref, plan mode, and auto-review behavior.
 
 Command:
-\`${kanbanCommand} task update --task-id <task_id> [--title "<text>"] [--prompt "<text>"] [--project-path <path>] [--base-ref <branch>] [--start-in-plan-mode <true|false>] [--auto-review-enabled <true|false>] [--auto-review-mode commit|pr] [--agent-id <${RUNTIME_AGENT_IDS_TEXT}|default>] [--model <haiku|sonnet|opus|default>] [--agent-review-enabled <true|false>]\`
+\`${kanbanCommand} task update --task-id <task_id> [--title "<text>"] [--prompt "<text>"] [--project-path <path>] [--base-ref <branch>] [--start-in-plan-mode <true|false>] [--auto-review-enabled <true|false>] [--auto-review-mode commit|pr] [--agent-id <${RUNTIME_AGENT_IDS_TEXT}|default>] [--difficulty <1-5>] [--model <model|default>] [--reasoning-effort <level|default>] [--agent-review-enabled <true|false>]\`
 
 Parameters:
 - \`--task-id <task_id>\` required task ID.
@@ -245,7 +261,9 @@ Parameters:
 - \`--auto-review-enabled <true|false>\` optional replacement of auto-review toggle. Set false to cancel pending automatic review actions.
 - \`--auto-review-mode commit|pr\` optional replacement auto-review action.
 - \`--agent-id <${RUNTIME_AGENT_IDS_TEXT}|default>\` optional replacement runtime agent. Use \`default\` to clear the override.
-- \`--model <haiku|sonnet|opus|default>\` optional Claude model. Use \`default\` to clear the override; use a model only when the user names one.
+- \`--difficulty <1-5>\` optional replacement difficulty.
+- \`--model <model|default>\` optional model for the effective agent: \`haiku\`, \`sonnet\`, or \`opus\` for claude, a model id from \`task models\` for codex or opencode. Use \`default\` to clear the override; use a model only when the user names one.
+- \`--reasoning-effort <level|default>\` optional Codex reasoning effort. Use \`default\` to clear the override.
 - \`--agent-review-enabled <true|false>\` optional replacement of agent review behavior. When true, the sidebar agent reviews the task when it reaches Review, with up to 3 fix rounds before \`task handoff\`.
 
 Notes:
@@ -346,7 +364,22 @@ Command:
 
 - Prefer \`task list\` first when task IDs or dependency IDs are needed.
 - To create multiple linked tasks, create tasks first, then call \`task link\` for each dependency edge.
-- When creating a task and the user did not name an agent, always pass \`--agent-id\`. Rotate through ${HAND_OFF_CYCLE.join(", ")} in that order, starting after the agent of the most recently created task in \`task list\` (start with ${HAND_OFF_CYCLE[0]} if none uses one of them). Use any other agent, such as claude or cline, only when the user asks for it, because only these agents can be handed off when a task gets stuck. Use \`--model\` only when the user names a Claude model; never pick Claude or a model on your own.
+- When creating a task and the user did not name an agent, always pass \`--agent-id\`. Rotate through ${HAND_OFF_CYCLE.join(", ")} in that order, starting after the agent of the most recently created task in \`task list\` (start with ${HAND_OFF_CYCLE[0]} if none uses one of them). Use any other agent, such as claude or cline, only when the user asks for it, because only these agents can be handed off when a task gets stuck. Never pick Claude or a model on your own.
+
+# Task difficulty
+
+Score every task you create:
+- 1 = one-file text/config change
+- 2 = small fix in 1-2 files with a test
+- 3 = small feature in 2-4 files
+- 4 = feature across runtime + CLI or runtime + UI, or tricky state/concurrency
+- 5 = multi-layer change with migration, concurrency, or security weight
+
+Rules:
+- Always pass --difficulty on \`task create\`; Kanban picks the model from the difficulty table.
+- Pass --model/--reasoning-effort only when the user names a model.
+- Run task models once before creating tasks, to see the live table and available models.
+- Record the score reason as a task comment: \`task comment --task-id <task_id> --message "<one-line reason>"\`.
 
 # Reviewing tasks
 

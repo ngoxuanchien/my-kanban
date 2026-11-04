@@ -2,8 +2,15 @@ import { join } from "node:path";
 import { createTRPCProxyClient, httpBatchLink } from "@trpc/client";
 import type { Command } from "commander";
 import { isRuntimeAgentLaunchSupported, RUNTIME_LAUNCH_SUPPORTED_AGENT_IDS } from "../core/agent-catalog";
+import {
+	type DifficultyModelCell,
+	type DifficultyModelMap,
+	runtimeTaskDifficultySchema,
+	type TaskDifficulty,
+} from "../core/agent-model";
 import type {
 	RuntimeAgentId,
+	RuntimeAgentModelCatalogsResponse,
 	RuntimeBoardCard,
 	RuntimeBoardColumnId,
 	RuntimeBoardDependency,
@@ -12,7 +19,12 @@ import type {
 	RuntimeWorkspaceStateResponse,
 } from "../core/api-contract";
 import { runtimeAgentIdSchema, runtimeClineReasoningEffortSchema } from "../core/api-contract";
-import { type RuntimeClaudeModel, resolveScoreAgentKey, runtimeClaudeModelSchema } from "../core/claude-model";
+import {
+	isRuntimeClaudeModel,
+	type RuntimeClaudeModel,
+	resolveScoreAgentKey,
+	runtimeClaudeModelSchema,
+} from "../core/claude-model";
 import { resolveEffectiveTaskAgentId } from "../core/effective-task-agent";
 import { getHandOffCount } from "../core/hand-off-cap";
 import { buildKanbanRuntimeUrl, getKanbanRuntimeOrigin, getRuntimeFetch } from "../core/runtime-endpoint";
@@ -59,6 +71,7 @@ type ResolvedTaskCommandTarget =
 
 interface RuntimeWorkspaceMutationResult<T> {
 	board: RuntimeWorkspaceStateResponse["board"];
+	sessions?: RuntimeWorkspaceStateResponse["sessions"];
 	value: T;
 }
 
@@ -73,6 +86,14 @@ function toErrorMessage(error: unknown): string {
 
 function printJson(payload: unknown): void {
 	process.stdout.write(`${JSON.stringify(payload, null, 2)}\n`);
+}
+
+function printTextOrJson(payload: unknown): void {
+	if (typeof payload === "object" && payload !== null && "text" in payload) {
+		process.stdout.write(String(payload.text));
+	} else {
+		printJson(payload);
+	}
 }
 
 function parseListColumn(value: string | undefined): ListTaskColumn | undefined {
@@ -127,60 +148,96 @@ function parseOptionalStringOrDefault(value: string | undefined): string | null 
 	return value;
 }
 
-function parseTaskClaudeModel(value: string | undefined, allowDefault: false): RuntimeClaudeModel | undefined;
-function parseTaskClaudeModel(
-	value: string | undefined,
-	allowDefault: true,
-): RuntimeClaudeModel | "default" | undefined;
-function parseTaskClaudeModel(
-	value: string | undefined,
-	allowDefault: boolean,
-): RuntimeClaudeModel | "default" | undefined {
-	if (value === undefined) return undefined;
-	if (allowDefault && value === "default") return "default";
+function parseTaskClaudeModel(value: string): RuntimeClaudeModel | "default" {
+	if (value === "default") return "default";
 	const result = runtimeClaudeModelSchema.safeParse(value);
-	if (!result.success)
-		throw new Error(`Invalid --model "${value}". Expected: haiku, sonnet, opus${allowDefault ? ", default" : ""}.`);
+	if (!result.success) throw new Error(`Invalid --model "${value}". Expected: haiku, sonnet, opus, default.`);
 	return result.data;
 }
 
-function setTaskClaudeModel(
+function parseTaskDifficulty(value: string | undefined): TaskDifficulty | undefined {
+	if (value === undefined) return undefined;
+	const result = runtimeTaskDifficultySchema.safeParse(Number(value));
+	if (!result.success) throw new Error(`Invalid --difficulty "${value}". Expected an integer from 1 to 5.`);
+	return result.data;
+}
+
+// A key set to undefined clears that field; an absent key leaves it alone.
+type TaskModelFields = Partial<
+	Pick<RuntimeBoardCard, "difficulty" | "claudeModel" | "agentModel" | "agentReasoningEffort">
+>;
+
+function setTaskModelFields(
 	board: RuntimeWorkspaceStateResponse["board"],
 	taskId: string,
-	model: RuntimeClaudeModel | undefined,
+	fields: TaskModelFields,
 ): { board: RuntimeWorkspaceStateResponse["board"]; task: RuntimeBoardCard | null } {
 	let task: RuntimeBoardCard | null = null;
 	const columns = board.columns.map((column) => {
-		let changed = false;
+		if (!column.cards.some((card) => card.id === taskId)) return column;
 		const cards = column.cards.map((card) => {
 			if (card.id !== taskId) return card;
-			changed = true;
-			task =
-				model === undefined
-					? (({ claudeModel: _claudeModel, ...rest }) => rest)(card)
-					: { ...card, claudeModel: model };
-			return task;
+			const next: RuntimeBoardCard = { ...card, ...fields };
+			for (const key of Object.keys(fields) as Array<keyof TaskModelFields>) {
+				if (next[key] === undefined) delete next[key];
+			}
+			task = next;
+			return next;
 		});
-		return changed ? { ...column, cards } : column;
+		return { ...column, cards };
 	});
 	return { board: { ...board, columns }, task };
 }
 
-function clearTaskAgentModel(
-	board: RuntimeWorkspaceStateResponse["board"],
-	taskId: string,
-): { board: RuntimeWorkspaceStateResponse["board"]; task: RuntimeBoardCard | null } {
-	let task: RuntimeBoardCard | null = null;
-	const columns = board.columns.map((column) => ({
-		...column,
-		cards: column.cards.map((card) => {
-			if (card.id !== taskId) return card;
-			const { agentModel: _agentModel, agentReasoningEffort: _agentReasoningEffort, ...rest } = card;
-			task = rest;
-			return rest;
-		}),
-	}));
-	return { board: { ...board, columns }, task };
+// A Claude alias or "default" needs no catalog. An unreachable catalog query means any id is accepted.
+async function loadCatalogsForModel(
+	runtimeClient: ReturnType<typeof createRuntimeTrpcClient>,
+	model: string | undefined,
+): Promise<RuntimeAgentModelCatalogsResponse | null> {
+	if (model === undefined || model === "default" || isRuntimeClaudeModel(model)) return null;
+	return await runtimeClient.runtime.getAgentModelCatalogs.query().catch(() => null);
+}
+
+function buildTaskModelFields(input: {
+	agentId: string | null | undefined;
+	model?: string;
+	reasoningEffort?: string;
+	difficulty?: TaskDifficulty;
+	catalogs: RuntimeAgentModelCatalogsResponse | null;
+}): TaskModelFields {
+	const { agentId, model, reasoningEffort, difficulty, catalogs } = input;
+	const fields: TaskModelFields = difficulty === undefined ? {} : { difficulty };
+	if (model !== undefined) {
+		if (agentId === "claude") {
+			const claudeModel = parseTaskClaudeModel(model);
+			fields.claudeModel = claudeModel === "default" ? undefined : claudeModel;
+		} else if (agentId === "codex" || agentId === "opencode") {
+			const catalog = catalogs?.[agentId];
+			const unknown = catalog?.ok === true && !catalog.models.some(({ id }) => id === model);
+			if (model !== "default" && (isRuntimeClaudeModel(model) || !model.trim() || unknown)) {
+				throw new Error(`Invalid --model "${model}" for ${agentId}. Run task models to see the available models.`);
+			}
+			fields.agentModel = model === "default" ? undefined : model;
+		} else {
+			throw new Error("--model can only be used when the effective task agent is claude, codex, or opencode.");
+		}
+	}
+	if (reasoningEffort !== undefined) {
+		if (agentId !== "codex") {
+			throw new Error("--reasoning-effort can only be used when the effective task agent is codex.");
+		}
+		if (!reasoningEffort.trim()) throw new Error("--reasoning-effort cannot be empty.");
+		fields.agentReasoningEffort = reasoningEffort === "default" ? undefined : reasoningEffort;
+	}
+	return fields;
+}
+
+function formatTaskModelFields(task: RuntimeBoardCard): JsonRecord {
+	return {
+		...(task.difficulty ? { difficulty: task.difficulty } : {}),
+		...(task.agentModel ? { agentModel: task.agentModel } : {}),
+		...(task.agentReasoningEffort ? { agentReasoningEffort: task.agentReasoningEffort } : {}),
+	};
 }
 
 type ParsedTaskClineReasoningEffort = RuntimeClineReasoningEffort | "default" | null | undefined;
@@ -391,6 +448,7 @@ async function recordReviewScore(input: {
 			? resolveScoreAgentKey({
 					agentId,
 					sessionClaudeModel: state.sessions[input.taskId]?.claudeModel,
+					sessionAgentModel: state.sessions[input.taskId]?.agentModel,
 					cardClaudeModel: card?.claudeModel,
 					defaultClaudeModel: config.claudeDefaultModel,
 				})
@@ -440,6 +498,7 @@ async function updateRuntimeWorkspaceState<T>(
 		const mutation = mutate(state);
 		return {
 			board: mutation.board,
+			sessions: mutation.sessions,
 			value: mutation.value,
 		};
 	});
@@ -491,6 +550,7 @@ function formatTaskRecord(
 		handOffCount: getHandOffCount(task),
 		...(task.agentId ? { agentId: task.agentId } : {}),
 		...(task.claudeModel ? { claudeModel: task.claudeModel } : {}),
+		...formatTaskModelFields(task),
 		...formatTaskClineSettings(task.clineSettings),
 		createdAt: task.createdAt,
 		updatedAt: task.updatedAt,
@@ -621,6 +681,7 @@ type CompactTaskListRow = {
 	session: string | null;
 	title: string;
 	agentReviewEnabled: boolean;
+	difficulty?: TaskDifficulty;
 };
 
 function compactTaskList(
@@ -649,6 +710,7 @@ function compactTaskList(
 				session: session?.state ?? null,
 				title: task.title || task.prompt.split(/\r?\n/u, 1)[0]?.slice(0, 80) || "",
 				agentReviewEnabled: task.agentReviewEnabled === true,
+				...(task.difficulty ? { difficulty: task.difficulty } : {}),
 			};
 		});
 	});
@@ -686,7 +748,7 @@ function formatTaskListText(list: ReturnType<typeof compactTaskList>): string {
 	};
 	const lines = list.tasks.map((task) => {
 		const round = task.agentReviewEnabled ? `r${task.reviewRound}/${3 * (task.handOffCount + 1)}` : "-";
-		return `${task.id.slice(0, 5).padEnd(widths.id)}  ${task.column.padEnd(widths.column)}  ${(task.agentId ?? "-").padEnd(widths.agent)}  ${round.padEnd(widths.review)}  ${`h${task.handOffCount}`.padEnd(widths.handoff)}  ${(task.session ?? "-").padEnd(widths.session)}  ${task.title}`;
+		return `${task.id.slice(0, 5).padEnd(widths.id)}  ${task.column.padEnd(widths.column)}  ${(task.agentId ?? "-").padEnd(widths.agent)}  ${round.padEnd(widths.review)}  ${`h${task.handOffCount}`.padEnd(widths.handoff)}  ${(task.session ?? "-").padEnd(widths.session)}  ${task.difficulty ? `d${task.difficulty} ` : ""}${task.title}`;
 	});
 	if (list.doneHidden > 0) {
 		lines.push(`(${list.doneHidden} more done not shown; pass --column done or --all)`);
@@ -698,6 +760,64 @@ function formatTaskListText(list: ReturnType<typeof compactTaskList>): string {
 		lines.push(`last created: ${list.lastCreated.id} (${list.lastCreated.agentId ?? "-"})`);
 	}
 	return `${lines.join("\n")}\n`;
+}
+
+const TASK_MODEL_AGENTS = ["codex", "opencode", "claude"] as const;
+type TaskModelAgent = (typeof TASK_MODEL_AGENTS)[number];
+
+function isScoreKeyOfAgent(key: string, agent: TaskModelAgent): boolean {
+	if (agent === "claude") return key === "claude" || isRuntimeClaudeModel(key);
+	return key === agent || key.startsWith(`${agent}:`);
+}
+
+function formatTaskModels(
+	agent: TaskModelAgent,
+	map: DifficultyModelMap,
+	catalogs: RuntimeAgentModelCatalogsResponse,
+	scores: NonNullable<RuntimeWorkspaceStateResponse["agentScores"]>,
+): string {
+	const catalog = catalogs[agent];
+	const agentScores = scores.filter(({ agentId }) => isScoreKeyOfAgent(agentId, agent));
+	return [
+		agent,
+		"  Difficulty table:",
+		...([1, 2, 3, 4, 5] as const).map((difficulty) => {
+			const cell: DifficultyModelCell | undefined = map[agent]?.[difficulty];
+			const effort = cell?.reasoningEffort ? `/${cell.reasoningEffort}` : "";
+			return `    ${difficulty} → ${cell?.model ? `${cell.model}${effort}` : "default"}`;
+		}),
+		"  Models:",
+		...(catalog.ok
+			? catalog.models.map(({ id, description, efforts }) => {
+					const about = description ? ` — ${description}` : "";
+					return `    ${id}${about}${efforts.length > 0 ? ` [${efforts.join(",")}]` : ""}`;
+				})
+			: [`    catalog unavailable: ${catalog.error}`]),
+		"  Scores (pass/fail):",
+		...(agentScores.length > 0
+			? agentScores.map(
+					({ agentId, passes, fails }) => `    ${agentId === agent ? "default" : agentId} ${passes}/${fails}`,
+				)
+			: ["    none"]),
+	].join("\n");
+}
+
+async function listTaskModels(input: { cwd: string; projectPath?: string; agent?: string }): Promise<JsonRecord> {
+	const agents = TASK_MODEL_AGENTS.filter((agent) => input.agent === undefined || agent === input.agent);
+	if (agents.length === 0) {
+		throw new Error(`Invalid --agent "${input.agent}". Expected one of: ${TASK_MODEL_AGENTS.join(", ")}.`);
+	}
+	const workspace = await resolveRuntimeWorkspace(input.projectPath, input.cwd, { autoCreateIfMissing: false });
+	const runtimeClient = createRuntimeTrpcClient(workspace.workspaceId);
+	const [config, catalogs, state] = await Promise.all([
+		runtimeClient.runtime.getConfig.query(),
+		runtimeClient.runtime.getAgentModelCatalogs.query(),
+		runtimeClient.workspace.getState.query(),
+	]);
+	const sections = agents.map((agent) =>
+		formatTaskModels(agent, config.difficultyModelMap ?? {}, catalogs, state.agentScores ?? []),
+	);
+	return { text: `${sections.join("\n\n")}\n` };
 }
 
 function compactTaskListJson(list: ReturnType<typeof compactTaskList>): JsonRecord {
@@ -813,14 +933,24 @@ async function createTask(input: {
 	autoReviewMode?: "commit" | "pr";
 	agentId?: RuntimeAgentId;
 	model?: string;
+	reasoningEffort?: string;
+	difficulty?: string;
 	clineSettings?: RuntimeTaskClineSettings;
 	summary?: string;
 }): Promise<JsonRecord> {
-	const model = parseTaskClaudeModel(input.model, false);
-	const config = model ? await createRuntimeTrpcClient(null).runtime.getConfig.query() : null;
-	if (model && (input.agentId ?? config?.selectedAgentId) !== "claude") {
-		throw new Error("--model can only be used when the effective task agent is claude.");
-	}
+	const difficulty = parseTaskDifficulty(input.difficulty);
+	const configClient = createRuntimeTrpcClient(null);
+	const config =
+		input.model !== undefined || input.reasoningEffort !== undefined
+			? await configClient.runtime.getConfig.query()
+			: null;
+	const modelFields = buildTaskModelFields({
+		agentId: input.agentId ?? config?.selectedAgentId,
+		model: input.model,
+		reasoningEffort: input.reasoningEffort,
+		difficulty,
+		catalogs: await loadCatalogsForModel(configClient, input.model),
+	});
 	const workspaceRepoPath = await resolveWorkspaceRepoPath(input.projectPath, input.cwd);
 	const workspaceId = await ensureRuntimeWorkspace(workspaceRepoPath);
 	const runtimeClient = createRuntimeTrpcClient(workspaceId);
@@ -846,9 +976,7 @@ async function createTask(input: {
 			},
 			() => globalThis.crypto.randomUUID(),
 		);
-		const modeled = model
-			? setTaskClaudeModel(result.board, result.task.id, model)
-			: { board: result.board, task: result.task };
+		const modeled = setTaskModelFields(result.board, result.task.id, modelFields);
 		const reviewed = setTaskAgentReviewEnabled(modeled.board, result.task.id, input.agentReviewEnabled ?? true);
 		return {
 			board: reviewed.board,
@@ -871,6 +999,7 @@ async function createTask(input: {
 			agentReviewEnabled: created.agentReviewEnabled === true,
 			...(created.agentId ? { agentId: created.agentId } : {}),
 			...(created.claudeModel ? { claudeModel: created.claudeModel } : {}),
+			...formatTaskModelFields(created),
 			...formatTaskClineSettings(created.clineSettings),
 		},
 	};
@@ -889,6 +1018,8 @@ async function updateTaskCommand(input: {
 	autoReviewMode?: "commit" | "pr";
 	agentId?: RuntimeAgentId | null;
 	model?: string;
+	reasoningEffort?: string;
+	difficulty?: string;
 	clineProviderId?: string | null;
 	clineModelId?: string | null;
 	clineReasoningEffort?: ParsedTaskClineReasoningEffort;
@@ -903,6 +1034,8 @@ async function updateTaskCommand(input: {
 		input.autoReviewMode === undefined &&
 		input.agentId === undefined &&
 		input.model === undefined &&
+		input.reasoningEffort === undefined &&
+		input.difficulty === undefined &&
 		input.clineProviderId === undefined &&
 		input.clineModelId === undefined &&
 		input.clineReasoningEffort === undefined
@@ -910,11 +1043,15 @@ async function updateTaskCommand(input: {
 		throw new Error("task update requires at least one field to change.");
 	}
 
+	const difficulty = parseTaskDifficulty(input.difficulty);
 	const workspaceRepoPath = await resolveWorkspaceRepoPath(input.projectPath, input.cwd);
 	const workspaceId = await ensureRuntimeWorkspace(workspaceRepoPath);
 	const runtimeClient = createRuntimeTrpcClient(workspaceId);
-	const model = parseTaskClaudeModel(input.model, true);
-	const config = model !== undefined ? await runtimeClient.runtime.getConfig.query() : null;
+	const config =
+		input.model !== undefined || input.reasoningEffort !== undefined
+			? await runtimeClient.runtime.getConfig.query()
+			: null;
+	const catalogs = await loadCatalogsForModel(runtimeClient, input.model);
 	const updated = await updateRuntimeWorkspaceState(runtimeClient, workspaceRepoPath, (runtimeState) => {
 		const taskRecord = findTaskRecord(runtimeState, input.taskId);
 		if (!taskRecord) {
@@ -924,9 +1061,13 @@ async function updateTaskCommand(input: {
 			input.agentId !== undefined
 				? (input.agentId ?? config?.selectedAgentId)
 				: (taskRecord.task.agentId ?? config?.selectedAgentId);
-		if (model !== undefined && effectiveAgentId !== "claude") {
-			throw new Error("--model can only be used when the effective task agent is claude.");
-		}
+		const modelFields = buildTaskModelFields({
+			agentId: effectiveAgentId,
+			model: input.model,
+			reasoningEffort: input.reasoningEffort,
+			difficulty,
+			catalogs,
+		});
 		const nextTaskClineSettings = buildTaskClineSettingsForUpdate(taskRecord.task.clineSettings, {
 			providerId: input.clineProviderId,
 			modelId: input.clineModelId,
@@ -949,12 +1090,12 @@ async function updateTaskCommand(input: {
 		// An explicit agent model belongs to the card's agent, so a new agent must not inherit it.
 		const agentChanged = input.agentId !== undefined && (input.agentId ?? undefined) !== taskRecord.task.agentId;
 		const agentUpdated = agentChanged
-			? clearTaskAgentModel(updatedTask.board, input.taskId)
+			? setTaskModelFields(updatedTask.board, input.taskId, {
+					agentModel: undefined,
+					agentReasoningEffort: undefined,
+				})
 			: { board: updatedTask.board, task: updatedTask.task };
-		const modelUpdated =
-			model === undefined
-				? agentUpdated
-				: setTaskClaudeModel(agentUpdated.board, input.taskId, model === "default" ? undefined : model);
+		const modelUpdated = setTaskModelFields(agentUpdated.board, input.taskId, modelFields);
 
 		const reviewed =
 			input.agentReviewEnabled === undefined
@@ -1085,6 +1226,7 @@ async function startTask(input: {
 		throw new Error(`Task "${input.taskId}" is in review with a running session; use task send instead.`);
 	}
 
+	let startedSummary: RuntimeWorkspaceStateResponse["sessions"][string] | null = null;
 	if (shouldStartSession) {
 		const comments =
 			fromColumnId === "review" || input.message !== undefined
@@ -1118,6 +1260,7 @@ async function startTask(input: {
 		if (!started.ok || !started.summary) {
 			throw new Error(started.error ?? "Could not start task session.");
 		}
+		startedSummary = started.summary;
 	}
 
 	const moved = await updateRuntimeWorkspaceState(runtimeClient, workspaceRepoPath, (latestState) => {
@@ -1125,14 +1268,18 @@ async function startTask(input: {
 		if (!movement.task) {
 			throw new Error(`Task "${input.taskId}" could not be resolved.`);
 		}
+		// The GitHub issue comment reads the launched model from the saved session record.
+		const sessions = startedSummary ? { ...latestState.sessions, [input.taskId]: startedSummary } : undefined;
 		if (!movement.moved) {
 			return {
 				board: latestState.board,
+				sessions,
 				value: movement,
 			};
 		}
 		return {
 			board: movement.board,
+			sessions,
 			value: movement,
 		};
 	});
@@ -1555,28 +1702,31 @@ export function registerTaskCommand(program: Command): void {
 				json?: boolean;
 				full?: boolean;
 			}) => {
-				await runTaskCommand(
-					async () => {
-						const result = await listTasks({
-							cwd: process.cwd(),
-							projectPath: options.projectPath,
-							column: options.column,
-							all: options.all,
-						});
-						if (options.full) return result.full;
-						if (options.json) return compactTaskListJson(result.compact);
-						return { text: formatTaskListText(result.compact) };
-					},
-					(options) => {
-						if (typeof options === "object" && options !== null && "text" in options) {
-							process.stdout.write(String(options.text));
-						} else {
-							printJson(options);
-						}
-					},
-				);
+				await runTaskCommand(async () => {
+					const result = await listTasks({
+						cwd: process.cwd(),
+						projectPath: options.projectPath,
+						column: options.column,
+						all: options.all,
+					});
+					if (options.full) return result.full;
+					if (options.json) return compactTaskListJson(result.compact);
+					return { text: formatTaskListText(result.compact) };
+				}, printTextOrJson);
 			},
 		);
+
+	task
+		.command("models")
+		.description("Show each agent's difficulty table, available models, and review pass/fail counts.")
+		.option("--agent <id>", "Only this agent: codex | opencode | claude.")
+		.option("--project-path <path>", "Workspace path. Defaults to current directory workspace.")
+		.action(async (options: { agent?: string; projectPath?: string }) => {
+			await runTaskCommand(
+				() => listTaskModels({ cwd: process.cwd(), projectPath: options.projectPath, agent: options.agent }),
+				printTextOrJson,
+			);
+		});
 
 	task
 		.command("show")
@@ -1618,7 +1768,9 @@ export function registerTaskCommand(program: Command): void {
 		.option("--auto-review-enabled [value]", "Enable auto-review behavior (true|false). Flag-only implies true.")
 		.option("--auto-review-mode <mode>", "Auto-review mode: commit | pr.", parseAutoReviewMode)
 		.option("--agent-id <id>", `Agent override: ${VALID_AGENT_IDS_TEXT} | default.`)
-		.option("--model <model>", "Claude model: haiku | sonnet | opus.")
+		.option("--model <model>", "Model: haiku | sonnet | opus for claude, a model id for codex or opencode.")
+		.option("--reasoning-effort <level>", "Codex reasoning effort.")
+		.option("--difficulty <1-5>", "Task difficulty, from 1 (one-file change) to 5 (multi-layer change).")
 		.option("--summary <text>", "Short summary for the GitHub issue body when issue sync is on.")
 		.option(
 			"--cline-provider <id>",
@@ -1645,6 +1797,8 @@ export function registerTaskCommand(program: Command): void {
 				autoReviewMode?: "commit" | "pr";
 				agentId?: string;
 				model?: string;
+				reasoningEffort?: string;
+				difficulty?: string;
 				clineProvider?: string;
 				clineModel?: string;
 				clineReasoningEffort?: string;
@@ -1666,6 +1820,8 @@ export function registerTaskCommand(program: Command): void {
 							autoReviewMode: options.autoReviewMode,
 							agentId: parseAgentId(options.agentId) ?? undefined,
 							model: options.model,
+							reasoningEffort: options.reasoningEffort,
+							difficulty: options.difficulty,
 							summary: options.summary,
 							clineSettings: buildTaskClineSettingsForCreate({
 								providerId: parseOptionalStringOrDefault(options.clineProvider) ?? undefined,
@@ -1690,7 +1846,12 @@ export function registerTaskCommand(program: Command): void {
 		.option("--auto-review-enabled [value]", "Enable auto-review behavior (true|false). Flag-only implies true.")
 		.option("--auto-review-mode <mode>", "Auto-review mode: commit | pr.", parseAutoReviewMode)
 		.option("--agent-id <id>", `Agent override: ${VALID_AGENT_IDS_TEXT}. Use "default" to clear.`)
-		.option("--model <model>", 'Claude model: haiku | sonnet | opus. Use "default" to clear.')
+		.option(
+			"--model <model>",
+			'Model: haiku | sonnet | opus for claude, a model id for codex or opencode. Use "default" to clear.',
+		)
+		.option("--reasoning-effort <level>", 'Codex reasoning effort. Use "default" to clear.')
+		.option("--difficulty <1-5>", "Task difficulty, from 1 (one-file change) to 5 (multi-layer change).")
 		.option(
 			"--cline-provider <id>",
 			'Cline provider override (e.g. anthropic, openai, cline). Use "default" to clear.',
@@ -1713,6 +1874,8 @@ export function registerTaskCommand(program: Command): void {
 				autoReviewMode?: "commit" | "pr";
 				agentId?: string;
 				model?: string;
+				reasoningEffort?: string;
+				difficulty?: string;
 				clineProvider?: string;
 				clineModel?: string;
 				clineReasoningEffort?: string;
@@ -1735,6 +1898,8 @@ export function registerTaskCommand(program: Command): void {
 							autoReviewMode: options.autoReviewMode,
 							agentId: parseAgentId(options.agentId),
 							model: options.model,
+							reasoningEffort: options.reasoningEffort,
+							difficulty: options.difficulty,
 							clineProviderId: parseOptionalStringOrDefault(options.clineProvider),
 							clineModelId: parseOptionalStringOrDefault(options.clineModel),
 							clineReasoningEffort: parseTaskClineReasoningEffort(options.clineReasoningEffort),

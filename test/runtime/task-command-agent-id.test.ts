@@ -13,6 +13,7 @@ const cliMocks = vi.hoisted(() => ({
 		},
 		runtime: {
 			getConfig: { query: vi.fn(async () => ({ selectedAgentId: "claude" })) },
+			getAgentModelCatalogs: { query: vi.fn(async () => ({}) as never) },
 			handOffTask: { mutate: vi.fn() },
 			stopTaskSession: { mutate: vi.fn(async () => ({ ok: true })) },
 			startTaskSession: { mutate: vi.fn(async () => ({ ok: true, summary: { taskId: "task-1" } })) },
@@ -46,8 +47,13 @@ vi.mock("../../src/state/workspace-state", () => ({
 	getTaskWorktreesHomePath: vi.fn(() => "/tmp/worktrees"),
 	loadWorkspaceContext: cliMocks.loadWorkspaceContext,
 	mutateWorkspaceState: vi.fn(async (_path: string, mutate: (state: typeof cliMocks.workspaceState) => unknown) => {
-		const result = mutate(cliMocks.workspaceState) as { board: typeof cliMocks.workspaceState.board; value: unknown };
+		const result = mutate(cliMocks.workspaceState) as {
+			board: typeof cliMocks.workspaceState.board;
+			sessions?: typeof cliMocks.workspaceState.sessions;
+			value: unknown;
+		};
 		cliMocks.workspaceState.board = result.board;
+		if (result.sessions) cliMocks.workspaceState.sessions = result.sessions;
 		return { saved: true, value: result.value };
 	}),
 }));
@@ -323,6 +329,243 @@ describe("task command Claude model option", () => {
 	});
 });
 
+describe("task difficulty and agent model options", () => {
+	const catalogs = {
+		codex: {
+			ok: true,
+			models: [
+				{
+					id: "gpt-6-luna",
+					description: "Fast and affordable model for easier tasks",
+					efforts: ["low", "medium", "high", "xhigh", "max"],
+				},
+				{ id: "gpt-6.1-sol", efforts: ["medium", "high"] },
+			],
+		},
+		opencode: { ok: true, models: [{ id: "opencode/big-pickle", efforts: [] }] },
+		claude: { ok: true, models: [{ id: "haiku", efforts: [] }] },
+	};
+	const cards = () => cliMocks.workspaceState.board.columns[0]?.cards as unknown as Record<string, unknown>[];
+
+	beforeEach(() => {
+		cards().splice(0);
+		cliMocks.client.runtime.getConfig.query.mockResolvedValue({
+			selectedAgentId: "claude",
+			claudeDefaultModel: "opus",
+		} as never);
+		cliMocks.client.runtime.getAgentModelCatalogs.query.mockReset();
+		cliMocks.client.runtime.getAgentModelCatalogs.query.mockResolvedValue(catalogs as never);
+		cliMocks.client.workspace.getState.query.mockImplementation(async () => cliMocks.workspaceState as never);
+		process.exitCode = 0;
+	});
+
+	async function run(args: string[]): Promise<{ ok: boolean; task?: Record<string, unknown>; error?: string }> {
+		let output = "";
+		const write = vi.spyOn(process.stdout, "write").mockImplementation(((chunk: string | Uint8Array) => {
+			output += chunk.toString();
+			return true;
+		}) as typeof process.stdout.write);
+		const program = new Command();
+		registerTaskCommand(program);
+		await program.parseAsync(["node", "kanban", "task", ...args]);
+		write.mockRestore();
+		process.exitCode = 0;
+		return JSON.parse(output) as { ok: boolean; task?: Record<string, unknown>; error?: string };
+	}
+	const create = (...args: string[]) => run(["create", "--prompt", "Ship it", ...args]);
+	function addCard(fields: Record<string, unknown>): void {
+		cards().push({
+			id: "task-1",
+			title: "Task",
+			prompt: "Ship it",
+			baseRef: "main",
+			startInPlanMode: false,
+			createdAt: 1,
+			updatedAt: 1,
+			...fields,
+		});
+	}
+
+	it("stores --difficulty on create and update", async () => {
+		const created = await create("--difficulty", "3");
+		expect(created.task?.difficulty).toBe(3);
+		expect(cards()[0]?.difficulty).toBe(3);
+		const updated = await run(["update", "--task-id", created.task?.id as string, "--difficulty", "5"]);
+		expect(updated.task?.difficulty).toBe(5);
+	});
+
+	it.each(["0", "6", "x", "2.5", ""])("rejects --difficulty %j on create and update", async (value) => {
+		expect(await create("--difficulty", value)).toMatchObject({
+			ok: false,
+			error: expect.stringContaining("--difficulty"),
+		});
+		expect(cards()).toHaveLength(0);
+		addCard({ agentId: "codex" });
+		expect(await run(["update", "--task-id", "task-1", "--difficulty", value])).toMatchObject({
+			ok: false,
+			error: expect.stringContaining("--difficulty"),
+		});
+		expect(cards()[0]).not.toHaveProperty("difficulty");
+	});
+
+	it("accepts a Codex model id and effort for codex and rejects the id for claude", async () => {
+		const created = await create("--agent-id", "codex", "--model", "gpt-6.1-sol", "--reasoning-effort", "high");
+		expect(created.task).toMatchObject({ agentModel: "gpt-6.1-sol", agentReasoningEffort: "high" });
+		expect(created.task).not.toHaveProperty("claudeModel");
+
+		const claude = await create("--agent-id", "claude", "--model", "gpt-6.1-sol");
+		expect(claude).toMatchObject({ ok: false, error: expect.stringContaining("Expected: haiku, sonnet, opus") });
+	});
+
+	it("stores an OpenCode model id and rejects agents without a model option", async () => {
+		const created = await create("--agent-id", "opencode", "--model", "opencode/big-pickle");
+		expect(created.task?.agentModel).toBe("opencode/big-pickle");
+		const antigravity = await create("--agent-id", "antigravity", "--model", "x");
+		expect(antigravity).toMatchObject({ ok: false, error: expect.stringContaining("--model") });
+	});
+
+	it("rejects a model the catalog does not list, and accepts any id when the catalog is unavailable", async () => {
+		const unknown = await create("--agent-id", "codex", "--model", "gpt-unknown");
+		expect(unknown).toMatchObject({ ok: false, error: expect.stringContaining("task models") });
+		expect(cards()).toHaveLength(0);
+
+		cliMocks.client.runtime.getAgentModelCatalogs.query.mockResolvedValue({
+			...catalogs,
+			codex: { ok: false, error: "codex not found" },
+		} as never);
+		expect((await create("--agent-id", "codex", "--model", "gpt-unknown")).task?.agentModel).toBe("gpt-unknown");
+
+		cliMocks.client.runtime.getAgentModelCatalogs.query.mockRejectedValue(new Error("old runtime"));
+		expect((await create("--agent-id", "codex", "--model", "gpt-other")).task?.agentModel).toBe("gpt-other");
+	});
+
+	it("rejects a Claude alias for codex even when the catalog is unavailable", async () => {
+		cliMocks.client.runtime.getAgentModelCatalogs.query.mockRejectedValue(new Error("old runtime"));
+		expect(await create("--agent-id", "codex", "--model", "haiku")).toMatchObject({
+			ok: false,
+			error: expect.stringContaining("--model"),
+		});
+	});
+
+	it.each(["claude", "opencode", "antigravity"])("rejects --reasoning-effort for %s", async (agentId) => {
+		expect(await create("--agent-id", agentId, "--reasoning-effort", "high")).toMatchObject({
+			ok: false,
+			error: expect.stringContaining("--reasoning-effort"),
+		});
+	});
+
+	it("uses the selected agent when the card has no agent", async () => {
+		cliMocks.client.runtime.getConfig.query.mockResolvedValue({ selectedAgentId: "codex" } as never);
+		expect((await create("--model", "gpt-6-luna")).task?.agentModel).toBe("gpt-6-luna");
+	});
+
+	it("clears the model and the effort independently with default", async () => {
+		addCard({ agentId: "codex", difficulty: 4, agentModel: "gpt-6.1-sol", agentReasoningEffort: "high" });
+		const noModel = await run(["update", "--task-id", "task-1", "--model", "default"]);
+		expect(noModel.task).not.toHaveProperty("agentModel");
+		expect(noModel.task).toMatchObject({ agentReasoningEffort: "high", difficulty: 4 });
+		expect(cards()[0]).not.toHaveProperty("agentModel");
+
+		const noEffort = await run(["update", "--task-id", "task-1", "--reasoning-effort", "default"]);
+		expect(noEffort.task).not.toHaveProperty("agentReasoningEffort");
+		expect(cards()[0]).not.toHaveProperty("agentReasoningEffort");
+		expect(cliMocks.client.runtime.getAgentModelCatalogs.query).not.toHaveBeenCalled();
+	});
+
+	it("sets the new agent's model after an agent change clears the old one", async () => {
+		addCard({ agentId: "codex", agentModel: "gpt-6.1-sol", agentReasoningEffort: "high" });
+		await run(["update", "--task-id", "task-1", "--agent-id", "opencode", "--model", "opencode/big-pickle"]);
+		expect(cards()[0]).toMatchObject({ agentId: "opencode", agentModel: "opencode/big-pickle" });
+		expect(cards()[0]).not.toHaveProperty("agentReasoningEffort");
+	});
+
+	it("keeps agent model fields when other fields are updated", async () => {
+		addCard({ agentId: "codex", difficulty: 2, agentModel: "gpt-6-luna" });
+		await run(["update", "--task-id", "task-1", "--title", "Renamed"]);
+		expect(cards()[0]).toMatchObject({ title: "Renamed", difficulty: 2, agentModel: "gpt-6-luna" });
+	});
+});
+
+describe("task models command", () => {
+	const map = {
+		codex: {
+			1: { model: "gpt-6-luna", reasoningEffort: "low" },
+			3: { model: "gpt-6.1-sol", reasoningEffort: "medium" },
+		},
+		opencode: {},
+		claude: { 5: { model: "opus" } },
+	};
+
+	beforeEach(() => {
+		cliMocks.client.runtime.getConfig.query.mockResolvedValue({ difficultyModelMap: map } as never);
+		cliMocks.client.runtime.getAgentModelCatalogs.query.mockResolvedValue({
+			codex: {
+				ok: true,
+				models: [
+					{
+						id: "gpt-6-luna",
+						description: "Fast and affordable model for easier tasks",
+						efforts: ["low", "medium", "high", "xhigh", "max"],
+					},
+				],
+			},
+			opencode: { ok: false, error: "opencode models failed: ENOENT" },
+			claude: { ok: true, models: [{ id: "haiku", efforts: [] }] },
+		} as never);
+		cliMocks.client.workspace.getState.query.mockResolvedValue({
+			agentScores: [
+				{ agentId: "codex:gpt-6.1-sol", score: 2, passes: 3, fails: 1, tasks: 4 },
+				{ agentId: "codex", score: 1, passes: 1, fails: 0, tasks: 1 },
+				{ agentId: "sonnet", score: 0, passes: 2, fails: 2, tasks: 3 },
+				{ agentId: "antigravity", score: 1, passes: 1, fails: 0, tasks: 1 },
+			],
+		} as never);
+		process.exitCode = 0;
+	});
+
+	async function models(...args: string[]): Promise<string> {
+		let output = "";
+		const write = vi.spyOn(process.stdout, "write").mockImplementation(((chunk: string | Uint8Array) => {
+			output += chunk.toString();
+			return true;
+		}) as typeof process.stdout.write);
+		const program = new Command();
+		registerTaskCommand(program);
+		await program.parseAsync(["node", "kanban", "task", "models", ...args]);
+		write.mockRestore();
+		return output;
+	}
+
+	it("prints table rows, catalog lines, and scores per agent", async () => {
+		const output = await models();
+		expect(output).toContain("    3 → gpt-6.1-sol/medium");
+		expect(output).toContain("    2 → default");
+		expect(output).toContain("    5 → opus");
+		expect(output).toContain(
+			"    gpt-6-luna — Fast and affordable model for easier tasks [low,medium,high,xhigh,max]",
+		);
+		expect(output).toContain("    haiku\n");
+		expect(output).toContain("    codex:gpt-6.1-sol 3/1");
+		expect(output).toContain("    default 1/0");
+		expect(output).toContain("    sonnet 2/2");
+		expect(output).not.toContain("antigravity");
+	});
+
+	it("reports an unavailable catalog", async () => {
+		expect(await models()).toContain("    catalog unavailable: opencode models failed: ENOENT");
+	});
+
+	it("limits the output with --agent and rejects an unknown agent", async () => {
+		const output = await models("--agent", "claude");
+		expect(output.startsWith("claude\n")).toBe(true);
+		expect(output).not.toContain("gpt-6-luna");
+
+		const invalid = JSON.parse(await models("--agent", "cline"));
+		expect(invalid).toMatchObject({ ok: false, error: expect.stringContaining('Invalid --agent "cline"') });
+		process.exitCode = 0;
+	});
+});
+
 describe("task start from Review", () => {
 	const taskCard = {
 		id: "task-1",
@@ -400,6 +643,13 @@ describe("task start from Review", () => {
 			agentId: "codex",
 		});
 		expect(cliMocks.workspaceState.board.columns[2]?.cards).toHaveLength(0);
+	});
+
+	it("saves the started session record, so the issue comment can read the launched model", async () => {
+		const summary = { taskId: "task-1", agentId: "codex", agentModel: "gpt-6.1-sol", agentReasoningEffort: "high" };
+		cliMocks.client.runtime.startTaskSession.mutate.mockResolvedValue({ ok: true, summary } as never);
+		await run(["start", "--task-id", "task-1", "--message", "Fix it"]);
+		expect(cliMocks.workspaceState.sessions).toEqual({ "task-1": summary });
 	});
 
 	it("adds recent comments to the restart prompt", async () => {
@@ -600,6 +850,27 @@ describe("task review scoring commands", () => {
 		expect(scoreMocks.recordAgentScoreEvent).toHaveBeenCalledWith("workspace-1", {
 			type: "pass",
 			agentId: "haiku",
+			taskId: "task-1",
+			round: 2,
+		});
+	});
+
+	it("scores a Codex review with the session launch model", async () => {
+		cliMocks.client.workspace.getState.query.mockResolvedValue({
+			repoPath: "/tmp/repo",
+			board: {
+				columns: ["backlog", "in_progress", "review", "trash"].map((id) => ({
+					id,
+					title: id,
+					cards: id === "review" ? [reviewCard] : [],
+				})),
+			},
+			sessions: { "task-1": { agentId: "codex", agentModel: "gpt-6.1-sol" } },
+		} as never);
+		await execute(["review-failed", "--task-id", "task-1"]);
+		expect(scoreMocks.recordAgentScoreEvent).toHaveBeenCalledWith("workspace-1", {
+			type: "fail",
+			agentId: "codex:gpt-6.1-sol",
 			taskId: "task-1",
 			round: 2,
 		});
@@ -828,6 +1099,17 @@ describe("compact task list and task show", () => {
 		const output = await execute(["list", ...args]);
 		expect(output.match(/Done task/g)).toHaveLength(4);
 		expect(output).not.toContain("more done not shown");
+	});
+
+	it("shows d<n> only on rows of tasks with a difficulty", async () => {
+		const backlog = state.board.columns[0].cards[0] as Record<string, unknown>;
+		backlog.difficulty = 3;
+		const output = await execute(["list"]);
+		const compact = JSON.parse(await execute(["list", "--json"]));
+		delete backlog.difficulty;
+		expect(output).toContain("backl  backlog      codex   -     h0  -        d3 Waiting task");
+		expect(output).toContain("h2  running  Active task");
+		expect(compact.tasks[0].difficulty).toBe(3);
 	});
 
 	it("prints the compact JSON shape and preserves the full JSON list on --full", async () => {

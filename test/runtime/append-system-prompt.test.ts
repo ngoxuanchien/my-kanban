@@ -88,10 +88,39 @@ describe("renderAppendSystemPrompt", () => {
 		expect(createSection).toContain("no file paths, no `contexte/` content, and no secrets");
 	});
 
-	it("documents Claude model selection for user-requested models", () => {
+	it("documents model selection for user-requested models", () => {
 		const rendered = renderAppendSystemPrompt("kanban");
-		expect(rendered).toContain("--model <haiku|sonnet|opus>");
-		expect(rendered).toContain("Use `--model` only when the user names a Claude model");
+		const createSection = rendered.slice(rendered.indexOf("## task create"), rendered.indexOf("## task update"));
+		const updateSection = rendered.slice(rendered.indexOf("## task update"), rendered.indexOf("## task done"));
+		expect(createSection).toContain("[--difficulty <1-5>] [--model <model>] [--reasoning-effort <level>]");
+		expect(updateSection).toContain(
+			"[--difficulty <1-5>] [--model <model|default>] [--reasoning-effort <level|default>]",
+		);
+		expect(rendered).toContain("Never pick Claude or a model on your own.");
+	});
+
+	it("documents the difficulty rubric and its rules", () => {
+		const rendered = renderAppendSystemPrompt("kanban");
+		const section = rendered.slice(rendered.indexOf("# Task difficulty"), rendered.indexOf("# Reviewing tasks"));
+		for (const line of [
+			"1 = one-file text/config change",
+			"2 = small fix in 1-2 files with a test",
+			"3 = small feature in 2-4 files",
+			"4 = feature across runtime + CLI or runtime + UI, or tricky state/concurrency",
+			"5 = multi-layer change with migration, concurrency, or security weight",
+			"Always pass --difficulty",
+			"Pass --model/--reasoning-effort only when the user names a model",
+			"Run task models once before creating tasks",
+			"Record the score reason as a task comment",
+		]) {
+			expect(section).toContain(line);
+		}
+	});
+
+	it("documents the task models and task comment commands", () => {
+		const rendered = renderAppendSystemPrompt("kanban");
+		expect(rendered).toContain("kanban task models [--agent codex|opencode|claude]");
+		expect(rendered).toContain('kanban task comment --task-id <task_id> --message "<text>"');
 	});
 
 	it("defaults task creation to the handoff agent cycle", () => {

@@ -20,10 +20,14 @@ import { createTempDir } from "../../utilities/temp-dir";
 
 const mocks = vi.hoisted(() => ({ config: vi.fn(), board: vi.fn(), history: vi.fn() }));
 vi.mock("../../../src/config/runtime-config", () => ({ loadRuntimeConfig: mocks.config }));
-vi.mock("../../../src/state/workspace-state", async (original) => ({
-	...(await original<typeof WorkspaceStateModule>()),
-	loadWorkspaceBoardById: mocks.board,
-}));
+vi.mock("../../../src/state/workspace-state", async (original) => {
+	const actual = await original<typeof WorkspaceStateModule>();
+	return {
+		...actual,
+		loadWorkspaceBoardById: mocks.board,
+		loadWorkspaceState: vi.fn(actual.loadWorkspaceState),
+	};
+});
 vi.mock("../../../src/state/task-history", () => ({ loadTaskHistory: mocks.history }));
 const input = { workspaceId: "issue-test", repoPath: "/repo" };
 const secret = "PRIVATE PROMPT MUST NEVER LEAVE";
@@ -145,6 +149,85 @@ describe("reconcileGithubIssues", () => {
 			await reconcile();
 			expect(calls.at(-1)).toEqual(["issue", "comment", "12", "--body", `Moved to In progress${suffix}`]);
 			expect(JSON.stringify(calls)).not.toContain(secret);
+		});
+
+		it.each<{ name: string; card: Partial<RuntimeBoardCard>; session: Record<string, unknown>; suffix: string }>([
+			{
+				name: "codex model and effort",
+				card: {},
+				session: { agentId: "codex", agentModel: "gpt-6.1-sol", agentReasoningEffort: "high" },
+				suffix: " (agent: codex, model: gpt-6.1-sol, effort: high)",
+			},
+			{
+				name: "opencode model without effort",
+				card: { agentId: "opencode" },
+				session: { agentId: "opencode", agentModel: "opencode/big-pickle", agentReasoningEffort: null },
+				suffix: " (agent: opencode, model: opencode/big-pickle)",
+			},
+			{
+				name: "codex with no recorded model",
+				card: {},
+				session: { agentId: "codex", agentModel: null, agentReasoningEffort: null },
+				suffix: " (agent: codex)",
+			},
+			{
+				name: "session of a previous agent",
+				card: { agentId: "opencode" },
+				session: { agentId: "codex", agentModel: "gpt-6.1-sol", agentReasoningEffort: "high" },
+				suffix: " (agent: opencode)",
+			},
+			{
+				name: "card without an agent uses the session agent",
+				card: { agentId: undefined },
+				session: { agentId: "codex", agentModel: "gpt-6-luna", agentReasoningEffort: "low" },
+				suffix: " (agent: codex, model: gpt-6-luna, effort: low)",
+			},
+			{
+				name: "claude model from the session wins over the card",
+				card: { agentId: "claude", claudeModel: "opus" },
+				session: { agentId: "claude", claudeModel: "haiku" },
+				suffix: " (agent: claude, model: haiku)",
+			},
+		])("session record: $name", async ({ card, session, suffix }) => {
+			await seed({ one: mapped });
+			vi.mocked(loadWorkspaceState).mockResolvedValueOnce({ sessions: { one: session } } as never);
+			mocks.board.mockResolvedValue({
+				columns: [{ id: "in_progress", title: "In progress", cards: [{ ...task, ...card }] }],
+				dependencies: [],
+			});
+			await reconcile();
+			expect(calls.at(-1)).toEqual(["issue", "comment", "12", "--body", `Moved to In progress${suffix}`]);
+		});
+
+		it("claude without a session record uses the difficulty table", async () => {
+			await seed({ one: mapped });
+			mocks.config.mockResolvedValue({
+				githubIssueSyncEnabled: true,
+				claudeDefaultModel: "opus",
+				difficultyModelMap: { claude: { 3: { model: "sonnet" } } },
+			});
+			mocks.board.mockResolvedValue({
+				columns: [
+					{ id: "in_progress", title: "In progress", cards: [{ ...task, agentId: "claude", difficulty: 3 }] },
+				],
+				dependencies: [],
+			});
+			await reconcile();
+			expect(calls.at(-1)).toEqual([
+				"issue",
+				"comment",
+				"12",
+				"--body",
+				"Moved to In progress (agent: claude, model: sonnet)",
+			]);
+		});
+
+		it("an unreadable session record does not stop the sync", async () => {
+			await seed({ one: mapped });
+			vi.mocked(loadWorkspaceState).mockRejectedValueOnce(new Error("sessions unreadable"));
+			mocks.board.mockResolvedValue(board("in_progress"));
+			expect((await reconcile()).ok).toBe(true);
+			expect(calls.at(-1)).toEqual(["issue", "comment", "12", "--body", "Moved to In progress (agent: codex)"]);
 		});
 	});
 	it("done with commit", async () => {

@@ -1,8 +1,9 @@
-import { loadRuntimeConfig } from "../config/runtime-config";
-import type { RuntimeBoardColumnId } from "../core/api-contract";
+import { loadRuntimeConfig, type RuntimeConfigState } from "../config/runtime-config";
+import { resolveTaskAgentModel } from "../core/agent-model";
+import type { RuntimeBoardCard, RuntimeBoardColumnId } from "../core/api-contract";
 import { lockedFileSystem } from "../fs/locked-file-system";
 import { loadTaskHistory } from "../state/task-history";
-import { loadWorkspaceBoardById } from "../state/workspace-state";
+import { loadWorkspaceBoardById, loadWorkspaceState } from "../state/workspace-state";
 import type { GhRunner } from "./gh-runner";
 import { getGithubIssueMapPath, readGithubIssueMap } from "./issue-map";
 
@@ -23,6 +24,32 @@ const labels: Partial<Record<RuntimeBoardColumnId, string>> = {
 	review: "kanban: review",
 };
 const titles = { backlog: "Backlog", in_progress: "In progress", review: "Review", trash: "Done" };
+
+// Reports what the session launched. A record from another agent says nothing about this card's current run.
+async function describeTaskRun(card: RuntimeBoardCard, config: RuntimeConfigState, repoPath: string): Promise<string> {
+	const sessions = await loadWorkspaceState(repoPath).then(
+		(state) => state.sessions,
+		() => null,
+	);
+	const session = sessions?.[card.id];
+	const agentId = card.agentId ?? session?.agentId;
+	if (!agentId) return "";
+	const recorded = session?.agentId === agentId ? session : undefined;
+	const model =
+		agentId === "claude"
+			? (recorded?.claudeModel ??
+				resolveTaskAgentModel({
+					agentId,
+					card,
+					map: config.difficultyModelMap,
+					claudeDefaultModel: config.claudeDefaultModel,
+				}).model)
+			: agentId === "cline"
+				? card.clineSettings?.modelId
+				: recorded?.agentModel;
+	const effort = model ? recorded?.agentReasoningEffort : null;
+	return ` (agent: ${agentId}${model ? `, model: ${model}` : ""}${effort ? `, effort: ${effort}` : ""})`;
+}
 
 export async function reconcileGithubIssues(
 	input: { workspaceId: string; repoPath: string },
@@ -117,18 +144,13 @@ export async function reconcileGithubIssues(
 							const previousLabel = entry.syncedColumn && labels[entry.syncedColumn];
 							if (previousLabel && previousLabel !== label) args.push("--remove-label", previousLabel);
 							await gh(args);
-							const model =
-								card.agentId === "claude"
-									? (card.claudeModel ?? config.claudeDefaultModel)
-									: card.agentId === "cline"
-										? card.clineSettings?.modelId
-										: undefined;
+							const run = entry.closed ? "" : await describeTaskRun(card, config, input.repoPath);
 							await gh([
 								"issue",
 								"comment",
 								number,
 								"--body",
-								`${entry.closed ? "Reopened, moved" : "Moved"} to ${titles[column.id]}${!entry.closed && card.agentId ? ` (agent: ${card.agentId}${model ? `, model: ${model}` : ""})` : ""}`,
+								`${entry.closed ? "Reopened, moved" : "Moved"} to ${titles[column.id]}${run}`,
 							]);
 							map[card.id] = { ...entry, syncedColumn: column.id, closed: false };
 							result.updated++;
