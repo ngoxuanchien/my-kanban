@@ -88,6 +88,7 @@ Update this file whenever a file or folder is created or moved.
 | `docs/superpowers/plans/2026-11-04-github-issue-sync.md` | Plan for the GitHub issue sync spec, split into 3 Kanban tasks (1 → 2, 3). |
 | `docs/superpowers/specs/2026-11-04-difficulty-model-selection-design.md` | Spec: per-task difficulty 1–5; difficulty → model/effort table per agent (Settings); Codex/OpenCode model per task; sidebar scores tasks; `task models`. |
 | `docs/superpowers/plans/2026-11-04-difficulty-model-selection.md` | Plan for the difficulty model selection spec, split into 4 Kanban tasks (1 → 2, 4; 2 → 3), after GitHub issue sync. |
+| `docs/superpowers/specs/2026-11-04-all-prerequisites-before-start-design.md` | Spec: a linked backlog task auto-starts only when all its prerequisites are Done (1 Kanban task, no separate plan). |
 | `docs/agents/task-prompt-template.md` | Prompt template the planner fills in for every Kanban task. |
 | `.plan/` | Older internal plans, handoffs, investigations (`.plan/docs/`). |
 
