@@ -12,7 +12,7 @@ The planner fills this template in for every Kanban task.
 
 ## Acceptance criteria (the reviewer checks exactly these)
 1. <observable behaviour or command> → <expected result>
-2. `npm run typecheck` passes; `npm run web:typecheck` passes; `npm run test:fast` passes; `npm run lint` passes; `npm --prefix web-ui run test` passes.
+2. `npm run typecheck` passes; `npm run web:typecheck` passes; `npm run test:fast` passes; `npm run lint` passes; `npm --prefix web-ui run test` passes; `npm run web:build` passes.
 
 ## Out of scope
 - <things not to do>
