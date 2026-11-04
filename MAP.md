@@ -116,6 +116,8 @@ Update this file whenever a file or folder is created or moved.
 | `contexte/upstream-issues.md` | Which open cline/kanban issues affect this fork, what was fixed, and what was left. |
 | `contexte/claude-model-per-task.md` | Claude model per task: what landed, review lessons for its 3 tasks. |
 | `contexte/web-ui-layout.md` | Web UI layout lessons (measuring/flex pitfalls) from reviews. |
+| `contexte/github-issue-sync.md` | GitHub issue sync: implementation decisions, known gaps, review lessons (web-ui typecheck). |
+| `contexte/difficulty-model-selection.md` | Difficulty-based model selection: implementation decisions and review notes. |
 | `contexte/kanban-cli-oom.md` | Kanban CLI V8 OOM crash: `2>&1 | head` closes the merged pipe, unhandled EPIPE recurses; proposed fix; how to recover argv from Claude transcripts. |
 
 ## livrables/
