@@ -97,6 +97,7 @@ Update this file whenever a file or folder is created or moved.
 | What | Where | In git? |
 |---|---|---|
 | Durable knowledge: decisions, preferences, findings (one file per topic) | `contexte/` | No (local) |
+| `contexte/task-send-delivery.md` | Task message delivery evidence and behavior. |
 | Anything produced for me (reports, analyses, proposals) | `livrables/` | No (local) |
 | Personal preferences | `CLAUDE.local.md` | No (local) |
 | Secrets | `.env` only | No (local) |

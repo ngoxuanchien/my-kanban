@@ -203,7 +203,13 @@ describe("agent score recording for runtime review messages", () => {
 	});
 
 	function createMessageApi(agentId?: string) {
-		return createRuntimeApi({ writeInput: vi.fn(), getSummary: vi.fn(() => (agentId ? { agentId } : null)) });
+		const getSummary = vi
+			.fn()
+			.mockReturnValueOnce({ state: "awaiting_review", agentId })
+			.mockReturnValueOnce({ state: "running", agentId })
+			.mockReturnValueOnce({ state: "awaiting_review", agentId })
+			.mockReturnValue({ state: "running", agentId });
+		return createRuntimeApi({ writeInput: vi.fn(), getSummary });
 	}
 
 	it("records one round-two fail with message across repeated sends", async () => {

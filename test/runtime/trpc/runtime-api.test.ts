@@ -3273,6 +3273,10 @@ describe("createRuntimeApi sendTaskMessage", () => {
 		workspaceStateMocks.loadWorkspaceBoardById.mockResolvedValue(board);
 		const terminalManager = {
 			writeInput: vi.fn(() => createSummary({ agentId: "codex" })),
+			getSummary: vi
+				.fn()
+				.mockReturnValueOnce(createSummary({ state: "awaiting_review" }))
+				.mockReturnValue(createSummary({ state: "running" })),
 		};
 		const clineTaskSessionService = createClineTaskSessionServiceMock();
 
@@ -3300,6 +3304,54 @@ describe("createRuntimeApi sendTaskMessage", () => {
 			"task-1",
 			Buffer.from("\x1b[200~fix it\x1b[201~", "utf8"),
 		);
+	});
+
+	it("refuses a running turn without writing the message", async () => {
+		const terminalManager = { getSummary: vi.fn(() => createSummary({ state: "running" })), writeInput: vi.fn() };
+		const api = createTestRuntimeApi({
+			getActiveWorkspaceId: vi.fn(() => "workspace-1"),
+			loadScopedRuntimeConfig: vi.fn(async () => createRuntimeConfigState()),
+			setActiveRuntimeConfig: vi.fn(),
+			getScopedTerminalManager: vi.fn(async () => terminalManager as never),
+			getScopedClineTaskSessionService: vi.fn(async () => createClineTaskSessionServiceMock() as never),
+			resolveInteractiveShellCommand: vi.fn(),
+			runCommand: vi.fn(),
+		});
+		workspaceStateMocks.loadWorkspaceBoardById.mockResolvedValue(createBoard({ agentId: "codex" }));
+		const response = await api.sendTaskMessage(
+			{ workspaceId: "workspace-1", workspacePath: "/tmp/repo" },
+			{ taskId: "task-1", message: "fix it" },
+		);
+		expect(response).toMatchObject({ ok: false, error: expect.stringContaining("already running") });
+		expect(terminalManager.writeInput).not.toHaveBeenCalled();
+	});
+
+	it("reports a message not delivered when the turn never starts", async () => {
+		const terminalManager = {
+			getSummary: vi.fn(() => createSummary({ state: "awaiting_review" })),
+			writeInput: vi.fn(() => createSummary({ state: "awaiting_review" })),
+		};
+		const api = createTestRuntimeApi({
+			getActiveWorkspaceId: vi.fn(() => "workspace-1"),
+			loadScopedRuntimeConfig: vi.fn(async () => createRuntimeConfigState()),
+			setActiveRuntimeConfig: vi.fn(),
+			getScopedTerminalManager: vi.fn(async () => terminalManager as never),
+			getScopedClineTaskSessionService: vi.fn(async () => createClineTaskSessionServiceMock() as never),
+			resolveInteractiveShellCommand: vi.fn(),
+			runCommand: vi.fn(),
+			sleep: vi.fn(async () => {}),
+		});
+		workspaceStateMocks.loadWorkspaceBoardById.mockResolvedValue(createBoard({ agentId: "codex" }));
+		taskHistoryMocks.recordTaskHistoryEvent.mockClear();
+		agentScoreMocks.recordAgentScoreEvent.mockClear();
+		const response = await api.sendTaskMessage(
+			{ workspaceId: "workspace-1", workspacePath: "/tmp/repo" },
+			{ taskId: "task-1", message: "fix it" },
+		);
+		expect(response).toMatchObject({ ok: false, error: expect.stringContaining("not delivered") });
+		expect(response.error).not.toContain("not running");
+		expect(taskHistoryMocks.recordTaskHistoryEvent).not.toHaveBeenCalled();
+		expect(agentScoreMocks.recordAgentScoreEvent).not.toHaveBeenCalled();
 	});
 });
 

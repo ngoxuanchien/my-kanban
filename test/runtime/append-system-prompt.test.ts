@@ -150,6 +150,9 @@ describe("renderAppendSystemPrompt", () => {
 			"task done --task-id <task_id> --review-passed --commit <hash of the cherry-picked commit on the base branch>",
 		);
 		expect(rendered).toContain(
+			"If `task send` reports that the message was not delivered, retry `task send` once; if it still fails, report the error and leave the task in Review.",
+		);
+		expect(rendered).toContain(
 			'If `task send` fails because the session is not running, use `task start --task-id <task_id> --message "<the same fix list>"` instead.',
 		);
 		expect(rendered).toContain(

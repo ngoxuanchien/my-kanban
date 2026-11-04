@@ -87,6 +87,7 @@ function appendKanbanNotesFooter(prompt: string): string {
 }
 
 export interface CreateRuntimeApiDependencies {
+	sleep?: (ms: number) => Promise<void>;
 	getActiveWorkspaceId: () => string | null;
 	getActiveRuntimeConfig?: () => RuntimeConfigState;
 	loadScopedRuntimeConfig: (scope: RuntimeTrpcWorkspaceScope) => Promise<RuntimeConfigState>;
@@ -623,6 +624,10 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 				const runtimeConfig = await deps.loadScopedRuntimeConfig(workspaceScope);
 				const terminalManager = await deps.getScopedTerminalManager(workspaceScope);
 				const clineTaskSessionService = await deps.getScopedClineTaskSessionService(workspaceScope);
+				const before = terminalManager.getSummary?.(taskId) ?? clineTaskSessionService.getSummary?.(taskId);
+				if (before?.state === "running") {
+					return { ok: false, error: `Task "${taskId}" session is already running; message was not delivered.` };
+				}
 				const sent = await sendPromptToSession({
 					sessionId: taskId,
 					prompt: messageText,
@@ -632,6 +637,18 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 				});
 				if (!sent.ok) {
 					return { ok: false, error: `Task "${taskId}" session is not running.` };
+				}
+				let started = false;
+				for (let attempt = 0; attempt < 30; attempt++) {
+					await (deps.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms))))(100);
+					const current = terminalManager.getSummary?.(taskId) ?? clineTaskSessionService.getSummary?.(taskId);
+					if (current?.state === "running") {
+						started = true;
+						break;
+					}
+				}
+				if (!started) {
+					return { ok: false, error: `Task "${taskId}" message was not delivered: no new agent turn started.` };
 				}
 				const reviewCard = findReviewRoundCard(board, taskId);
 				const sessionSummary = terminalManager.getSummary?.(taskId) ?? clineTaskSessionService.getSummary?.(taskId);
