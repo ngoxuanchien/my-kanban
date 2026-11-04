@@ -15,6 +15,7 @@ import type { ClineTaskSessionService } from "../cline-sdk/cline-task-session-se
 import type { RuntimeConfigState } from "../config/runtime-config";
 import { updateGlobalRuntimeConfig, updateRuntimeConfig } from "../config/runtime-config";
 import type {
+	RuntimeAgentModelCatalogsResponse,
 	RuntimeAgentTranscriptRequest,
 	RuntimeAgentTranscriptResponse,
 	RuntimeBoardCard,
@@ -66,6 +67,7 @@ import { recordAgentScoreEvent } from "../state/agent-scores";
 import { readAgentTranscript } from "../state/agent-transcripts";
 import { loadTaskHistory, recordTaskHistoryEvent } from "../state/task-history";
 import { getTaskWorktreesHomePath, loadWorkspaceBoardById } from "../state/workspace-state";
+import { loadAgentModelCatalog } from "../terminal/agent-model-catalog";
 import { buildRuntimeConfigResponse, resolveAgentCommand } from "../terminal/agent-registry";
 import { sendPromptToSession } from "../terminal/send-prompt-to-session";
 import type { TerminalSessionManager } from "../terminal/session-manager";
@@ -208,8 +210,10 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 		join(homedir(), ".cline", "worktrees"),
 	] as const;
 
-	const buildConfigResponse = (runtimeConfig: RuntimeConfigState) =>
-		buildRuntimeConfigResponse(runtimeConfig, clineProviderService.getProviderSettingsSummary());
+	const buildConfigResponse = (runtimeConfig: RuntimeConfigState) => ({
+		...buildRuntimeConfigResponse(runtimeConfig, clineProviderService.getProviderSettingsSummary()),
+		difficultyModelMap: runtimeConfig.difficultyModelMap,
+	});
 
 	const runHandOffTask = async (
 		workspaceScope: RuntimeTrpcWorkspaceScope,
@@ -1037,6 +1041,15 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 		},
 		getUpdateStatus: async () => {
 			return deps.getUpdateStatus();
+		},
+		getAgentModelCatalogs: async (input): Promise<RuntimeAgentModelCatalogsResponse> => {
+			const options = { refresh: input?.refresh === true };
+			const [codex, opencode, claude] = await Promise.all([
+				loadAgentModelCatalog("codex", options),
+				loadAgentModelCatalog("opencode", options),
+				loadAgentModelCatalog("claude", options),
+			]);
+			return { codex, opencode, claude };
 		},
 		runUpdateNow: async () => {
 			return await deps.runUpdateNow();

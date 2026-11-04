@@ -11,6 +11,7 @@ import {
 	updateRuntimeConfig,
 } from "../../../src/config/runtime-config";
 import { isRuntimeAgentLaunchSupported } from "../../../src/core/agent-catalog";
+import { DEFAULT_DIFFICULTY_MODEL_MAP, type DifficultyModelMap } from "../../../src/core/agent-model";
 import { createTempDir } from "../../utilities/temp-dir";
 
 function withTemporaryEnv<T>(
@@ -556,6 +557,56 @@ describe.sequential("runtime-config auto agent selection", () => {
 
 				const reloaded = await loadRuntimeConfig(tempProject);
 				expect(reloaded.claudeDefaultModel).toBe("haiku");
+			});
+		} finally {
+			cleanupProject();
+			cleanupHome();
+		}
+	});
+
+	it("defaults the difficulty model map to the shipped defaults when the config has none", async () => {
+		const { path: tempHome, cleanup: cleanupHome } = createTempDir("kanban-home-runtime-config-difficulty-default-");
+		const { path: tempProject, cleanup: cleanupProject } = createTempDir(
+			"kanban-project-runtime-config-difficulty-default-",
+		);
+
+		try {
+			await withTemporaryEnv({ home: tempHome }, async () => {
+				const state = await loadRuntimeConfig(tempProject);
+				expect(state.difficultyModelMap).toEqual(DEFAULT_DIFFICULTY_MODEL_MAP);
+			});
+		} finally {
+			cleanupProject();
+			cleanupHome();
+		}
+	});
+
+	it("round-trips a saved difficulty model map through the global config file", async () => {
+		const { path: tempHome, cleanup: cleanupHome } = createTempDir("kanban-home-runtime-config-difficulty-persist-");
+		const { path: tempProject, cleanup: cleanupProject } = createTempDir(
+			"kanban-project-runtime-config-difficulty-persist-",
+		);
+		const map: DifficultyModelMap = {
+			codex: { 3: { model: "gpt-5.6-terra", reasoningEffort: "high" } },
+			opencode: { 1: { model: "opencode/big-pickle" } },
+			claude: { 5: { model: "sonnet" } },
+		};
+
+		try {
+			await withTemporaryEnv({ home: tempHome }, async () => {
+				const updated = await updateRuntimeConfig(tempProject, { difficultyModelMap: map });
+				expect(updated.difficultyModelMap).toEqual(map);
+
+				const globalPayload = JSON.parse(
+					readFileSync(join(tempHome, ".cline", "kanban", "config.json"), "utf8"),
+				) as { difficultyModelMap?: unknown };
+				expect(globalPayload.difficultyModelMap).toEqual(map);
+
+				// Saving another global field keeps the stored map.
+				await updateRuntimeConfig(tempProject, { claudeDefaultModel: "haiku" });
+				const reloaded = await loadRuntimeConfig(tempProject);
+				expect(reloaded.difficultyModelMap).toEqual(map);
+				expect((await loadGlobalRuntimeConfig()).difficultyModelMap).toEqual(map);
 			});
 		} finally {
 			cleanupProject();

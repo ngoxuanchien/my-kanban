@@ -9,6 +9,7 @@ vi.mock("../../../src/terminal/command-discovery.js", () => ({
 }));
 
 import type { RuntimeConfigState } from "../../../src/config/runtime-config";
+import { DEFAULT_DIFFICULTY_MODEL_MAP } from "../../../src/core/agent-model";
 import {
 	buildRuntimeConfigResponse,
 	detectInstalledCommands,
@@ -30,6 +31,7 @@ function createRuntimeConfigState(overrides: Partial<RuntimeConfigState> = {}): 
 		commitPromptTemplateDefault: "commit",
 		openPrPromptTemplateDefault: "pr",
 		claudeDefaultModel: "opus",
+		difficultyModelMap: DEFAULT_DIFFICULTY_MODEL_MAP,
 		...overrides,
 	};
 }

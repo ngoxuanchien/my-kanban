@@ -5,6 +5,11 @@ import { readFile, rm } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { getRuntimeAgentCatalogEntry, isRuntimeAgentLaunchSupported } from "../core/agent-catalog";
+import {
+	DEFAULT_DIFFICULTY_MODEL_MAP,
+	type DifficultyModelMap,
+	normalizeDifficultyModelMap,
+} from "../core/agent-model";
 import type { RuntimeAgentId, RuntimeClaudeModel, RuntimeProjectShortcut } from "../core/api-contract";
 import { DEFAULT_CLAUDE_MODEL, isRuntimeClaudeModel } from "../core/claude-model";
 import { type LockRequest, lockedFileSystem } from "../fs/locked-file-system";
@@ -19,6 +24,7 @@ interface RuntimeGlobalConfigFileShape {
 	commitPromptTemplate?: string;
 	openPrPromptTemplate?: string;
 	claudeDefaultModel?: RuntimeClaudeModel;
+	difficultyModelMap?: DifficultyModelMap;
 }
 
 interface RuntimeProjectConfigFileShape {
@@ -40,6 +46,7 @@ export interface RuntimeConfigState {
 	commitPromptTemplateDefault: string;
 	openPrPromptTemplateDefault: string;
 	claudeDefaultModel: RuntimeClaudeModel;
+	difficultyModelMap: DifficultyModelMap;
 }
 
 export interface RuntimeConfigUpdateInput {
@@ -52,6 +59,7 @@ export interface RuntimeConfigUpdateInput {
 	commitPromptTemplate?: string;
 	openPrPromptTemplate?: string;
 	claudeDefaultModel?: RuntimeClaudeModel;
+	difficultyModelMap?: DifficultyModelMap;
 }
 
 const RUNTIME_HOME_PARENT_DIR = ".cline";
@@ -197,6 +205,10 @@ function normalizeClaudeModel(value: RuntimeClaudeModel | undefined): RuntimeCla
 	return isRuntimeClaudeModel(value) ? value : DEFAULT_CLAUDE_MODEL;
 }
 
+function areDifficultyModelMapsEqual(left: DifficultyModelMap, right: DifficultyModelMap): boolean {
+	return JSON.stringify(normalizeDifficultyModelMap(left)) === JSON.stringify(normalizeDifficultyModelMap(right));
+}
+
 function normalizeShortcutLabel(value: unknown): string | null {
 	if (typeof value !== "string") {
 		return null;
@@ -305,6 +317,7 @@ function toRuntimeConfigState({
 		commitPromptTemplateDefault: DEFAULT_COMMIT_PROMPT_TEMPLATE,
 		openPrPromptTemplateDefault: DEFAULT_OPEN_PR_PROMPT_TEMPLATE,
 		claudeDefaultModel: normalizeClaudeModel(globalConfig?.claudeDefaultModel),
+		difficultyModelMap: normalizeDifficultyModelMap(globalConfig?.difficultyModelMap),
 	};
 }
 
@@ -327,6 +340,7 @@ async function writeRuntimeGlobalConfigFile(
 		commitPromptTemplate?: string;
 		openPrPromptTemplate?: string;
 		claudeDefaultModel?: RuntimeClaudeModel;
+		difficultyModelMap?: DifficultyModelMap;
 	},
 ): Promise<void> {
 	const existing = await readRuntimeConfigFile<RuntimeGlobalConfigFileShape>(configPath);
@@ -396,6 +410,17 @@ async function writeRuntimeGlobalConfigFile(
 		(hasOwnKey(existing, "claudeDefaultModel") || claudeDefaultModel !== DEFAULT_CLAUDE_MODEL)
 	) {
 		payload.claudeDefaultModel = claudeDefaultModel;
+	}
+	if (config.difficultyModelMap !== undefined) {
+		const difficultyModelMap = normalizeDifficultyModelMap(config.difficultyModelMap);
+		if (
+			hasOwnKey(existing, "difficultyModelMap") ||
+			!areDifficultyModelMapsEqual(difficultyModelMap, DEFAULT_DIFFICULTY_MODEL_MAP)
+		) {
+			payload.difficultyModelMap = difficultyModelMap;
+		}
+	} else if (hasOwnKey(existing, "difficultyModelMap")) {
+		payload.difficultyModelMap = normalizeDifficultyModelMap(existing?.difficultyModelMap);
 	}
 
 	await lockedFileSystem.writeJsonFileAtomic(configPath, payload, {
@@ -482,6 +507,7 @@ function createRuntimeConfigStateFromValues(input: {
 	commitPromptTemplate: string;
 	openPrPromptTemplate: string;
 	claudeDefaultModel: RuntimeClaudeModel;
+	difficultyModelMap: DifficultyModelMap;
 }): RuntimeConfigState {
 	return {
 		globalConfigPath: input.globalConfigPath,
@@ -503,6 +529,7 @@ function createRuntimeConfigStateFromValues(input: {
 		commitPromptTemplateDefault: DEFAULT_COMMIT_PROMPT_TEMPLATE,
 		openPrPromptTemplateDefault: DEFAULT_OPEN_PR_PROMPT_TEMPLATE,
 		claudeDefaultModel: normalizeClaudeModel(input.claudeDefaultModel),
+		difficultyModelMap: normalizeDifficultyModelMap(input.difficultyModelMap),
 	};
 }
 
@@ -519,6 +546,7 @@ export function toGlobalRuntimeConfigState(current: RuntimeConfigState): Runtime
 		commitPromptTemplate: current.commitPromptTemplate,
 		openPrPromptTemplate: current.openPrPromptTemplate,
 		claudeDefaultModel: current.claudeDefaultModel,
+		difficultyModelMap: current.difficultyModelMap,
 	});
 }
 
@@ -556,6 +584,7 @@ export async function saveRuntimeConfig(
 		commitPromptTemplate: string;
 		openPrPromptTemplate: string;
 		claudeDefaultModel?: RuntimeClaudeModel;
+		difficultyModelMap?: DifficultyModelMap;
 	},
 ): Promise<RuntimeConfigState> {
 	const { globalConfigPath, projectConfigPath } = resolveRuntimeConfigPaths(cwd);
@@ -568,7 +597,9 @@ export async function saveRuntimeConfig(
 			commitPromptTemplate: config.commitPromptTemplate,
 			openPrPromptTemplate: config.openPrPromptTemplate,
 			claudeDefaultModel: config.claudeDefaultModel,
+			difficultyModelMap: config.difficultyModelMap,
 		});
+		const savedGlobal = await readRuntimeConfigFile<RuntimeGlobalConfigFileShape>(globalConfigPath);
 		const currentProject = projectConfigPath
 			? await readRuntimeConfigFile<RuntimeProjectConfigFileShape>(projectConfigPath)
 			: null;
@@ -586,6 +617,7 @@ export async function saveRuntimeConfig(
 			commitPromptTemplate: config.commitPromptTemplate,
 			openPrPromptTemplate: config.openPrPromptTemplate,
 			claudeDefaultModel: config.claudeDefaultModel ?? DEFAULT_CLAUDE_MODEL,
+			difficultyModelMap: normalizeDifficultyModelMap(savedGlobal?.difficultyModelMap),
 		});
 	});
 }
@@ -609,6 +641,7 @@ export async function updateRuntimeConfig(cwd: string, updates: RuntimeConfigUpd
 			commitPromptTemplate: updates.commitPromptTemplate ?? current.commitPromptTemplate,
 			openPrPromptTemplate: updates.openPrPromptTemplate ?? current.openPrPromptTemplate,
 			claudeDefaultModel: updates.claudeDefaultModel ?? current.claudeDefaultModel,
+			difficultyModelMap: updates.difficultyModelMap ?? current.difficultyModelMap,
 		};
 
 		const hasChanges =
@@ -619,6 +652,7 @@ export async function updateRuntimeConfig(cwd: string, updates: RuntimeConfigUpd
 			nextConfig.commitPromptTemplate !== current.commitPromptTemplate ||
 			nextConfig.openPrPromptTemplate !== current.openPrPromptTemplate ||
 			nextConfig.claudeDefaultModel !== current.claudeDefaultModel ||
+			!areDifficultyModelMapsEqual(nextConfig.difficultyModelMap, current.difficultyModelMap) ||
 			nextConfig.githubIssueSyncEnabled !== current.githubIssueSyncEnabled ||
 			!areRuntimeProjectShortcutsEqual(nextConfig.shortcuts, current.shortcuts);
 
@@ -634,6 +668,7 @@ export async function updateRuntimeConfig(cwd: string, updates: RuntimeConfigUpd
 			commitPromptTemplate: nextConfig.commitPromptTemplate,
 			openPrPromptTemplate: nextConfig.openPrPromptTemplate,
 			claudeDefaultModel: nextConfig.claudeDefaultModel,
+			difficultyModelMap: nextConfig.difficultyModelMap,
 		});
 		await writeRuntimeProjectConfigFile(projectConfigPath, {
 			shortcuts: nextConfig.shortcuts,
@@ -651,6 +686,7 @@ export async function updateRuntimeConfig(cwd: string, updates: RuntimeConfigUpd
 			commitPromptTemplate: nextConfig.commitPromptTemplate,
 			openPrPromptTemplate: nextConfig.openPrPromptTemplate,
 			claudeDefaultModel: nextConfig.claudeDefaultModel,
+			difficultyModelMap: nextConfig.difficultyModelMap,
 		});
 	});
 }
@@ -682,6 +718,7 @@ export async function updateGlobalRuntimeConfig(
 				commitPromptTemplate: updates.commitPromptTemplate ?? current.commitPromptTemplate,
 				openPrPromptTemplate: updates.openPrPromptTemplate ?? current.openPrPromptTemplate,
 				claudeDefaultModel: updates.claudeDefaultModel ?? current.claudeDefaultModel,
+				difficultyModelMap: updates.difficultyModelMap ?? current.difficultyModelMap,
 			};
 
 			const hasChanges =
@@ -691,7 +728,8 @@ export async function updateGlobalRuntimeConfig(
 				nextConfig.readyForReviewNotificationsEnabled !== current.readyForReviewNotificationsEnabled ||
 				nextConfig.commitPromptTemplate !== current.commitPromptTemplate ||
 				nextConfig.openPrPromptTemplate !== current.openPrPromptTemplate ||
-				nextConfig.claudeDefaultModel !== current.claudeDefaultModel;
+				nextConfig.claudeDefaultModel !== current.claudeDefaultModel ||
+				!areDifficultyModelMapsEqual(nextConfig.difficultyModelMap, current.difficultyModelMap);
 
 			if (!hasChanges) {
 				return current;
@@ -705,6 +743,7 @@ export async function updateGlobalRuntimeConfig(
 				commitPromptTemplate: nextConfig.commitPromptTemplate,
 				openPrPromptTemplate: nextConfig.openPrPromptTemplate,
 				claudeDefaultModel: nextConfig.claudeDefaultModel,
+				difficultyModelMap: nextConfig.difficultyModelMap,
 			});
 
 			return createRuntimeConfigStateFromValues({
@@ -719,6 +758,7 @@ export async function updateGlobalRuntimeConfig(
 				commitPromptTemplate: nextConfig.commitPromptTemplate,
 				openPrPromptTemplate: nextConfig.openPrPromptTemplate,
 				claudeDefaultModel: nextConfig.claudeDefaultModel,
+				difficultyModelMap: nextConfig.difficultyModelMap,
 			});
 		},
 	);

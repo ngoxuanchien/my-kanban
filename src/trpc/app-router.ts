@@ -5,6 +5,8 @@ import type { inferRouterInputs, inferRouterOutputs } from "@trpc/server";
 import { initTRPC, TRPCError } from "@trpc/server";
 import { z } from "zod";
 import type {
+	RuntimeAgentModelCatalogsRequest,
+	RuntimeAgentModelCatalogsResponse,
 	RuntimeAgentTranscriptRequest,
 	RuntimeAgentTranscriptResponse,
 	RuntimeClineAccountBalanceResponse,
@@ -114,6 +116,8 @@ import type {
 	RuntimeWorktreeEnsureResponse,
 } from "../core/api-contract";
 import {
+	runtimeAgentModelCatalogsRequestSchema,
+	runtimeAgentModelCatalogsResponseSchema,
 	runtimeAgentTranscriptRequestSchema,
 	runtimeAgentTranscriptResponseSchema,
 	runtimeClineAccountBalanceResponseSchema,
@@ -370,6 +374,7 @@ export interface RuntimeTrpcContext {
 			input: RuntimeOpenFileInEditorRequest,
 		) => Promise<RuntimeOpenFileInEditorResponse>;
 		getUpdateStatus: (scope: RuntimeTrpcWorkspaceScope | null) => Promise<RuntimeUpdateStatusResponse>;
+		getAgentModelCatalogs: (input: RuntimeAgentModelCatalogsRequest) => Promise<RuntimeAgentModelCatalogsResponse>;
 		runUpdateNow: (scope: RuntimeTrpcWorkspaceScope | null) => Promise<RuntimeRunUpdateResponse>;
 	};
 	workspaceApi: {
@@ -752,6 +757,12 @@ export const runtimeAppRouter = t.router({
 		getUpdateStatus: t.procedure.output(runtimeUpdateStatusResponseSchema).query(async ({ ctx }) => {
 			return await ctx.runtimeApi.getUpdateStatus(ctx.workspaceScope);
 		}),
+		getAgentModelCatalogs: t.procedure
+			.input(runtimeAgentModelCatalogsRequestSchema)
+			.output(runtimeAgentModelCatalogsResponseSchema)
+			.query(async ({ ctx, input }) => {
+				return await ctx.runtimeApi.getAgentModelCatalogs(input);
+			}),
 		runUpdateNow: t.procedure.output(runtimeRunUpdateResponseSchema).mutation(async ({ ctx }) => {
 			return await ctx.runtimeApi.runUpdateNow(ctx.workspaceScope);
 		}),

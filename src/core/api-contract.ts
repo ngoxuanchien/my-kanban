@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { difficultyModelMapSchema, runtimeTaskDifficultySchema } from "./agent-model";
 import { type RuntimeClaudeModel, runtimeClaudeModelSchema } from "./claude-model";
 import { resolveTaskTitle } from "./task-title.js";
 
@@ -209,6 +210,9 @@ export const runtimeBoardCardSchema = z
 		images: z.array(runtimeTaskImageSchema).optional(),
 		agentId: runtimeAgentIdSchema.optional(),
 		claudeModel: runtimeClaudeModelSchema.optional(),
+		difficulty: runtimeTaskDifficultySchema.optional(),
+		agentModel: z.string().optional(),
+		agentReasoningEffort: z.string().optional(),
 		clineSettings: runtimeTaskClineSettingsSchema.optional(),
 		clineProviderId: z.string().optional(),
 		clineModelId: z.string().optional(),
@@ -1073,6 +1077,7 @@ export const runtimeConfigResponseSchema = z.object({
 	commitPromptTemplateDefault: z.string(),
 	openPrPromptTemplateDefault: z.string(),
 	claudeDefaultModel: runtimeClaudeModelSchema.default("opus"),
+	difficultyModelMap: difficultyModelMapSchema.optional(),
 });
 export type RuntimeConfigResponse = z.infer<typeof runtimeConfigResponseSchema>;
 
@@ -1086,8 +1091,34 @@ export const runtimeConfigSaveRequestSchema = z.object({
 	commitPromptTemplate: z.string().optional(),
 	openPrPromptTemplate: z.string().optional(),
 	claudeDefaultModel: runtimeClaudeModelSchema.optional(),
+	difficultyModelMap: difficultyModelMapSchema.optional(),
 });
 export type RuntimeConfigSaveRequest = z.infer<typeof runtimeConfigSaveRequestSchema>;
+
+export const runtimeAgentModelCatalogEntrySchema = z.object({
+	id: z.string(),
+	displayName: z.string().optional(),
+	description: z.string().optional(),
+	efforts: z.array(z.string()),
+	defaultEffort: z.string().optional(),
+});
+export type RuntimeAgentModelCatalogEntry = z.infer<typeof runtimeAgentModelCatalogEntrySchema>;
+
+export const runtimeAgentModelCatalogSchema = z.discriminatedUnion("ok", [
+	z.object({ ok: z.literal(true), models: z.array(runtimeAgentModelCatalogEntrySchema) }),
+	z.object({ ok: z.literal(false), error: z.string() }),
+]);
+export type RuntimeAgentModelCatalog = z.infer<typeof runtimeAgentModelCatalogSchema>;
+
+export const runtimeAgentModelCatalogsRequestSchema = z.object({ refresh: z.boolean().optional() }).optional();
+export type RuntimeAgentModelCatalogsRequest = z.infer<typeof runtimeAgentModelCatalogsRequestSchema>;
+
+export const runtimeAgentModelCatalogsResponseSchema = z.object({
+	codex: runtimeAgentModelCatalogSchema,
+	opencode: runtimeAgentModelCatalogSchema,
+	claude: runtimeAgentModelCatalogSchema,
+});
+export type RuntimeAgentModelCatalogsResponse = z.infer<typeof runtimeAgentModelCatalogsResponseSchema>;
 
 export const runtimeTaskSessionStartRequestSchema = z.object({
 	taskId: z.string(),

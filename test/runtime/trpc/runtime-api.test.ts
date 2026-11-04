@@ -1,8 +1,8 @@
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-
 import type { RuntimeConfigState } from "../../../src/config/runtime-config";
+import { DEFAULT_DIFFICULTY_MODEL_MAP } from "../../../src/core/agent-model";
 import type { RuntimeBoardData, RuntimeTaskSessionSummary } from "../../../src/core/api-contract";
 
 const agentRegistryMocks = vi.hoisted(() => ({
@@ -151,6 +151,12 @@ vi.mock("../../../src/server/browser.js", () => ({
 
 vi.mock("../../../src/server/hand-off-task.js", () => ({ handOffTask: handOffTaskMocks.handOffTask }));
 
+const agentModelCatalogMocks = vi.hoisted(() => ({ loadAgentModelCatalog: vi.fn() }));
+
+vi.mock("../../../src/terminal/agent-model-catalog.js", () => ({
+	loadAgentModelCatalog: agentModelCatalogMocks.loadAgentModelCatalog,
+}));
+
 import type { RuntimeTrpcContext } from "../../../src/trpc/app-router";
 import { type CreateRuntimeApiDependencies, createRuntimeApi } from "../../../src/trpc/runtime-api";
 
@@ -213,6 +219,7 @@ function createRuntimeConfigState(): RuntimeConfigState {
 		commitPromptTemplateDefault: "commit",
 		openPrPromptTemplateDefault: "pr",
 		claudeDefaultModel: "opus",
+		difficultyModelMap: DEFAULT_DIFFICULTY_MODEL_MAP,
 		globalConfigPath: "/tmp/global-config.json",
 		projectConfigPath: "/tmp/project-config.json",
 	};
@@ -3150,6 +3157,47 @@ describe("createRuntimeApi handOffTask", () => {
 
 		expect(result.ok).toBe(true);
 		expect(broadcastRuntimeWorkspaceStateUpdated).toHaveBeenCalledWith("workspace-1", "/tmp/repo");
+	});
+});
+
+describe("createRuntimeApi agent models", () => {
+	const createApi = () =>
+		createTestRuntimeApi({
+			getActiveWorkspaceId: vi.fn(() => "workspace-1"),
+			loadScopedRuntimeConfig: vi.fn(async () => createRuntimeConfigState()),
+			setActiveRuntimeConfig: vi.fn(),
+			getScopedTerminalManager: vi.fn(async () => ({}) as never),
+			getScopedClineTaskSessionService: vi.fn(async () => createClineTaskSessionServiceMock() as never),
+			resolveInteractiveShellCommand: vi.fn(),
+			runCommand: vi.fn(),
+		});
+
+	it("getAgentModelCatalogs returns codex, opencode and claude catalogs", async () => {
+		agentModelCatalogMocks.loadAgentModelCatalog.mockReset();
+		agentModelCatalogMocks.loadAgentModelCatalog.mockImplementation(async (agentId: string) =>
+			agentId === "opencode"
+				? { ok: false, error: "opencode models failed" }
+				: { ok: true, models: [{ id: `${agentId}-model`, efforts: [] }] },
+		);
+
+		const result = await createApi().getAgentModelCatalogs({ refresh: true });
+
+		expect(result).toEqual({
+			codex: { ok: true, models: [{ id: "codex-model", efforts: [] }] },
+			opencode: { ok: false, error: "opencode models failed" },
+			claude: { ok: true, models: [{ id: "claude-model", efforts: [] }] },
+		});
+		for (const agentId of ["codex", "opencode", "claude"]) {
+			expect(agentModelCatalogMocks.loadAgentModelCatalog).toHaveBeenCalledWith(agentId, { refresh: true });
+		}
+	});
+
+	it("loadConfig includes the difficulty model map", async () => {
+		agentRegistryMocks.buildRuntimeConfigResponse.mockReturnValue({ selectedAgentId: "claude" });
+
+		const response = await createApi().loadConfig({ workspaceId: "workspace-1", workspacePath: "/tmp/repo" });
+
+		expect(response.difficultyModelMap).toEqual(DEFAULT_DIFFICULTY_MODEL_MAP);
 	});
 });
 
