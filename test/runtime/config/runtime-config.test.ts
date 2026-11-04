@@ -563,3 +563,44 @@ describe.sequential("runtime-config auto agent selection", () => {
 		}
 	});
 });
+
+describe("project GitHub issue sync setting", () => {
+	it("defaults githubIssueSyncEnabled to false and loads project true", async () => {
+		const temp = createTempDir("github-config-");
+		try {
+			await withTemporaryEnv({ home: temp.path }, async () => {
+				const repo = join(temp.path, "repo");
+				expect((await loadRuntimeConfig(repo)).githubIssueSyncEnabled).toBe(false);
+				mkdirSync(join(repo, ".cline", "kanban"), { recursive: true });
+				writeFileSync(
+					join(repo, ".cline", "kanban", "config.json"),
+					JSON.stringify({ githubIssueSyncEnabled: true }),
+				);
+				expect((await loadRuntimeConfig(repo)).githubIssueSyncEnabled).toBe(true);
+			});
+		} finally {
+			temp.cleanup();
+		}
+	});
+	it("writes githubIssueSyncEnabled to project config only and preserves it across shortcut updates", async () => {
+		const temp = createTempDir("github-config-");
+		try {
+			await withTemporaryEnv({ home: temp.path }, async () => {
+				const repo = join(temp.path, "repo");
+				await updateRuntimeConfig(repo, { githubIssueSyncEnabled: true });
+				await updateRuntimeConfig(repo, { shortcuts: [] });
+				expect(JSON.parse(readFileSync(join(repo, ".cline", "kanban", "config.json"), "utf8"))).toEqual({
+					githubIssueSyncEnabled: true,
+				});
+				const globalPath = join(temp.path, ".cline", "kanban", "config.json");
+				if (existsSync(globalPath))
+					expect(JSON.parse(readFileSync(globalPath, "utf8"))).not.toHaveProperty("githubIssueSyncEnabled");
+				expect((await loadGlobalRuntimeConfig()).githubIssueSyncEnabled).toBe(false);
+				await updateRuntimeConfig(repo, { githubIssueSyncEnabled: false });
+				expect((await loadRuntimeConfig(repo)).githubIssueSyncEnabled).toBe(false);
+			});
+		} finally {
+			temp.cleanup();
+		}
+	});
+});

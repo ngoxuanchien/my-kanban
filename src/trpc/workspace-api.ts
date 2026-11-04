@@ -1,5 +1,6 @@
 import { TRPCError } from "@trpc/server";
 import type { ClineTaskSessionService } from "../cline-sdk/cline-task-session-service";
+import { loadRuntimeConfig } from "../config/runtime-config";
 import type {
 	RuntimeGitCheckoutResponse,
 	RuntimeGitDiscardResponse,
@@ -18,6 +19,8 @@ import {
 	parseWorktreeEnsureRequest,
 } from "../core/api-validation";
 import { trashTaskAndGetReadyLinkedTaskIds } from "../core/task-board-mutations";
+import { readGithubIssueMap, setGithubIssueSummary } from "../github/issue-map";
+import type { GithubIssueSyncService } from "../github/issue-sync";
 import { deleteTaskHistory } from "../state/task-history";
 import {
 	loadWorkspaceState,
@@ -46,6 +49,7 @@ import type { RuntimeTrpcContext } from "./app-router";
 const warnTaskHistoryDeletion = console.warn.bind(console);
 
 export interface CreateWorkspaceApiDependencies {
+	githubIssueSync?: GithubIssueSyncService;
 	ensureTerminalManagerForWorkspace: (workspaceId: string, repoPath: string) => Promise<TerminalSessionManager>;
 	getScopedClineTaskSessionService: (scope: {
 		workspaceId: string;
@@ -210,6 +214,24 @@ function isMissingTaskWorktreeError(error: unknown): boolean {
 
 export function createWorkspaceApi(deps: CreateWorkspaceApiDependencies): RuntimeTrpcContext["workspaceApi"] {
 	return {
+		setTaskIssueSummary: async (scope, input) => {
+			await setGithubIssueSummary(scope.workspaceId, input.taskId, input.summary);
+			return { ok: true };
+		},
+		syncGithubIssues: async (scope) => {
+			if (!deps.githubIssueSync) throw new Error("GitHub issue sync service is unavailable.");
+			return await deps.githubIssueSync.syncNow(scope.workspaceId, scope.workspacePath);
+		},
+		getGithubIssues: async (scope) => {
+			const config = await loadRuntimeConfig(scope.workspacePath);
+			const map = await readGithubIssueMap(scope.workspaceId);
+			const issues: Record<string, { number: number; url: string }> = {};
+			for (const [taskId, entry] of Object.entries(map)) {
+				if (entry.issueNumber && entry.issueUrl)
+					issues[taskId] = { number: entry.issueNumber, url: entry.issueUrl };
+			}
+			return { enabled: config.githubIssueSyncEnabled, issues };
+		},
 		loadGitSummary: async (workspaceScope, input) => {
 			try {
 				const taskScope = normalizeOptionalTaskWorkspaceScopeInput(input);

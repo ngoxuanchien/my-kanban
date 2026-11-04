@@ -48,6 +48,7 @@ import type {
 	RuntimeGitCommitDiffRequest,
 	RuntimeGitCommitDiffResponse,
 	RuntimeGitDiscardResponse,
+	RuntimeGithubIssuesResponse,
 	RuntimeGitLogRequest,
 	RuntimeGitLogResponse,
 	RuntimeGitRefsResponse,
@@ -67,6 +68,7 @@ import type {
 	RuntimeProjectRemoveResponse,
 	RuntimeProjectsResponse,
 	RuntimeRunUpdateResponse,
+	RuntimeSetTaskIssueSummaryRequest,
 	RuntimeShellSessionStartRequest,
 	RuntimeShellSessionStartResponse,
 	RuntimeSlashCommandsResponse,
@@ -155,6 +157,8 @@ import {
 	runtimeGitCommitDiffRequestSchema,
 	runtimeGitCommitDiffResponseSchema,
 	runtimeGitDiscardResponseSchema,
+	runtimeGithubIssueSyncResultSchema,
+	runtimeGithubIssuesResponseSchema,
 	runtimeGitLogRequestSchema,
 	runtimeGitLogResponseSchema,
 	runtimeGitRefsResponseSchema,
@@ -174,6 +178,7 @@ import {
 	runtimeProjectRemoveResponseSchema,
 	runtimeProjectsResponseSchema,
 	runtimeRunUpdateResponseSchema,
+	runtimeSetTaskIssueSummaryRequestSchema,
 	runtimeShellSessionStartRequestSchema,
 	runtimeShellSessionStartResponseSchema,
 	runtimeSlashCommandsResponseSchema,
@@ -219,6 +224,7 @@ import {
 	runtimeWorktreeEnsureResponseSchema,
 } from "../core/api-contract";
 import { resolveScoreAgentKey } from "../core/claude-model";
+import type { GithubIssueSyncResult } from "../github/issue-sync";
 import { recordAgentScoreEvent } from "../state/agent-scores";
 import { recordTaskHistoryEvent } from "../state/task-history";
 import { loadWorkspaceBoardById } from "../state/workspace-state";
@@ -367,6 +373,12 @@ export interface RuntimeTrpcContext {
 		runUpdateNow: (scope: RuntimeTrpcWorkspaceScope | null) => Promise<RuntimeRunUpdateResponse>;
 	};
 	workspaceApi: {
+		setTaskIssueSummary: (
+			scope: RuntimeTrpcWorkspaceScope,
+			input: RuntimeSetTaskIssueSummaryRequest,
+		) => Promise<{ ok: true }>;
+		syncGithubIssues: (scope: RuntimeTrpcWorkspaceScope) => Promise<GithubIssueSyncResult>;
+		getGithubIssues: (scope: RuntimeTrpcWorkspaceScope) => Promise<RuntimeGithubIssuesResponse>;
 		loadGitSummary: (
 			scope: RuntimeTrpcWorkspaceScope,
 			input: RuntimeTaskWorkspaceInfoRequest | null,
@@ -745,6 +757,16 @@ export const runtimeAppRouter = t.router({
 		}),
 	}),
 	workspace: t.router({
+		setTaskIssueSummary: workspaceProcedure
+			.input(runtimeSetTaskIssueSummaryRequestSchema)
+			.output(z.object({ ok: z.literal(true) }))
+			.mutation(async ({ ctx, input }) => await ctx.workspaceApi.setTaskIssueSummary(ctx.workspaceScope, input)),
+		syncGithubIssues: workspaceProcedure
+			.output(runtimeGithubIssueSyncResultSchema)
+			.mutation(async ({ ctx }) => await ctx.workspaceApi.syncGithubIssues(ctx.workspaceScope)),
+		getGithubIssues: workspaceProcedure
+			.output(runtimeGithubIssuesResponseSchema)
+			.query(async ({ ctx }) => await ctx.workspaceApi.getGithubIssues(ctx.workspaceScope)),
 		getGitSummary: workspaceProcedure
 			.input(optionalTaskWorkspaceInfoRequestSchema)
 			.output(runtimeGitSummaryResponseSchema)

@@ -25,6 +25,7 @@ import {
 	getKanbanRuntimeTls,
 	isKanbanRemoteHost,
 } from "../core/runtime-endpoint";
+import type { GithubIssueSyncService } from "../github/issue-sync";
 import {
 	checkRateLimit,
 	clearRateLimit,
@@ -65,6 +66,7 @@ interface DisposeTrackedWorkspaceResult {
 }
 
 export interface CreateRuntimeServerDependencies {
+	githubIssueSync?: GithubIssueSyncService;
 	workspaceRegistry: WorkspaceRegistry;
 	runtimeStateHub: RuntimeStateHub;
 	warn: (message: string) => void;
@@ -312,6 +314,7 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 			workspaceScope: scope.workspaceScope,
 			runtimeApi: createRuntimeApi(runtimeApiDependencies),
 			workspaceApi: createWorkspaceApi({
+				githubIssueSync: deps.githubIssueSync,
 				ensureTerminalManagerForWorkspace: deps.ensureTerminalManagerForWorkspace,
 				getScopedClineTaskSessionService,
 				broadcastRuntimeWorkspaceStateUpdated: deps.runtimeStateHub.broadcastRuntimeWorkspaceStateUpdated,

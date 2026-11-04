@@ -30,9 +30,12 @@ import {
 	setKanbanRuntimePort,
 	setKanbanRuntimeTls,
 } from "./core/runtime-endpoint";
+import { runGh } from "./github/gh-runner";
+import { createGithubIssueSyncService } from "./github/issue-sync";
 import { disablePasscode, generateInternalToken, generatePasscode } from "./security/passcode-manager";
 import { runScopedCommand } from "./server/run-scoped-command";
 import type { RuntimeStateHub } from "./server/runtime-state-hub";
+import { listWorkspaceIndexEntries } from "./state/workspace-state";
 import { captureNodeException, flushNodeTelemetry } from "./telemetry/sentry-node.js";
 import type { TerminalSessionManager } from "./terminal/session-manager";
 import { runOnDemandUpdate } from "./update/update";
@@ -358,9 +361,13 @@ async function startServer(): Promise<{
 			runtimeStateHub?.trackTerminalManager(workspaceId, manager);
 		},
 	});
+	const githubIssueSync = createGithubIssueSyncService({ runGh, warn: (message) => console.warn(message) });
 	runtimeStateHub = createRuntimeStateHub({
 		workspaceRegistry,
+		onWorkspaceStateChanged: githubIssueSync.requestSync,
 	});
+	for (const entry of await listWorkspaceIndexEntries())
+		githubIssueSync.requestSync(entry.workspaceId, entry.repoPath);
 	const runtimeHub = runtimeStateHub;
 	for (const { workspaceId, terminalManager } of workspaceRegistry.listManagedWorkspaces()) {
 		runtimeHub.trackTerminalManager(workspaceId, terminalManager);
@@ -380,6 +387,7 @@ async function startServer(): Promise<{
 	};
 
 	const runtimeServer = await createRuntimeServer({
+		githubIssueSync,
 		workspaceRegistry,
 		runtimeStateHub: runtimeHub,
 		warn: (message) => {

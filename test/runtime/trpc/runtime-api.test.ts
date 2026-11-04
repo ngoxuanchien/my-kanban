@@ -207,6 +207,7 @@ function createRuntimeConfigState(): RuntimeConfigState {
 		agentAutonomousModeEnabled: true,
 		readyForReviewNotificationsEnabled: true,
 		shortcuts: [],
+		githubIssueSyncEnabled: false,
 		commitPromptTemplate: "commit",
 		openPrPromptTemplate: "pr",
 		commitPromptTemplateDefault: "commit",

@@ -27,6 +27,7 @@ vi.mock("../../../src/workspace/get-workspace-changes.js", () => ({
 	getWorkspaceChangesFromRef: workspaceChangesMocks.getWorkspaceChangesFromRef,
 }));
 
+import { createRuntimeStateHub } from "../../../src/server/runtime-state-hub";
 import { createWorkspaceApi } from "../../../src/trpc/workspace-api";
 
 function createSummary(overrides: Partial<RuntimeTaskSessionSummary> = {}): RuntimeTaskSessionSummary {
@@ -324,4 +325,24 @@ describe("createWorkspaceApi loadChanges", () => {
 		expect(workspaceChangesMocks.createEmptyWorkspaceChangesResponse).toHaveBeenCalledWith("/tmp/repo");
 		expect(workspaceChangesMocks.getWorkspaceChanges).not.toHaveBeenCalled();
 	});
+});
+
+it("workspace state callback fires with zero clients connected", async () => {
+	const onWorkspaceStateChanged = vi.fn();
+	const snapshot = vi.fn();
+	const hub = createRuntimeStateHub({
+		workspaceRegistry: {
+			resolveWorkspaceForStream: vi.fn(),
+			buildProjectsPayload: vi.fn(),
+			buildWorkspaceStateSnapshot: snapshot,
+		},
+		onWorkspaceStateChanged,
+	});
+	try {
+		await hub.broadcastRuntimeWorkspaceStateUpdated("workspace", "/repo");
+		expect(onWorkspaceStateChanged).toHaveBeenCalledWith("workspace", "/repo");
+		expect(snapshot).not.toHaveBeenCalled();
+	} finally {
+		await hub.close();
+	}
 });

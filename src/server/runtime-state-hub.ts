@@ -32,6 +32,7 @@ export interface DisposeRuntimeStateWorkspaceOptions {
 }
 
 export interface CreateRuntimeStateHubDependencies {
+	onWorkspaceStateChanged?: (workspaceId: string, workspacePath: string) => void;
 	workspaceRegistry: Pick<
 		WorkspaceRegistry,
 		"resolveWorkspaceForStream" | "buildProjectsPayload" | "buildWorkspaceStateSnapshot"
@@ -298,6 +299,7 @@ export function createRuntimeStateHub(deps: CreateRuntimeStateHubDependencies): 
 	};
 
 	const broadcastRuntimeWorkspaceStateUpdated = async (workspaceId: string, workspacePath: string): Promise<void> => {
+		deps.onWorkspaceStateChanged?.(workspaceId, workspacePath);
 		const clients = runtimeStateClientsByWorkspaceId.get(workspaceId);
 		if (!clients || clients.size === 0) {
 			return;

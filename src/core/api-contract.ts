@@ -1055,6 +1055,7 @@ export const runtimeAgentDefinitionSchema = z.object({
 export type RuntimeAgentDefinition = z.infer<typeof runtimeAgentDefinitionSchema>;
 
 export const runtimeConfigResponseSchema = z.object({
+	githubIssueSyncEnabled: z.boolean().default(false),
 	selectedAgentId: runtimeAgentIdSchema,
 	selectedShortcutLabel: z.string().nullable(),
 	agentAutonomousModeEnabled: z.boolean(),
@@ -1076,6 +1077,7 @@ export const runtimeConfigResponseSchema = z.object({
 export type RuntimeConfigResponse = z.infer<typeof runtimeConfigResponseSchema>;
 
 export const runtimeConfigSaveRequestSchema = z.object({
+	githubIssueSyncEnabled: z.boolean().optional(),
 	selectedAgentId: runtimeAgentIdSchema.optional(),
 	selectedShortcutLabel: z.string().nullable().optional(),
 	agentAutonomousModeEnabled: z.boolean().optional(),
@@ -1422,3 +1424,21 @@ export const runtimeHookIngestResponseSchema = z.object({
 	error: z.string().optional(),
 });
 export type RuntimeHookIngestResponse = z.infer<typeof runtimeHookIngestResponseSchema>;
+
+export const runtimeSetTaskIssueSummaryRequestSchema = z.object({
+	taskId: z.string().trim().min(1),
+	summary: z.string(),
+});
+export const runtimeGithubIssueSyncResultSchema = z.object({
+	ok: z.boolean(),
+	created: z.number().int().nonnegative(),
+	updated: z.number().int().nonnegative(),
+	closed: z.number().int().nonnegative(),
+	error: z.string().optional(),
+});
+export const runtimeGithubIssuesResponseSchema = z.object({
+	enabled: z.boolean(),
+	issues: z.record(z.string(), z.object({ number: z.number().int().positive(), url: z.string().url() })),
+});
+export type RuntimeSetTaskIssueSummaryRequest = z.infer<typeof runtimeSetTaskIssueSummaryRequestSchema>;
+export type RuntimeGithubIssuesResponse = z.infer<typeof runtimeGithubIssuesResponseSchema>;

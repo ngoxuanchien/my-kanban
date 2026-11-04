@@ -108,6 +108,7 @@ export function buildRuntimeConfigResponse(
 	const effectiveCommand = resolved ? joinCommand(resolved.binary, resolved.args) : null;
 
 	return {
+		githubIssueSyncEnabled: runtimeConfig.githubIssueSyncEnabled,
 		selectedAgentId: runtimeConfig.selectedAgentId,
 		selectedShortcutLabel: runtimeConfig.selectedShortcutLabel,
 		agentAutonomousModeEnabled: runtimeConfig.agentAutonomousModeEnabled,

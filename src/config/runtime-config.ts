@@ -22,10 +22,12 @@ interface RuntimeGlobalConfigFileShape {
 }
 
 interface RuntimeProjectConfigFileShape {
+	githubIssueSyncEnabled?: boolean;
 	shortcuts?: RuntimeProjectShortcut[];
 }
 
 export interface RuntimeConfigState {
+	githubIssueSyncEnabled: boolean;
 	globalConfigPath: string;
 	projectConfigPath: string | null;
 	selectedAgentId: RuntimeAgentId;
@@ -41,6 +43,7 @@ export interface RuntimeConfigState {
 }
 
 export interface RuntimeConfigUpdateInput {
+	githubIssueSyncEnabled?: boolean;
 	selectedAgentId?: RuntimeAgentId;
 	selectedShortcutLabel?: string | null;
 	agentAutonomousModeEnabled?: boolean;
@@ -293,6 +296,7 @@ function toRuntimeConfigState({
 			DEFAULT_READY_FOR_REVIEW_NOTIFICATIONS_ENABLED,
 		),
 		shortcuts: normalizeShortcuts(projectConfig?.shortcuts),
+		githubIssueSyncEnabled: projectConfig?.githubIssueSyncEnabled === true,
 		commitPromptTemplate: normalizePromptTemplate(globalConfig?.commitPromptTemplate, DEFAULT_COMMIT_PROMPT_TEMPLATE),
 		openPrPromptTemplate: normalizePromptTemplate(
 			globalConfig?.openPrPromptTemplate,
@@ -401,16 +405,16 @@ async function writeRuntimeGlobalConfigFile(
 
 async function writeRuntimeProjectConfigFile(
 	configPath: string | null,
-	config: { shortcuts: RuntimeProjectShortcut[] },
+	config: { shortcuts: RuntimeProjectShortcut[]; githubIssueSyncEnabled: boolean },
 ): Promise<void> {
 	const normalizedShortcuts = normalizeShortcuts(config.shortcuts);
 	if (!configPath) {
-		if (normalizedShortcuts.length > 0) {
+		if (normalizedShortcuts.length > 0 || config.githubIssueSyncEnabled) {
 			throw new Error("Cannot save project shortcuts without a selected project.");
 		}
 		return;
 	}
-	if (normalizedShortcuts.length === 0) {
+	if (normalizedShortcuts.length === 0 && !config.githubIssueSyncEnabled) {
 		await rm(configPath, { force: true });
 		try {
 			await rm(dirname(configPath));
@@ -422,7 +426,8 @@ async function writeRuntimeProjectConfigFile(
 	await lockedFileSystem.writeJsonFileAtomic(
 		configPath,
 		{
-			shortcuts: normalizedShortcuts,
+			...(normalizedShortcuts.length ? { shortcuts: normalizedShortcuts } : {}),
+			...(config.githubIssueSyncEnabled ? { githubIssueSyncEnabled: true } : {}),
 		} satisfies RuntimeProjectConfigFileShape,
 		{
 			lock: null,
@@ -466,6 +471,7 @@ async function loadRuntimeConfigLocked(cwd: string | null): Promise<RuntimeConfi
 }
 
 function createRuntimeConfigStateFromValues(input: {
+	githubIssueSyncEnabled: boolean;
 	globalConfigPath: string;
 	projectConfigPath: string | null;
 	selectedAgentId: RuntimeAgentId;
@@ -491,6 +497,7 @@ function createRuntimeConfigStateFromValues(input: {
 			DEFAULT_READY_FOR_REVIEW_NOTIFICATIONS_ENABLED,
 		),
 		shortcuts: normalizeShortcuts(input.shortcuts),
+		githubIssueSyncEnabled: input.githubIssueSyncEnabled,
 		commitPromptTemplate: normalizePromptTemplate(input.commitPromptTemplate, DEFAULT_COMMIT_PROMPT_TEMPLATE),
 		openPrPromptTemplate: normalizePromptTemplate(input.openPrPromptTemplate, DEFAULT_OPEN_PR_PROMPT_TEMPLATE),
 		commitPromptTemplateDefault: DEFAULT_COMMIT_PROMPT_TEMPLATE,
@@ -508,6 +515,7 @@ export function toGlobalRuntimeConfigState(current: RuntimeConfigState): Runtime
 		agentAutonomousModeEnabled: current.agentAutonomousModeEnabled,
 		readyForReviewNotificationsEnabled: current.readyForReviewNotificationsEnabled,
 		shortcuts: [],
+		githubIssueSyncEnabled: false,
 		commitPromptTemplate: current.commitPromptTemplate,
 		openPrPromptTemplate: current.openPrPromptTemplate,
 		claudeDefaultModel: current.claudeDefaultModel,
@@ -539,6 +547,7 @@ export async function loadGlobalRuntimeConfig(): Promise<RuntimeConfigState> {
 export async function saveRuntimeConfig(
 	cwd: string,
 	config: {
+		githubIssueSyncEnabled?: boolean;
 		selectedAgentId: RuntimeAgentId;
 		selectedShortcutLabel: string | null;
 		agentAutonomousModeEnabled: boolean;
@@ -560,7 +569,11 @@ export async function saveRuntimeConfig(
 			openPrPromptTemplate: config.openPrPromptTemplate,
 			claudeDefaultModel: config.claudeDefaultModel,
 		});
-		await writeRuntimeProjectConfigFile(projectConfigPath, { shortcuts: config.shortcuts });
+		const currentProject = projectConfigPath
+			? await readRuntimeConfigFile<RuntimeProjectConfigFileShape>(projectConfigPath)
+			: null;
+		const githubIssueSyncEnabled = config.githubIssueSyncEnabled ?? currentProject?.githubIssueSyncEnabled === true;
+		await writeRuntimeProjectConfigFile(projectConfigPath, { shortcuts: config.shortcuts, githubIssueSyncEnabled });
 		return createRuntimeConfigStateFromValues({
 			globalConfigPath,
 			projectConfigPath,
@@ -569,6 +582,7 @@ export async function saveRuntimeConfig(
 			agentAutonomousModeEnabled: config.agentAutonomousModeEnabled,
 			readyForReviewNotificationsEnabled: config.readyForReviewNotificationsEnabled,
 			shortcuts: config.shortcuts,
+			githubIssueSyncEnabled,
 			commitPromptTemplate: config.commitPromptTemplate,
 			openPrPromptTemplate: config.openPrPromptTemplate,
 			claudeDefaultModel: config.claudeDefaultModel ?? DEFAULT_CLAUDE_MODEL,
@@ -591,6 +605,7 @@ export async function updateRuntimeConfig(cwd: string, updates: RuntimeConfigUpd
 			readyForReviewNotificationsEnabled:
 				updates.readyForReviewNotificationsEnabled ?? current.readyForReviewNotificationsEnabled,
 			shortcuts: projectConfigPath ? (updates.shortcuts ?? current.shortcuts) : current.shortcuts,
+			githubIssueSyncEnabled: updates.githubIssueSyncEnabled ?? current.githubIssueSyncEnabled,
 			commitPromptTemplate: updates.commitPromptTemplate ?? current.commitPromptTemplate,
 			openPrPromptTemplate: updates.openPrPromptTemplate ?? current.openPrPromptTemplate,
 			claudeDefaultModel: updates.claudeDefaultModel ?? current.claudeDefaultModel,
@@ -604,6 +619,7 @@ export async function updateRuntimeConfig(cwd: string, updates: RuntimeConfigUpd
 			nextConfig.commitPromptTemplate !== current.commitPromptTemplate ||
 			nextConfig.openPrPromptTemplate !== current.openPrPromptTemplate ||
 			nextConfig.claudeDefaultModel !== current.claudeDefaultModel ||
+			nextConfig.githubIssueSyncEnabled !== current.githubIssueSyncEnabled ||
 			!areRuntimeProjectShortcutsEqual(nextConfig.shortcuts, current.shortcuts);
 
 		if (!hasChanges) {
@@ -621,6 +637,7 @@ export async function updateRuntimeConfig(cwd: string, updates: RuntimeConfigUpd
 		});
 		await writeRuntimeProjectConfigFile(projectConfigPath, {
 			shortcuts: nextConfig.shortcuts,
+			githubIssueSyncEnabled: nextConfig.githubIssueSyncEnabled,
 		});
 		return createRuntimeConfigStateFromValues({
 			globalConfigPath,
@@ -630,6 +647,7 @@ export async function updateRuntimeConfig(cwd: string, updates: RuntimeConfigUpd
 			agentAutonomousModeEnabled: nextConfig.agentAutonomousModeEnabled,
 			readyForReviewNotificationsEnabled: nextConfig.readyForReviewNotificationsEnabled,
 			shortcuts: nextConfig.shortcuts,
+			githubIssueSyncEnabled: nextConfig.githubIssueSyncEnabled,
 			commitPromptTemplate: nextConfig.commitPromptTemplate,
 			openPrPromptTemplate: nextConfig.openPrPromptTemplate,
 			claudeDefaultModel: nextConfig.claudeDefaultModel,
@@ -660,6 +678,7 @@ export async function updateGlobalRuntimeConfig(
 				readyForReviewNotificationsEnabled:
 					updates.readyForReviewNotificationsEnabled ?? current.readyForReviewNotificationsEnabled,
 				shortcuts: current.shortcuts,
+				githubIssueSyncEnabled: current.githubIssueSyncEnabled,
 				commitPromptTemplate: updates.commitPromptTemplate ?? current.commitPromptTemplate,
 				openPrPromptTemplate: updates.openPrPromptTemplate ?? current.openPrPromptTemplate,
 				claudeDefaultModel: updates.claudeDefaultModel ?? current.claudeDefaultModel,
@@ -696,6 +715,7 @@ export async function updateGlobalRuntimeConfig(
 				agentAutonomousModeEnabled: nextConfig.agentAutonomousModeEnabled,
 				readyForReviewNotificationsEnabled: nextConfig.readyForReviewNotificationsEnabled,
 				shortcuts: nextConfig.shortcuts,
+				githubIssueSyncEnabled: nextConfig.githubIssueSyncEnabled,
 				commitPromptTemplate: nextConfig.commitPromptTemplate,
 				openPrPromptTemplate: nextConfig.openPrPromptTemplate,
 				claudeDefaultModel: nextConfig.claudeDefaultModel,
