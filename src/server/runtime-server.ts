@@ -25,6 +25,7 @@ import {
 	getKanbanRuntimeTls,
 	isKanbanRemoteHost,
 } from "../core/runtime-endpoint";
+import { startGithubIssuePolling } from "../github/issue-poller";
 import type { GithubIssueSyncService } from "../github/issue-sync";
 import {
 	checkRateLimit,
@@ -601,6 +602,10 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 		? buildKanbanRuntimeUrl(`/${encodeURIComponent(activeWorkspaceId)}`)
 		: getKanbanRuntimeOrigin();
 
+	const stopGithubIssuePolling = deps.githubIssueSync
+		? startGithubIssuePolling({ sync: deps.githubIssueSync, listWorkspaces: listWorkspaceIndexEntries })
+		: null;
+
 	return {
 		url,
 		resumeInterruptedTasks: async () => {
@@ -608,6 +613,7 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 			await resumeInterruptedTasks({ startTaskSession: getInternalRuntimeApi().startTaskSession, warn: deps.warn });
 		},
 		close: async () => {
+			stopGithubIssuePolling?.();
 			await Promise.all([...sidebarReviewServiceByWorkspaceId.keys()].map(disposeSidebarReviewService));
 			await Promise.all(
 				Array.from(clineTaskSessionServiceByWorkspaceId.values()).map(async (service) => {

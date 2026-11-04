@@ -25,6 +25,11 @@ export interface GithubIssueEntry {
 	syncedLabels?: string[];
 	syncedMilestone?: string;
 	syncedAssignee?: string;
+	syncedBody?: string;
+	closedNoticed?: boolean;
+	lastCommentId?: string;
+	// updatedAt from the last `gh issue list` that this entry was pulled at; an unchanged value skips the view.
+	pulledUpdatedAt?: string;
 }
 export type GithubIssueMap = Record<string, GithubIssueEntry>;
 const issueMapSchema = z.record(
@@ -47,6 +52,10 @@ const issueMapSchema = z.record(
 		syncedLabels: z.array(z.string()).optional(),
 		syncedMilestone: z.string().optional(),
 		syncedAssignee: z.string().optional(),
+		syncedBody: z.string().optional(),
+		closedNoticed: z.boolean().optional(),
+		lastCommentId: z.string().optional(),
+		pulledUpdatedAt: z.string().optional(),
 	}),
 );
 export const getGithubIssueMapPath = (workspaceId: string): string =>

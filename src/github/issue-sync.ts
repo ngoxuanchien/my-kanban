@@ -9,6 +9,7 @@ import { formatDoneComment, formatImplementationUpdate, formatStatusComment } fr
 import type { GhRunner } from "./gh-runner";
 import { getGithubIssueMapPath, readGithubIssueMap } from "./issue-map";
 import { deleteIssueReport, hashReport, readIssueReport } from "./issue-report";
+import { type BoardMutator, issueBody, mutateBoardLocked, pullGithubChanges } from "./reverse-sync";
 import { sanitizeForGithub } from "./sanitize";
 
 export interface GithubIssueSyncDeps {
@@ -16,6 +17,8 @@ export interface GithubIssueSyncDeps {
 	getOriginRemoteUrl: (repoPath: string) => Promise<string>;
 	warn: (message: string) => void;
 	broadcastRuntimeWorkspaceStateUpdated?: (workspaceId: string, workspacePath: string) => Promise<void> | void;
+	// Board writes made by the pull pass. Defaults to the locked workspace state path; tests inject a fake.
+	mutateBoard?: BoardMutator;
 }
 export interface GithubIssueSyncResult {
 	ok: boolean;
@@ -58,7 +61,7 @@ async function describeTaskRun(card: RuntimeBoardCard, config: RuntimeConfigStat
 }
 
 export async function reconcileGithubIssues(
-	input: { workspaceId: string; repoPath: string },
+	input: { workspaceId: string; repoPath: string; pull?: boolean },
 	deps: GithubIssueSyncDeps,
 ): Promise<GithubIssueSyncResult> {
 	const result: GithubIssueSyncResult = { ok: true, created: 0, updated: 0, closed: 0 };
@@ -82,7 +85,7 @@ export async function reconcileGithubIssues(
 			{ path, type: "file", retries: { retries: 1200, minTimeout: 50, maxTimeout: 50, factor: 1 } },
 			async () => {
 				const map = await readGithubIssueMap(input.workspaceId);
-				const board = await loadWorkspaceBoardById(input.workspaceId);
+				let board = await loadWorkspaceBoardById(input.workspaceId);
 				const save = () => lockedFileSystem.writeJsonFileAtomic(path, map, { lock: null });
 				let changed = false;
 				let changedForBroadcast = false;
@@ -139,6 +142,26 @@ export async function reconcileGithubIssues(
 						}
 					}
 				if (changed) await save();
+				// Pull only on the poll tick and Sync now: board changes also request a reconcile, and those must
+				// not cost a gh read per issue.
+				if (input.pull) {
+					const pulled = await pullGithubChanges({
+						workspaceId: input.workspaceId,
+						repoPath: input.repoPath,
+						board,
+						map,
+						gh,
+						mutateBoard: deps.mutateBoard ?? mutateBoardLocked,
+						save,
+						warn: deps.warn,
+					});
+					if (!pulled.ok) {
+						result.ok = false;
+						result.error ??= pulled.error;
+					}
+					if (pulled.boardChanged || pulled.summaryChanged) changedForBroadcast = true;
+					if (pulled.boardChanged) board = await loadWorkspaceBoardById(input.workspaceId);
+				}
 				for (const column of board.columns)
 					for (const card of column.cards) {
 						let entry = map[card.id];
@@ -146,9 +169,7 @@ export async function reconcileGithubIssues(
 						try {
 							const title = card.title || `Task ${card.id}`;
 							if (!entry.issueNumber) {
-								const body = entry.summary
-									? `${entry.summary}\n\n---\nKanban task: ${card.id}`
-									: `Kanban task: ${card.id}`;
+								const body = issueBody(entry.summary, card.id);
 								const label = labels[column.id];
 								if (label) await ensureLabel(label);
 								const args = ["issue", "create", "--title", title, "--body", body];
@@ -173,6 +194,7 @@ export async function reconcileGithubIssues(
 									syncedLabels: userLabels.length > 0 ? userLabels : undefined,
 									syncedMilestone: entry.milestone,
 									syncedAssignee: assignee,
+									syncedBody: sanitizeForGithub(body),
 								};
 								map[card.id] = entry;
 								await save();
@@ -191,14 +213,9 @@ export async function reconcileGithubIssues(
 								changedForBroadcast = true;
 							}
 							if (entry.summary !== entry.syncedSummary) {
-								await gh([
-									"issue",
-									"edit",
-									number,
-									"--body",
-									`${entry.summary}\n\n---\nKanban task: ${card.id}`,
-								]);
-								entry = { ...entry, syncedSummary: entry.summary };
+								const body = issueBody(entry.summary, card.id);
+								await gh(["issue", "edit", number, "--body", body]);
+								entry = { ...entry, syncedSummary: entry.summary, syncedBody: sanitizeForGithub(body) };
 								map[card.id] = entry;
 								await save();
 								changed = true;
@@ -379,26 +396,40 @@ export async function reconcileGithubIssues(
 	return result;
 }
 
+// pull: also read GitHub changes. Set by the poll tick and Sync now, never by a board-change request.
+export interface GithubIssueSyncOptions {
+	pull?: boolean;
+}
+
 export interface GithubIssueSyncService {
-	requestSync(workspaceId: string, repoPath: string): void;
-	syncNow(workspaceId: string, repoPath: string): Promise<GithubIssueSyncResult>;
+	requestSync(workspaceId: string, repoPath: string, options?: GithubIssueSyncOptions): void;
+	syncNow(workspaceId: string, repoPath: string, options?: GithubIssueSyncOptions): Promise<GithubIssueSyncResult>;
 }
 
 export function createGithubIssueSyncService(deps: GithubIssueSyncDeps): GithubIssueSyncService {
-	type Run = { current: Promise<GithubIssueSyncResult>; queued?: Promise<GithubIssueSyncResult> };
+	type Run = {
+		current: Promise<GithubIssueSyncResult>;
+		queued?: Promise<GithubIssueSyncResult>;
+		queuedPull?: boolean;
+	};
 	const runs = new Map<string, Run>();
-	const syncNow = (workspaceId: string, repoPath: string): Promise<GithubIssueSyncResult> => {
+	const syncNow = (
+		workspaceId: string,
+		repoPath: string,
+		options: GithubIssueSyncOptions = {},
+	): Promise<GithubIssueSyncResult> => {
 		const running = runs.get(workspaceId);
 		if (running) {
+			if (options.pull) running.queuedPull = true;
 			if (!running.queued) {
 				running.queued = running.current.then(() => {
 					runs.delete(workspaceId);
-					return syncNow(workspaceId, repoPath);
+					return syncNow(workspaceId, repoPath, { pull: running.queuedPull });
 				});
 			}
 			return running.queued;
 		}
-		const run: Run = { current: reconcileGithubIssues({ workspaceId, repoPath }, deps) };
+		const run: Run = { current: reconcileGithubIssues({ workspaceId, repoPath, pull: options.pull }, deps) };
 		runs.set(workspaceId, run);
 		void run.current.then(() => {
 			if (!run.queued) runs.delete(workspaceId);
@@ -407,8 +438,8 @@ export function createGithubIssueSyncService(deps: GithubIssueSyncDeps): GithubI
 	};
 	return {
 		syncNow,
-		requestSync: (workspaceId, repoPath) => {
-			void syncNow(workspaceId, repoPath);
+		requestSync: (workspaceId, repoPath, options) => {
+			void syncNow(workspaceId, repoPath, options);
 		},
 	};
 }

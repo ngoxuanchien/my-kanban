@@ -228,7 +228,7 @@ export function createWorkspaceApi(deps: CreateWorkspaceApiDependencies): Runtim
 		},
 		syncGithubIssues: async (scope) => {
 			if (!deps.githubIssueSync) throw new Error("GitHub issue sync service is unavailable.");
-			return await deps.githubIssueSync.syncNow(scope.workspaceId, scope.workspacePath);
+			return await deps.githubIssueSync.syncNow(scope.workspaceId, scope.workspacePath, { pull: true });
 		},
 		getGithubIssues: async (scope) => {
 			const config = await loadRuntimeConfig(scope.workspacePath);

@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { access, mkdir, writeFile } from "node:fs/promises";
+import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { RuntimeBoardCard, RuntimeBoardColumnId, RuntimeBoardData } from "../../../src/core/api-contract";
@@ -59,6 +59,21 @@ const warn = vi.fn();
 const runFakeGh = async (args: string[], options: { cwd: string }) => {
 	expect(options.cwd).toBe(input.repoPath);
 	expect(args.slice(-2)).toEqual(["--repo", expectedRepo]);
+	// Only Sync now pulls. Answer it with "nothing changed on GitHub" for the mapped issue.
+	if (args[0] === "issue" && (args[1] === "list" || args[1] === "view")) {
+		const entry = Object.values(JSON.parse(await readFile(mapPath, "utf8")) as GithubIssueMap)[0];
+		return {
+			stdout:
+				args[1] === "list"
+					? JSON.stringify([{ number: 12, updatedAt: "t" }])
+					: JSON.stringify({
+							title: entry?.syncedTitle ?? "",
+							body: entry?.syncedBody ?? "",
+							state: entry?.closed ? "CLOSED" : "OPEN",
+							comments: [],
+						}),
+		};
+	}
 	rawCalls.push(args);
 	calls.push(args.filter((arg, index) => !(arg === "--repo" || args[index - 1] === "--repo")));
 	if (args[0] === "label" && args[1] === "list")
@@ -66,7 +81,11 @@ const runFakeGh = async (args: string[], options: { cwd: string }) => {
 	return { stdout: args[0] === "issue" && args[1] === "create" ? "https://github.com/o/r/issues/12\n" : "" };
 };
 const gh = vi.fn(runFakeGh);
-const deps = { runGh: gh, getOriginRemoteUrl: async () => "git@github.com:own/project.git", warn };
+const deps = {
+	runGh: gh,
+	getOriginRemoteUrl: async () => "git@github.com:own/project.git",
+	warn,
+};
 function board(column: RuntimeBoardColumnId = "backlog"): RuntimeBoardData {
 	return { columns: [{ id: column, title: column, cards: [task] }], dependencies: [] };
 }
@@ -208,6 +227,7 @@ describe("reconcileGithubIssues", () => {
 				syncedSummary: "Public summary",
 				syncedTitle: task.title,
 				syncedAssignee: "@me",
+				syncedBody: "Public summary\n\n---\nKanban task: one",
 				closed: false,
 			},
 		});
