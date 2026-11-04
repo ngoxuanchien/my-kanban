@@ -306,13 +306,17 @@ export class TerminalSessionManager implements TerminalSessionService {
 
 	async startTaskSession(request: StartTaskSessionRequest): Promise<RuntimeTaskSessionSummary> {
 		const entry = this.ensureEntry(request.taskId);
+		if (entry.active && isActiveState(entry.summary.state) && !entry.active.stopping) {
+			if (entry.summary.agentId === request.agentId) {
+				return cloneSummary(entry.summary);
+			}
+			this.stopTaskSession(request.taskId);
+			entry.active = null;
+		}
 		entry.restartRequest = {
 			kind: "task",
 			request: cloneStartTaskSessionRequest(request),
 		};
-		if (entry.active && isActiveState(entry.summary.state) && !entry.active.stopping) {
-			return cloneSummary(entry.summary);
-		}
 
 		if (entry.active) {
 			stopWorkspaceTrustTimers(entry.active);

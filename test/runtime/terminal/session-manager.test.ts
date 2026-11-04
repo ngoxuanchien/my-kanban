@@ -273,6 +273,73 @@ describe("TerminalSessionManager", () => {
 		}
 	});
 
+	it("replaces a live session when the requested agent differs", async () => {
+		const spawnRequests: SpawnPtySessionRequest[] = [];
+		const stop = vi.fn();
+		const spawn = vi.spyOn(PtySession, "spawn").mockImplementation((request) => {
+			spawnRequests.push(request);
+			return {
+				pid: spawnRequests.length,
+				stop,
+				write: vi.fn(),
+				wasInterrupted: () => false,
+			} as unknown as PtySession;
+		});
+		try {
+			const manager = new TerminalSessionManager();
+			const start = (agentId: "antigravity" | "codex", prompt: string) =>
+				manager.startTaskSession({
+					taskId: "task-1",
+					agentId,
+					binary: agentId,
+					args: [],
+					cwd: "/tmp/worktree",
+					prompt,
+				});
+			await start("antigravity", "old prompt");
+			manager.transitionToReview("task-1", "hook");
+			await start("codex", "reviewer message");
+
+			expect(stop).toHaveBeenCalledTimes(1);
+			expect(spawnRequests).toHaveLength(2);
+			expect(spawnRequests[1]?.binary).toBe("codex");
+			expect(manager.getSummary("task-1")).toMatchObject({ agentId: "codex", state: "running" });
+		} finally {
+			spawn.mockRestore();
+		}
+	});
+
+	it("keeps the restart request when resuming the same live agent", async () => {
+		const spawn = vi
+			.spyOn(PtySession, "spawn")
+			.mockImplementation(
+				() => ({ pid: 1234, stop: vi.fn(), write: vi.fn(), wasInterrupted: () => false }) as unknown as PtySession,
+			);
+		try {
+			const manager = new TerminalSessionManager();
+			const start = (prompt: string) =>
+				manager.startTaskSession({
+					taskId: "task-1",
+					agentId: "codex",
+					binary: "codex",
+					args: [],
+					cwd: "/tmp",
+					prompt,
+				});
+			await start("original prompt");
+			await start("ignored prompt");
+
+			expect(spawn).toHaveBeenCalledTimes(1);
+			expect(
+				(
+					manager as unknown as { entries: Map<string, { restartRequest: { request: { prompt: string } } }> }
+				).entries.get("task-1")?.restartRequest.request.prompt,
+			).toBe("original prompt");
+		} finally {
+			spawn.mockRestore();
+		}
+	});
+
 	it("clears trust prompt state when transitioning to review", () => {
 		const manager = new TerminalSessionManager();
 		const entry = {

@@ -1231,9 +1231,14 @@ async function startTask(input: {
 	}
 
 	const existingSession = runtimeState.sessions[task.id] ?? null;
-	const shouldStartSession = !existingSession || existingSession.state !== "running";
-	if (fromColumnId === "review" && !shouldStartSession) {
-		throw new Error(`Task "${input.taskId}" is in review with a running session; use task send instead.`);
+	const runtimeConfig = await runtimeClient.runtime.getConfig.query();
+	const effectiveAgentId = task.agentId ?? runtimeConfig.selectedAgentId;
+	const sessionIsLive =
+		existingSession?.pid != null &&
+		(existingSession.state === "running" || existingSession.state === "awaiting_review");
+	const shouldStartSession = !existingSession || !sessionIsLive || existingSession.agentId !== effectiveAgentId;
+	if (fromColumnId === "review" && sessionIsLive && existingSession.agentId === effectiveAgentId) {
+		throw new Error(`Task "${input.taskId}" is in review with a live session; use task send instead.`);
 	}
 
 	let startedSummary: RuntimeWorkspaceStateResponse["sessions"][string] | null = null;

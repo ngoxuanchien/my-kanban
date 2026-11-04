@@ -724,13 +724,79 @@ describe("task start from Review", () => {
 	});
 
 	it("rejects a Review task with a running session without starting or moving it", async () => {
-		cliMocks.workspaceState.sessions = { "task-1": { state: "running" } } as never;
+		cliMocks.workspaceState.sessions = {
+			"task-1": { state: "awaiting_review", pid: 1234, agentId: "codex" },
+		} as never;
 		const result = await run(["start", "--task-id", "task-1"]);
 
-		expect(result.error).toContain('Task "task-1" is in review with a running session; use task send instead.');
+		expect(result.error).toContain('Task "task-1" is in review with a live session; use task send instead.');
 		expect(cliMocks.client.runtime.startTaskSession.mutate).not.toHaveBeenCalled();
 		expect(cliMocks.workspaceState.board.columns[2]?.cards[0]).toMatchObject({ id: "task-1" });
 		expect(cliMocks.workspaceState.board.columns[1]?.cards).toHaveLength(0);
+	});
+
+	it("rejects a live running Review session", async () => {
+		cliMocks.workspaceState.sessions = {
+			"task-1": { state: "running", pid: 1234, agentId: "codex" },
+		} as never;
+		const result = await run(["start", "--task-id", "task-1"]);
+
+		expect(result.error).toContain('Task "task-1" is in review with a live session; use task send instead.');
+		expect(cliMocks.client.runtime.startTaskSession.mutate).not.toHaveBeenCalled();
+		expect(cliMocks.workspaceState.board.columns[2]?.cards[0]).toMatchObject({ id: "task-1" });
+		expect(cliMocks.workspaceState.board.columns[1]?.cards).toHaveLength(0);
+	});
+
+	it("restarts a live Review session on a different agent with reviewer notes", async () => {
+		cliMocks.workspaceState.sessions = {
+			"task-1": { state: "awaiting_review", pid: 1234, agentId: "antigravity" },
+		} as never;
+		const result = await run(["start", "--task-id", "task-1", "--message", "Fix this"]);
+
+		expect(result.ok).toBe(true);
+		expect(cliMocks.client.runtime.startTaskSession.mutate).toHaveBeenCalledWith(
+			expect.objectContaining({
+				agentId: "codex",
+				prompt: expect.stringContaining(
+					buildRestartPrompt({ originalPrompt: taskCard.prompt, baseRef: "main", message: "Fix this" }),
+				),
+			}),
+		);
+	});
+
+	it("rejects a live default-agent session when the Review card has no agent override", async () => {
+		const { agentId: _agentId, ...cardWithoutAgent } = taskCard;
+		cliMocks.workspaceState.board.columns[2]?.cards.splice(0, 1, cardWithoutAgent as never);
+		cliMocks.client.runtime.getConfig.query.mockResolvedValue({ selectedAgentId: "codex" } as never);
+		cliMocks.workspaceState.sessions = {
+			"task-1": { state: "awaiting_review", pid: 1234, agentId: "codex" },
+		} as never;
+		const result = await run(["start", "--task-id", "task-1"]);
+
+		expect(result.error).toContain('Task "task-1" is in review with a live session; use task send instead.');
+		expect(cliMocks.client.runtime.startTaskSession.mutate).not.toHaveBeenCalled();
+		expect(cliMocks.workspaceState.board.columns[2]?.cards[0]).toMatchObject({ id: "task-1" });
+		expect(cliMocks.workspaceState.board.columns[1]?.cards).toHaveLength(0);
+	});
+
+	it("restarts a live non-default session when the Review card has no agent override", async () => {
+		const { agentId: _agentId, ...cardWithoutAgent } = taskCard;
+		cliMocks.workspaceState.board.columns[2]?.cards.splice(0, 1, cardWithoutAgent as never);
+		cliMocks.client.runtime.getConfig.query.mockResolvedValue({ selectedAgentId: "codex" } as never);
+		cliMocks.workspaceState.sessions = {
+			"task-1": { state: "awaiting_review", pid: 1234, agentId: "antigravity" },
+		} as never;
+		const result = await run(["start", "--task-id", "task-1", "--message", "Fix this"]);
+
+		expect(result.ok).toBe(true);
+		expect(cliMocks.client.runtime.startTaskSession.mutate).toHaveBeenCalledWith(
+			expect.objectContaining({
+				agentId: undefined,
+				prompt: expect.stringContaining(
+					buildRestartPrompt({ originalPrompt: taskCard.prompt, baseRef: "main", message: "Fix this" }),
+				),
+			}),
+		);
 	});
 
 	it("starts a Backlog task with its original prompt when no message is given", async () => {
