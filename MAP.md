@@ -86,6 +86,8 @@ Update this file whenever a file or folder is created or moved.
 | `docs/superpowers/plans/2026-11-03-dependency-start-after-review-pass.md` | Plan for the dependency start after review pass spec (1 Kanban task). |
 | `docs/superpowers/specs/2026-11-04-github-issue-sync-design.md` | Spec: opt-in per project, mirror tasks to GitHub issues via `gh` (status label, column comments, commit + close on Done); never the prompt; UI summary field, card `#issue` link, Sync now. |
 | `docs/superpowers/plans/2026-11-04-github-issue-sync.md` | Plan for the GitHub issue sync spec, split into 3 Kanban tasks (1 → 2, 3). |
+| `docs/superpowers/specs/2026-11-04-difficulty-model-selection-design.md` | Spec: per-task difficulty 1–5; difficulty → model/effort table per agent (Settings); Codex/OpenCode model per task; sidebar scores tasks; `task models`. |
+| `docs/superpowers/plans/2026-11-04-difficulty-model-selection.md` | Plan for the difficulty model selection spec, split into 4 Kanban tasks (1 → 2, 4; 2 → 3), after GitHub issue sync. |
 | `docs/agents/task-prompt-template.md` | Prompt template the planner fills in for every Kanban task. |
 | `.plan/` | Older internal plans, handoffs, investigations (`.plan/docs/`). |
 
