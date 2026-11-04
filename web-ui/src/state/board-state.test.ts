@@ -208,7 +208,7 @@ describe("board dependency state", () => {
 		]);
 	});
 
-	it("only unlocks backlog cards when a review card is trashed", () => {
+	it("only unlocks backlog cards when all review prerequisites are trashed", () => {
 		const fixture = createBacklogBoard(["Task A", "Task B", "Task C"]);
 		const taskA = requireTaskId(fixture.taskIdByPrompt["Task A"], "Task A");
 		const taskB = requireTaskId(fixture.taskIdByPrompt["Task B"], "Task B");
@@ -226,11 +226,15 @@ describe("board dependency state", () => {
 		const moveATrash = trashTaskAndGetReadyLinkedTaskIds(dependencyB.board, taskA);
 		expect(moveATrash.moved).toBe(true);
 		expect(moveATrash.board.dependencies).toHaveLength(1);
-		expect(moveATrash.readyTaskIds).toEqual([taskC]);
+		expect(moveATrash.readyTaskIds).toEqual([]);
+
+		const moveBTrashAfterA = trashTaskAndGetReadyLinkedTaskIds(moveATrash.board, taskB);
+		expect(moveBTrashAfterA.moved).toBe(true);
+		expect(moveBTrashAfterA.readyTaskIds).toEqual([taskC]);
 
 		const moveBTrash = trashTaskAndGetReadyLinkedTaskIds(dependencyB.board, taskB);
 		expect(moveBTrash.moved).toBe(true);
-		expect(moveBTrash.readyTaskIds).toEqual([taskC]);
+		expect(moveBTrash.readyTaskIds).toEqual([]);
 	});
 
 	it("does not unlock backlog cards when an in-progress card is trashed", () => {
