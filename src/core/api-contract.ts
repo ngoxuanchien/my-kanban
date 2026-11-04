@@ -1190,6 +1190,7 @@ export type RuntimeTaskSendMessageResponse = z.infer<typeof runtimeTaskSendMessa
 export const runtimeTaskHandOffRequestSchema = z.object({
 	taskId: z.string(),
 	reason: z.string().min(1),
+	expectedFromAgentId: z.enum(["codex", "opencode", "antigravity"]).optional(),
 });
 export type RuntimeTaskHandOffRequest = z.infer<typeof runtimeTaskHandOffRequestSchema>;
 

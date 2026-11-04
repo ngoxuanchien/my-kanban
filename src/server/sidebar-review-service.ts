@@ -28,6 +28,7 @@ export interface CreateSidebarReviewServiceDependencies {
 	handOffTask: (
 		taskId: string,
 		reason: string,
+		expectedFromAgentId?: "codex" | "opencode" | "antigravity",
 	) => Promise<{ ok: boolean; error?: string | null; fromAgentId?: string; toAgentId?: string }>;
 	retryQuotaBlockedTask: (
 		taskId: string,
@@ -542,7 +543,11 @@ export function createSidebarReviewService(deps: CreateSidebarReviewServiceDepen
 				}
 				if (getHandOffCount(found.card) < MAX_HAND_OFFS && isHandOffAgentId(found.card.agentId)) {
 					const reason = `The previous agent stopped with an error (exit code ${summary.exitCode ?? "unknown"}).`;
-					const result = await deps.handOffTask(summary.taskId, reason);
+					const result = await deps.handOffTask(
+						summary.taskId,
+						reason,
+						summary.agentId != null && isHandOffAgentId(summary.agentId) ? summary.agentId : undefined,
+					);
 					if (!result.ok) {
 						deps.warn(
 							`[sidebar-review] Could not hand off task ${summary.taskId}: ${result.error ?? "unknown error"}`,

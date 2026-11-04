@@ -200,8 +200,8 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 					terminalManager: await deps.ensureTerminalManagerForWorkspace(workspaceId, workspacePath),
 					clineService: await getScopedClineTaskSessionService(scope),
 					loadRuntimeConfig: async () => await deps.workspaceRegistry.loadScopedRuntimeConfig(scope),
-					handOffTask: async (taskId, reason) =>
-						await getInternalRuntimeApi().handOffTask(scope, { taskId, reason }),
+					handOffTask: async (taskId, reason, expectedFromAgentId?: "codex" | "opencode" | "antigravity") =>
+						await getInternalRuntimeApi().handOffTask(scope, { taskId, reason, expectedFromAgentId }),
 					retryQuotaBlockedTask: async (taskId, reason) =>
 						await getInternalRuntimeApi().retryQuotaBlockedTask(scope, { taskId, reason }),
 					broadcastStateUpdated: async () => {

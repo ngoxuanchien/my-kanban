@@ -263,7 +263,12 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 
 	const runHandOffTask = async (
 		workspaceScope: RuntimeTrpcWorkspaceScope,
-		input: { taskId: string; reason: string; quotaRetry?: boolean },
+		input: {
+			taskId: string;
+			reason: string;
+			quotaRetry?: boolean;
+			expectedFromAgentId?: "codex" | "opencode" | "antigravity";
+		},
 	): Promise<RuntimeTaskHandOffResponse> => {
 		try {
 			const result = await handOffTaskInWorkspace(

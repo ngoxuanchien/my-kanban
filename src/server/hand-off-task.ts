@@ -60,7 +60,7 @@ function refusal(card: RuntimeBoardCard | null, quotaRetry = false): string | nu
 
 export async function handOffTask(
 	deps: HandOffTaskDependencies,
-	input: { taskId: string; reason: string; quotaRetry?: boolean },
+	input: { taskId: string; reason: string; quotaRetry?: boolean; expectedFromAgentId?: HandOffAgentId },
 ): Promise<HandOffTaskResult> {
 	const state = await loadWorkspaceState(deps.workspacePath);
 	const card = findCard(state.board, input.taskId);
@@ -68,6 +68,8 @@ export async function handOffTask(
 	if (initialRefusal) return { ok: false, error: initialRefusal };
 	if (!card || !isHandOffAgentId(card.agentId))
 		return { ok: false, error: "Task agent must be codex, opencode, or antigravity to hand off" };
+	if (input.expectedFromAgentId && card.agentId !== input.expectedFromAgentId)
+		return { ok: false, error: "Task agent changed before handoff" };
 
 	const fromAgentId = card.agentId;
 	const handOffCount = getHandOffCount(card);
@@ -78,7 +80,12 @@ export async function handOffTask(
 	const mutation = await mutateWorkspaceState<HandOffTaskResult>(deps.workspacePath, (current) => {
 		const currentCard = findCard(current.board, input.taskId);
 		const currentRefusal = refusal(currentCard, input.quotaRetry);
-		if (currentRefusal || currentCard?.agentId !== fromAgentId || getHandOffCount(currentCard) !== handOffCount) {
+		if (
+			currentRefusal ||
+			currentCard?.agentId !== fromAgentId ||
+			(input.expectedFromAgentId != null && currentCard.agentId !== input.expectedFromAgentId) ||
+			getHandOffCount(currentCard) !== handOffCount
+		) {
 			return {
 				board: current.board,
 				value: { ok: false as const, error: currentRefusal ?? "Task agent changed before handoff" },

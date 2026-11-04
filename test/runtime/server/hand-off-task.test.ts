@@ -206,6 +206,21 @@ describe("handOffTask", () => {
 		expect(workspaceState.board.columns[1]?.cards).toHaveLength(0);
 	});
 
+	it("does not stop the replacement session when the crashed agent changed before handoff", async () => {
+		workspaceState.board.columns[2]?.cards.splice(0, 1, { ...card("antigravity"), handOffCount: 1 });
+		const deps = dependencies();
+		expect(
+			await handOffTask(deps, {
+				taskId: "task-1",
+				reason: "The previous agent stopped with an error (exit code 1).",
+				expectedFromAgentId: "opencode",
+			}),
+		).toEqual({ ok: false, error: "Task agent changed before handoff" });
+		expect(workspaceState.board.columns[2]?.cards[0]).toMatchObject({ agentId: "antigravity", handOffCount: 1 });
+		expect(deps.stopTaskSession).not.toHaveBeenCalled();
+		expect(deps.startTaskSession).not.toHaveBeenCalled();
+	});
+
 	it("refuses an unknown id without changing the board", async () => {
 		const before = structuredClone(workspaceState.board);
 		const deps = dependencies();

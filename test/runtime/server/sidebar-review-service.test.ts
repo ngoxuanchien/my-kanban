@@ -3,6 +3,7 @@ import type { ClineTaskSessionService } from "../../../src/cline-sdk/cline-task-
 import type { RuntimeConfigState } from "../../../src/config/runtime-config";
 import type { RuntimeBoardCard, RuntimeTaskSessionSummary } from "../../../src/core/api-contract";
 import type { AntigravityLog } from "../../../src/server/antigravity-log-usage-limit";
+import { handOffTask as handOffTaskInWorkspace } from "../../../src/server/hand-off-task";
 import { detectUsageLimit } from "../../../src/server/usage-limit-detector";
 import type { SendPromptToSessionResult } from "../../../src/terminal/send-prompt-to-session";
 import type { TerminalSessionManager } from "../../../src/terminal/session-manager";
@@ -56,7 +57,11 @@ const sendPromptToSession = vi.hoisted(() =>
 const runGit = vi.hoisted(() => vi.fn());
 const handOffTask = vi.hoisted(() =>
 	vi.fn(
-		async (): Promise<{ ok: boolean; error?: string | null; fromAgentId?: string; toAgentId?: string }> => ({
+		async (
+			_taskId: string,
+			_reason: string,
+			_expectedFromAgentId?: "codex" | "opencode" | "antigravity",
+		): Promise<{ ok: boolean; error?: string | null; fromAgentId?: string; toAgentId?: string }> => ({
 			ok: true,
 		}),
 	),
@@ -70,7 +75,9 @@ const retryQuotaBlockedTask = vi.hoisted(() =>
 	),
 );
 const recordAgentScoreEvent = vi.hoisted(() => vi.fn(async () => true));
-const recordTaskHistoryEvent = vi.hoisted(() => vi.fn(async () => true));
+const recordTaskHistoryEvent = vi.hoisted(() =>
+	vi.fn(async (_workspaceId: string, _taskId: string, _event: unknown) => true),
+);
 
 vi.mock("../../../src/state/workspace-state", () => ({
 	loadWorkspaceState: vi.fn(async () => ({ board: workspaceState.board })),
@@ -252,7 +259,11 @@ describe("createSidebarReviewService", () => {
 		await service.start();
 		for (const listener of listeners) listener({ ...summary("task-1", "failed"), agentId: "codex", exitCode: 7 });
 		await vi.waitFor(() =>
-			expect(handOffTask).toHaveBeenCalledWith("task-1", "The previous agent stopped with an error (exit code 7)."),
+			expect(handOffTask).toHaveBeenCalledWith(
+				"task-1",
+				"The previous agent stopped with an error (exit code 7).",
+				"codex",
+			),
 		);
 		expect(recordTaskHistoryEvent).toHaveBeenCalledWith("workspace-1", "task-1", {
 			type: "handoff",
@@ -293,6 +304,7 @@ describe("createSidebarReviewService", () => {
 			expect(handOffTask).toHaveBeenCalledWith(
 				"task-1",
 				"The previous agent stopped with an error (exit code unknown).",
+				"codex",
 			),
 		);
 		service.dispose();
@@ -323,8 +335,73 @@ describe("createSidebarReviewService", () => {
 		for (const listener of listeners)
 			listener({ ...summary("task-1", "failed"), agentId: "antigravity", exitCode: 1 });
 		await vi.waitFor(() =>
-			expect(handOffTask).toHaveBeenCalledWith("task-1", "The previous agent stopped with an error (exit code 1)."),
+			expect(handOffTask).toHaveBeenCalledWith(
+				"task-1",
+				"The previous agent stopped with an error (exit code 1).",
+				"antigravity",
+			),
 		);
+		service.dispose();
+	});
+
+	it("refuses a crash handoff when a usage handoff changes the card after the crash check", async () => {
+		const card = workspaceState.board.columns[0].cards[0];
+		card.agentId = "opencode";
+		const listeners = new Set<(value: RuntimeTaskSessionSummary) => void>();
+		const stopTaskSession = vi.fn(async () => {});
+		const startTaskSession = vi.fn(async () => ({ ok: true }));
+		handOffTask.mockImplementationOnce(async (taskId, reason, expectedFromAgentId) => {
+			// Simulate the usage-limit handoff winning after the crash handler read the old card.
+			card.agentId = "antigravity";
+			card.handOffCount = 1;
+			await recordTaskHistoryEvent("workspace-1", taskId, {
+				type: "handoff",
+				agentId: "opencode",
+				toAgentId: "antigravity",
+				round: 0,
+				detail: "The previous agent hit its usage limit.",
+			});
+			return handOffTaskInWorkspace(
+				{
+					workspacePath: "/repo",
+					stopTaskSession,
+					startTaskSession,
+					broadcastStateUpdated: vi.fn(),
+				},
+				{ taskId, reason, expectedFromAgentId },
+			);
+		});
+		const service = createSidebarReviewService({
+			workspaceId: "workspace-1",
+			workspacePath: "/repo",
+			terminalManager: {
+				listSummaries: () => [{ ...summary("task-1", "running"), agentId: "opencode", startedAt: 100 }],
+				onSummary: (listener: (value: RuntimeTaskSessionSummary) => void) => {
+					listeners.add(listener);
+					return () => listeners.delete(listener);
+				},
+			} as unknown as TerminalSessionManager,
+			clineService: { listSummaries: () => [], onSummary: () => () => {} } as unknown as ClineTaskSessionService,
+			loadRuntimeConfig: async () => ({ selectedAgentId: "claude" }) as RuntimeConfigState,
+			broadcastStateUpdated: vi.fn(),
+			warn: vi.fn(),
+			handOffTask,
+			retryQuotaBlockedTask,
+		});
+		await service.start();
+		for (const listener of listeners)
+			listener({ ...summary("task-1", "failed"), agentId: "opencode", startedAt: 100, exitCode: 1 });
+		await vi.waitFor(() => expect(handOffTask).toHaveBeenCalledTimes(1));
+
+		expect(card).toMatchObject({ agentId: "antigravity", handOffCount: 1 });
+		expect(recordTaskHistoryEvent).toHaveBeenCalledTimes(1);
+		expect(recordTaskHistoryEvent).toHaveBeenCalledWith(
+			"workspace-1",
+			"task-1",
+			expect.objectContaining({ type: "handoff", agentId: "opencode", toAgentId: "antigravity" }),
+		);
+		expect(stopTaskSession).not.toHaveBeenCalled();
+		expect(startTaskSession).not.toHaveBeenCalled();
 		service.dispose();
 	});
 
