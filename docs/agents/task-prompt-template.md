@@ -19,4 +19,5 @@ The planner fills this template in for every Kanban task.
 
 ## When done
 Run every acceptance command yourself and paste the output in your last message.
+If you cannot finish without a decision from the owner, run `<kanban prefix> task report --state blocked --question "<one concrete question>"` and stop. Ask one question only.
 If you made a decision others need later, record it with the memory tool in contexte/<topic>.md.

@@ -207,6 +207,7 @@ export const runtimeBoardCardSchema = z
 		handOffCount: z.number().int().min(0).optional(),
 		handedOff: z.boolean().optional(),
 		quotaBlockedAt: z.number().optional(),
+		blockedReport: z.object({ question: z.string(), reportedAt: z.number() }).optional(),
 		images: z.array(runtimeTaskImageSchema).optional(),
 		agentId: runtimeAgentIdSchema.optional(),
 		claudeModel: runtimeClaudeModelSchema.optional(),

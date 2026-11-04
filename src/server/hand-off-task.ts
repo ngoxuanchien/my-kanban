@@ -102,6 +102,7 @@ export async function handOffTask(
 					const {
 						handedOff: _legacyHandedOff,
 						quotaBlockedAt: _quotaBlockedAt,
+						blockedReport: _blockedReport,
 						agentModel: _agentModel,
 						agentReasoningEffort: _agentReasoningEffort,
 						...updatedCandidate

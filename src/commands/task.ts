@@ -24,6 +24,7 @@ import {
 	runtimeAgentIdSchema,
 	runtimeClineReasoningEffortSchema,
 } from "../core/api-contract";
+import { BLOCKED_QUESTION_MAX_LENGTH } from "../core/blocked-report";
 import {
 	isRuntimeClaudeModel,
 	type RuntimeClaudeModel,
@@ -52,7 +53,12 @@ import {
 	loadTaskHistory,
 	recordTaskHistoryEvent,
 } from "../state/task-history";
-import { getTaskWorktreesHomePath, loadWorkspaceContext, mutateWorkspaceState } from "../state/workspace-state";
+import {
+	getTaskWorktreesHomePath,
+	loadWorkspaceContext,
+	loadWorkspaceContextById,
+	mutateWorkspaceState,
+} from "../state/workspace-state";
 import { KANBAN_HOOK_TASK_ID_ENV, KANBAN_HOOK_WORKSPACE_ID_ENV } from "../terminal/hook-runtime-context";
 import type { RuntimeAppRouter } from "../trpc/app-router";
 import { columnCanHaveLiveTaskSession, completeTaskToDone } from "../workspace/complete-task-to-done";
@@ -555,6 +561,7 @@ function formatTaskRecord(
 		handOffCount: getHandOffCount(task),
 		...(task.agentId ? { agentId: task.agentId } : {}),
 		...(task.claudeModel ? { claudeModel: task.claudeModel } : {}),
+		...(task.blockedReport ? { blockedReport: task.blockedReport } : {}),
 		...formatTaskModelFields(task),
 		...formatTaskClineSettings(task.clineSettings),
 		createdAt: task.createdAt,
@@ -687,6 +694,7 @@ type CompactTaskListRow = {
 	title: string;
 	agentReviewEnabled: boolean;
 	difficulty?: TaskDifficulty;
+	blockedQuestion?: string;
 };
 
 function compactTaskList(
@@ -716,6 +724,7 @@ function compactTaskList(
 				title: task.title || task.prompt.split(/\r?\n/u, 1)[0]?.slice(0, 80) || "",
 				agentReviewEnabled: task.agentReviewEnabled === true,
 				...(task.difficulty ? { difficulty: task.difficulty } : {}),
+				...(task.blockedReport ? { blockedQuestion: task.blockedReport.question } : {}),
 			};
 		});
 	});
@@ -753,7 +762,7 @@ function formatTaskListText(list: ReturnType<typeof compactTaskList>): string {
 	};
 	const lines = list.tasks.map((task) => {
 		const round = task.agentReviewEnabled ? `r${task.reviewRound}/${3 * (task.handOffCount + 1)}` : "-";
-		return `${task.id.slice(0, 5).padEnd(widths.id)}  ${task.column.padEnd(widths.column)}  ${(task.agentId ?? "-").padEnd(widths.agent)}  ${round.padEnd(widths.review)}  ${`h${task.handOffCount}`.padEnd(widths.handoff)}  ${(task.session ?? "-").padEnd(widths.session)}  ${task.difficulty ? `d${task.difficulty} ` : ""}${task.title}`;
+		return `${task.id.slice(0, 5).padEnd(widths.id)}  ${task.column.padEnd(widths.column)}  ${(task.agentId ?? "-").padEnd(widths.agent)}  ${round.padEnd(widths.review)}  ${`h${task.handOffCount}`.padEnd(widths.handoff)}  ${(task.session ?? "-").padEnd(widths.session)}  ${task.difficulty ? `d${task.difficulty} ` : ""}${task.title}${task.blockedQuestion ? `  blocked: ${task.blockedQuestion.replace(/\s+/gu, " ")}` : ""}`;
 	});
 	if (list.doneHidden > 0) {
 		lines.push(`(${list.doneHidden} more done not shown; pass --column done or --all)`);
@@ -883,6 +892,46 @@ async function commentOnTask(input: {
 		detail: input.message,
 	});
 	return { ok: true, taskId };
+}
+
+async function reportTask(input: {
+	cwd: string;
+	projectPath?: string;
+	taskId?: string;
+	state: string;
+	question?: string;
+}): Promise<JsonRecord> {
+	if (input.state !== "blocked") throw new Error(`Invalid --state "${input.state}". Only "blocked" is supported.`);
+	const question = input.question?.trim() ?? "";
+	if (!question) throw new Error("task report --state blocked requires a non-empty --question.");
+	if (question.length > BLOCKED_QUESTION_MAX_LENGTH) {
+		throw new Error(`--question must be at most ${BLOCKED_QUESTION_MAX_LENGTH} characters.`);
+	}
+	const taskId = input.taskId?.trim() || process.env[KANBAN_HOOK_TASK_ID_ENV]?.trim();
+	if (!taskId) throw new Error("task report requires --task-id or KANBAN_HOOK_TASK_ID.");
+	const hookWorkspaceId = input.projectPath ? undefined : process.env[KANBAN_HOOK_WORKSPACE_ID_ENV]?.trim();
+	const workspace =
+		(hookWorkspaceId ? await loadWorkspaceContextById(hookWorkspaceId) : null) ??
+		(await resolveRuntimeWorkspace(input.projectPath, input.cwd, { autoCreateIfMissing: false }));
+	const runtimeClient = createRuntimeTrpcClient(workspace.workspaceId);
+	const reportedAt = Date.now();
+	const found = await updateRuntimeWorkspaceState(runtimeClient, workspace.repoPath, (state) => {
+		if (!findTaskRecord(state, taskId)) return { board: state.board, value: false };
+		return {
+			board: {
+				...state.board,
+				columns: state.board.columns.map((column) => ({
+					...column,
+					cards: column.cards.map((card) =>
+						card.id === taskId ? { ...card, blockedReport: { question, reportedAt } } : card,
+					),
+				})),
+			},
+			value: true,
+		};
+	});
+	if (!found) throw new Error(`Task not found: ${taskId}`);
+	return { ok: true, taskId, state: "blocked", question, reportedAt };
 }
 
 async function stopTaskRuntimeSession(
@@ -1820,6 +1869,17 @@ export function registerTaskCommand(program: Command): void {
 					message: options.message,
 				}),
 			);
+		});
+
+	task
+		.command("report")
+		.description("Report that the task is blocked and needs one decision from the owner.")
+		.requiredOption("--state <state>", "Report state. Only blocked is supported.")
+		.option("--question <text>", "The one concrete question for the owner (max 500 characters).")
+		.option("--task-id <id>", "Task ID. Defaults to KANBAN_HOOK_TASK_ID in a task session.")
+		.option("--project-path <path>", "Workspace path. Defaults to current directory workspace.")
+		.action(async (options: { state: string; question?: string; taskId?: string; projectPath?: string }) => {
+			await runTaskCommand(() => reportTask({ cwd: process.cwd(), ...options }));
 		});
 
 	task

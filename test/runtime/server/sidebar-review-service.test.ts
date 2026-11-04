@@ -216,6 +216,8 @@ describe("createSidebarReviewService", () => {
 		delete workspaceState.board.columns[0].cards[0].quotaBlockedAt;
 		workspaceState.board.columns[0].cards[1].reviewRound = 0;
 		delete workspaceState.board.columns[0].cards[1].quotaBlockedAt;
+		delete workspaceState.board.columns[0].cards[0].blockedReport;
+		delete workspaceState.board.columns[0].cards[1].blockedReport;
 		workspaceState.board.columns[0].cards[0].handedOff = false;
 		workspaceState.board.columns[0].cards[1].handedOff = false;
 		workspaceState.board.columns[0].cards[0].handOffCount = 0;
@@ -1642,5 +1644,96 @@ describe("createSidebarReviewService", () => {
 		expect(sendPromptToSession.mock.calls[0]?.[0].sessionId).toBe("__home_agent__:workspace-1:claude");
 		expect(warn).toHaveBeenCalled();
 		service.dispose();
+	});
+
+	describe("blocked report", () => {
+		const settle = async () => await new Promise((resolve) => setTimeout(resolve, 25));
+		const block = () => {
+			workspaceState.board.columns[0].cards[0].blockedReport = { question: "A or B?", reportedAt: 1 };
+		};
+		const quotaScreen = async () => ({ snapshot: "You’ve hit your usage limit", cols: 80, rows: 24 });
+
+		it("does not queue a review or count a round on turn end, until the report clears", async () => {
+			block();
+			const { card, listeners, service } = await startUsageLimitTurn({ agentId: "claude" });
+			for (const listener of listeners) listener(summary("task-1", "awaiting_review"));
+			await settle();
+			expect(card.reviewRound).toBe(0);
+			expect(sendPromptToSession).not.toHaveBeenCalled();
+			expect(runGit).not.toHaveBeenCalled();
+			delete card.blockedReport;
+			for (const listener of listeners) listener(summary("task-1", "running"));
+			for (const listener of listeners) listener(summary("task-1", "awaiting_review"));
+			await vi.waitFor(() => expect(workspaceState.board.columns[0].cards[0].reviewRound).toBe(1));
+			service.dispose();
+		});
+
+		it("does not hand off a crashed blocked task", async () => {
+			block();
+			const { card, listeners, service } = await startUsageLimitTurn({ agentId: "codex" });
+			for (const listener of listeners) listener({ ...summary("task-1", "failed"), agentId: "codex", exitCode: 7 });
+			await settle();
+			expect(handOffTask).not.toHaveBeenCalled();
+			expect(card.reviewRound).toBe(0);
+			service.dispose();
+		});
+
+		it("does not hand off a blocked task when the screen shows a usage limit at turn end", async () => {
+			block();
+			const { listeners, service } = await startUsageLimitTurn({
+				agentId: "codex",
+				getRestoreSnapshot: quotaScreen,
+			});
+			for (const listener of listeners)
+				listener({ ...summary("task-1", "awaiting_review"), agentId: "codex" as const });
+			await settle();
+			expect(handOffTask).not.toHaveBeenCalled();
+			expect(sendPromptToSession).not.toHaveBeenCalled();
+			service.dispose();
+		});
+
+		it("does not nudge a silent running blocked task", async () => {
+			block();
+			const { service, runInterval } = await startUsageLimitTurn({ agentId: "codex", now: () => 1_000_000 });
+			runInterval();
+			await settle();
+			expect(sendPromptToSession).not.toHaveBeenCalled();
+			expect(handOffTask).not.toHaveBeenCalled();
+			service.dispose();
+		});
+
+		it("does not hand off a running blocked task whose screen shows a quota phrase", async () => {
+			block();
+			const { service, runInterval } = await startUsageLimitTurn({
+				agentId: "codex",
+				now: () => 1_000_000,
+				session: { ...summary("task-1", "running"), lastOutputAt: 969_999 },
+				getRestoreSnapshot: quotaScreen,
+			});
+			runInterval();
+			await settle();
+			expect(handOffTask).not.toHaveBeenCalled();
+			expect(sendPromptToSession).not.toHaveBeenCalled();
+			service.dispose();
+		});
+
+		it("skips a blocked task in the hourly quota retry", async () => {
+			block();
+			let tick: (() => void) | undefined;
+			const { service } = await startUsageLimitTurn({
+				agentId: "opencode",
+				handOffCount: 2,
+				quotaBlockedAt: 1,
+				now: () => 3_600_001,
+				setInterval: (callback: () => void) => {
+					tick = callback;
+					return 1 as unknown as ReturnType<typeof setInterval>;
+				},
+			});
+			tick?.();
+			await settle();
+			expect(retryQuotaBlockedTask).not.toHaveBeenCalled();
+			service.dispose();
+		});
 	});
 });

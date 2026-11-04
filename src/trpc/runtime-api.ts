@@ -87,7 +87,7 @@ function appendKanbanNotesFooter(prompt: string, issueSyncEnabled: boolean): str
 	const command = resolveAppendSystemPromptCommandPrefix();
 	const notes = prompt.includes("[Kanban notes]")
 		? ""
-		: `\n\n---\n[Kanban notes] Record key decisions, progress, and blockers for the next agent with:\n${command} task comment --message "<1-3 lines>"\nComment when you make a non-obvious decision and before you stop with work unfinished. Keep it short; never paste diffs or secrets.`;
+		: `\n\n---\n[Kanban notes] Record key decisions, progress, and blockers for the next agent with:\n${command} task comment --message "<1-3 lines>"\nComment when you make a non-obvious decision and before you stop with work unfinished. Keep it short; never paste diffs or secrets.\nIf you cannot finish without a decision from the owner, run \`${command} task report --state blocked --question "<one concrete question>"\` and stop. Ask one question only.`;
 	return `${prompt}${notes}${issueSyncEnabled ? `\n\n${issueReportInstruction()}` : ""}`;
 }
 

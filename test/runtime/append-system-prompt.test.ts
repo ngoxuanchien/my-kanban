@@ -177,6 +177,17 @@ describe("renderAppendSystemPrompt", () => {
 		expect(rendered).toContain('kanban task comment --task-id <task_id> --message "<text>"');
 	});
 
+	it("documents task report and skips review of blocked tasks", () => {
+		const rendered = renderAppendSystemPrompt("kanban");
+		expect(rendered).toContain(
+			'kanban task report --state blocked --question "<one concrete question>" [--task-id <task_id>]',
+		);
+		const reviewing = rendered.slice(rendered.indexOf("# Reviewing tasks"));
+		expect(reviewing).toContain("blockedReport");
+		expect(reviewing).toContain("do not review it");
+		expect(reviewing).toContain("question to the user in one chat line");
+	});
+
 	it("defaults task creation to the handoff agent cycle", () => {
 		const rendered = renderAppendSystemPrompt("kanban");
 		const workflowNotes = rendered.slice(rendered.indexOf("# Workflow Notes"), rendered.indexOf("# Reviewing tasks"));

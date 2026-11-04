@@ -17,6 +17,7 @@ import type {
 	RuntimeUpdateStatusResponse,
 	RuntimeWorkspaceStateResponse,
 } from "../core/api-contract";
+import { clearBlockedReportOnRun } from "../core/blocked-report";
 import {
 	buildKanbanRuntimeUrl,
 	getKanbanRuntimeHost,
@@ -220,6 +221,18 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 						await deps.runtimeStateHub.broadcastRuntimeWorkspaceStateUpdated(workspaceId, workspacePath);
 					},
 					warn: deps.warn,
+				});
+				instance.onSummary((event) => {
+					void clearBlockedReportOnRun(workspacePath, event)
+						.then(async (cleared) => {
+							if (!cleared) return;
+							await deps.runtimeStateHub.broadcastRuntimeWorkspaceStateUpdated(workspaceId, workspacePath);
+						})
+						.catch((error: unknown) => {
+							deps.warn(
+								`[blocked-report] Could not clear report for ${workspaceId}/${event.summary.taskId}: ${error instanceof Error ? error.message : String(error)}`,
+							);
+						});
 				});
 				await instance.start();
 				return instance;

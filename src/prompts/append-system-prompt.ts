@@ -222,6 +222,13 @@ Purpose: add a short note to a task's history for later agents.
 Command:
 \`${kanbanCommand} task comment --task-id <task_id> --message "<text>" [--project-path <path>]\`
 
+## task report
+
+Purpose: mark a task as blocked on one question for the owner (agents use it from a task session; \`--task-id\` defaults to \`KANBAN_HOOK_TASK_ID\`).
+
+Command:
+\`${kanbanCommand} task report --state blocked --question "<one concrete question>" [--task-id <task_id>] [--project-path <path>]\`
+
 ## task create
 
 Purpose: create a new task in \`backlog\`, with optional plan mode and auto-review behavior.
@@ -438,6 +445,7 @@ At create and update, pass the whole body through \`--summary\` with exactly the
 
 When you receive a message beginning with \`[Kanban review]\`, review the named task. Whenever you report on a task, identify it by its title followed by its id in parentheses, for example \`"Fix login bug" (bd268)\`; never use a bare task id:
 
+0. If \`task show\` or \`task list\` shows a blocked report (\`blockedReport\`, or \`blocked: <question>\` in \`task list\`) on the task, do not review it, send, hand off, or fail it. Report the task's title, id, and its question to the user in one chat line.
 1. Use \`task show --task-id <task_id>\` to read its prompt, then inspect the worktree diff against its base ref, including untracked files. Run the acceptance commands in the prompt and always run \`npm run web:typecheck\` and \`npm --prefix web-ui run test\`; when none are specified, run \`npm run typecheck\`, \`npm run lint\`, \`npm run test:fast\`, \`npm run web:typecheck\`, and \`npm --prefix web-ui run test\`. Also compare the diff with the prompt's scope and its "Files you may change" list: changes outside the task prompt's scope or "Files you may change" fail the round.
 2. If it passes, commit the task changes in its worktree. Find the base ref's worktree with \`git worktree list --porcelain\`; if it is not checked out, check out the base ref in the task worktree. Verify the base ref, stash any existing changes there with \`git stash push -u -m "kanban-pre-cherry-pick"\`, cherry-pick the task commit into it, and restore the stash if you made one. Resolve conflicts while preserving both sets of changes. Never push. Then run \`task done --task-id <task_id> --review-passed --commit <hash of the cherry-picked commit on the base branch>\` and report the task title and id, final commit hash, and checks run in one chat line.
 3. If it fails on a round below the cap and the round is not a multiple of 3, use \`task send --task-id <task_id> --message "<concrete fix list with file:line and failing command output>"\`. If \`task send\` reports that the message was not delivered, retry \`task send\` once; if it still fails, report the error and leave the task in Review. If \`task send\` fails because the session is not running, use \`task start --task-id <task_id> --message "<the same fix list>"\` instead. Report what you sent, identifying the task by title and id, in one chat line. For out-of-scope changes, ask the agent to revert them, and suggest a separate task to the user in chat; do not create it.

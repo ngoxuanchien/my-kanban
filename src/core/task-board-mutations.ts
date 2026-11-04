@@ -8,6 +8,7 @@ import type {
 	RuntimeTaskClineSettings,
 	RuntimeTaskImage,
 } from "./api-contract";
+import { withoutBlockedReport } from "./blocked-report";
 import { createUniqueTaskId } from "./task-id";
 import { resolveTaskTitle } from "./task-title";
 
@@ -561,7 +562,7 @@ export function moveTaskToColumn(
 		};
 	}
 	const movedTask: RuntimeBoardCard = {
-		...task,
+		...(targetColumnId === "trash" ? withoutBlockedReport(task) : task),
 		updatedAt: now,
 	};
 	const targetCards =

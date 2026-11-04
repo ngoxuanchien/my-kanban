@@ -1,6 +1,7 @@
 import type { ClineTaskSessionService } from "../cline-sdk/cline-task-session-service";
 import type { RuntimeConfigState } from "../config/runtime-config";
 import type { RuntimeBoardCard, RuntimeTaskSessionSummary } from "../core/api-contract";
+import { isTaskBlocked } from "../core/blocked-report";
 import { resolveEffectiveTaskAgentId } from "../core/effective-task-agent";
 import { getHandOffCount, getReviewRoundCap, isHandOffAgentId, MAX_HAND_OFFS } from "../core/hand-off-cap";
 import { createHomeAgentSessionId, isHomeAgentSessionId } from "../core/home-agent-session";
@@ -149,6 +150,7 @@ export function createSidebarReviewService(deps: CreateSidebarReviewServiceDepen
 					if (
 						card.agentReviewEnabled !== true ||
 						card.quotaBlockedAt === undefined ||
+						isTaskBlocked(card) ||
 						now() - card.quotaBlockedAt < 3600000 ||
 						processingTaskIds.has(card.id)
 					)
@@ -352,7 +354,7 @@ export function createSidebarReviewService(deps: CreateSidebarReviewServiceDepen
 		for (const column of state.board.columns) {
 			if (column.id !== "in_progress" && column.id !== "review") continue;
 			for (const card of column.cards) {
-				if (card.agentReviewEnabled !== true || processingTaskIds.has(card.id)) continue;
+				if (card.agentReviewEnabled !== true || isTaskBlocked(card) || processingTaskIds.has(card.id)) continue;
 				const summary = summaries.find((candidate) => candidate.taskId === card.id);
 				if (!summary || summary.agentId === "cline" || card.agentId === "cline") continue;
 				if (summary.state === "running") {
@@ -425,7 +427,7 @@ export function createSidebarReviewService(deps: CreateSidebarReviewServiceDepen
 		summary: RuntimeTaskSessionSummary,
 		card: RuntimeBoardCard,
 	): Promise<void> => {
-		if (processingTaskIds.has(summary.taskId)) return;
+		if (isTaskBlocked(card) || processingTaskIds.has(summary.taskId)) return;
 		processingTaskIds.add(summary.taskId);
 		try {
 			const completedRunningNudge = quotaNudges.get(summary.taskId)?.isRunning === true;
@@ -538,7 +540,12 @@ export function createSidebarReviewService(deps: CreateSidebarReviewServiceDepen
 			}
 			const state = await loadWorkspaceState(deps.workspacePath);
 			const found = findCard(state.board, summary.taskId);
-			if (!found || found.card.agentReviewEnabled !== true || found.columnId === "trash") {
+			if (
+				!found ||
+				found.card.agentReviewEnabled !== true ||
+				isTaskBlocked(found.card) ||
+				found.columnId === "trash"
+			) {
 				return;
 			}
 			if (crashed) {

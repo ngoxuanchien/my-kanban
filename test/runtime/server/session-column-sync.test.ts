@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { RuntimeBoardColumnId, RuntimeTaskSessionSummary } from "../../../src/core/api-contract";
+import { clearBlockedReportOnRun } from "../../../src/core/blocked-report";
 import { type LockRequest, lockedFileSystem } from "../../../src/fs/locked-file-system";
 import { createSessionColumnSync } from "../../../src/server/session-column-sync";
 import {
@@ -100,6 +101,7 @@ describe.sequential("session column sync", () => {
 		columnId: RuntimeBoardColumnId,
 		sessions: RuntimeTaskSessionSummary[] = [],
 		taskId = "task-1",
+		blockedReport?: { question: string; reportedAt: number },
 	) {
 		const initial = await loadWorkspaceState(workspacePath);
 		return await saveWorkspaceState(workspacePath, {
@@ -119,6 +121,7 @@ describe.sequential("session column sync", () => {
 						startInPlanMode: false,
 						createdAt: 1,
 						updatedAt: 1,
+						...(id === taskId && blockedReport ? { blockedReport } : {}),
 					})),
 				})),
 			},
@@ -356,5 +359,38 @@ describe.sequential("session column sync", () => {
 			(await loadWorkspaceState(workspacePath)).board.columns.find((column) => column.id === "review")?.cards[0]?.id,
 		).toBe("task-1");
 		expect(onBoardMoved).not.toHaveBeenCalled();
+	});
+
+	describe("blocked report clearing", () => {
+		const reportedTask = async () => {
+			const state = await loadWorkspaceState(workspacePath);
+			return state.board.columns.flatMap((column) => column.cards).find((card) => card.id === "task-1");
+		};
+		const emitRunning = async (updatedAt: number) => {
+			service.onSummary((event) => void clearBlockedReportOnRun(workspacePath, event));
+			terminal.emit({ ...summary("running"), updatedAt });
+			await new Promise((resolve) => setTimeout(resolve, 100));
+		};
+
+		it("clears when the session transitions to running after reportedAt", async () => {
+			await saveCard("review", [summary("awaiting_review")], "task-1", { question: "A or B?", reportedAt: 0 });
+			await service.start();
+			await emitRunning(5);
+			expect((await reportedTask())?.blockedReport).toBeUndefined();
+		});
+
+		it("keeps the report when the running summary predates reportedAt", async () => {
+			await saveCard("review", [summary("awaiting_review")], "task-1", { question: "A or B?", reportedAt: 9 });
+			await service.start();
+			await emitRunning(5);
+			expect((await reportedTask())?.blockedReport).toEqual({ question: "A or B?", reportedAt: 9 });
+		});
+
+		it("keeps the report while a session that was already running keeps updating", async () => {
+			await saveCard("in_progress", [summary("running")], "task-1", { question: "A or B?", reportedAt: 0 });
+			await service.start();
+			await emitRunning(5);
+			expect((await reportedTask())?.blockedReport).toEqual({ question: "A or B?", reportedAt: 0 });
+		});
 	});
 });
