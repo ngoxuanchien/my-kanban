@@ -62,7 +62,7 @@ export async function reconcileGithubIssues(
 				for (const column of board.columns) {
 					for (const card of column.cards) {
 						let entry = map[card.id];
-						if (entry.skipped) continue;
+						if (!entry || entry.skipped) continue;
 						if (!entry.issueNumber) {
 							const title = card.title || `Task ${card.id}`;
 							const body = entry.summary

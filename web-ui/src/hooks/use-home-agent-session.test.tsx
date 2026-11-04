@@ -62,6 +62,7 @@ function createSummary(taskId: string, agentId: RuntimeTaskSessionSummary["agent
 function createRuntimeConfig(overrides: Partial<RuntimeConfigResponse> = {}): RuntimeConfigResponse {
 	return {
 		selectedAgentId: "codex",
+		githubIssueSyncEnabled: false,
 		claudeDefaultModel: "opus",
 		selectedShortcutLabel: null,
 		agentAutonomousModeEnabled: true,

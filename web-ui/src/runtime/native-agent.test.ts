@@ -16,6 +16,7 @@ function createRuntimeConfigResponse(
 ): RuntimeConfigResponse {
 	const nextConfig: RuntimeConfigResponse = {
 		selectedAgentId,
+		githubIssueSyncEnabled: false,
 		claudeDefaultModel: "opus",
 		selectedShortcutLabel: null,
 		agentAutonomousModeEnabled: true,

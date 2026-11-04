@@ -43,6 +43,7 @@ import { useDetailTaskNavigation } from "@/hooks/use-detail-task-navigation";
 import { useDocumentVisibility } from "@/hooks/use-document-visibility";
 import { useFeaturebaseFeedbackWidget } from "@/hooks/use-featurebase-feedback-widget";
 import { useGitActions } from "@/hooks/use-git-actions";
+import { useGithubIssues } from "@/hooks/use-github-issues";
 import { useHomeSidebarAgentPanel } from "@/hooks/use-home-sidebar-agent-panel";
 import { useKanbanAccessGate } from "@/hooks/use-kanban-access-gate";
 import { useOpenWorkspace } from "@/hooks/use-open-workspace";
@@ -311,6 +312,8 @@ export default function App(): ReactElement {
 		setNewTaskClineSettings,
 		newTaskClaudeModel,
 		setNewTaskClaudeModel,
+		newTaskIssueSummary,
+		setNewTaskIssueSummary,
 		editingTaskId,
 		editTaskPrompt,
 		setEditTaskPrompt,
@@ -343,6 +346,7 @@ export default function App(): ReactElement {
 		handleCreateTask,
 		handleCreateTasks,
 		resetTaskEditorState,
+		waitForIssueSummaryWrites,
 	} = useTaskEditor({
 		board,
 		setBoard,
@@ -352,7 +356,9 @@ export default function App(): ReactElement {
 		selectedAgentId: runtimeProjectConfig?.selectedAgentId ?? null,
 		setSelectedTaskId,
 		queueTaskStartAfterEdit,
+		githubIssueSyncEnabled: runtimeProjectConfig?.githubIssueSyncEnabled === true,
 	});
+	useGithubIssues(currentProjectId, streamedWorkspaceState);
 
 	useEffect(() => {
 		taskEditorResetRef.current = resetTaskEditorState;
@@ -462,9 +468,12 @@ export default function App(): ReactElement {
 		});
 
 	const persistWorkspaceStateAsync = useCallback(
-		async (input: { workspaceId: string; payload: Parameters<typeof saveWorkspaceState>[1] }) =>
-			await saveWorkspaceState(input.workspaceId, input.payload),
-		[],
+		async (input: { workspaceId: string; payload: Parameters<typeof saveWorkspaceState>[1] }) => {
+			// A new task's issue summary must be stored before the board save that lets sync create its issue.
+			await waitForIssueSummaryWrites();
+			return await saveWorkspaceState(input.workspaceId, input.payload);
+		},
+		[waitForIssueSummaryWrites],
 	);
 	const handleWorkspaceStateConflict = useCallback(() => {
 		showAppToast(
@@ -1161,6 +1170,9 @@ export default function App(): ReactElement {
 					claudeModel={newTaskClaudeModel}
 					claudeDefaultModel={runtimeProjectConfig?.claudeDefaultModel ?? "opus"}
 					onClaudeModelChange={setNewTaskClaudeModel}
+					issueSummaryEnabled={runtimeProjectConfig?.githubIssueSyncEnabled === true}
+					issueSummary={newTaskIssueSummary}
+					onIssueSummaryChange={setNewTaskIssueSummary}
 					defaultAgentId={runtimeProjectConfig?.selectedAgentId ?? null}
 					defaultProviderId={defaultTaskClineProviderId}
 					defaultModelId={runtimeProjectConfig?.clineProviderSettings?.modelId ?? null}

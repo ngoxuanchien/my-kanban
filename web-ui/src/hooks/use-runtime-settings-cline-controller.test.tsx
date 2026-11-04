@@ -69,6 +69,7 @@ function createRuntimeConfigResponse(
 ): RuntimeConfigResponse {
 	return {
 		selectedAgentId: "cline",
+		githubIssueSyncEnabled: false,
 		claudeDefaultModel: "opus",
 		selectedShortcutLabel: null,
 		agentAutonomousModeEnabled: true,

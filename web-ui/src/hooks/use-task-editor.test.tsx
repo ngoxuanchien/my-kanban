@@ -2,9 +2,17 @@ import { act, useEffect, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { useTaskEditor } from "@/hooks/use-task-editor";
+import { type UseTaskEditorResult, useTaskEditor } from "@/hooks/use-task-editor";
 import type { RuntimeAgentId, RuntimeTaskClineSettings } from "@/runtime/types";
 import type { BoardCard, BoardData, TaskAutoReviewMode, TaskImage } from "@/types";
+
+const setTaskIssueSummaryMock = vi.hoisted(() =>
+	vi.fn(async (_input: { taskId: string; summary: string }) => ({ ok: true as const })),
+);
+
+vi.mock("@/runtime/trpc-client", () => ({
+	getRuntimeTrpcClient: () => ({ workspace: { setTaskIssueSummary: { mutate: setTaskIssueSummaryMock } } }),
+}));
 
 function createTask(taskId: string, prompt: string, createdAt: number, overrides: Partial<BoardCard> = {}): BoardCard {
 	return {
@@ -547,5 +555,104 @@ describe("useTaskEditor", () => {
 
 		expect(requireSnapshot(latestSnapshot).board.columns[0]?.cards[0]?.agentReviewEnabled).toBe(true);
 		expect(requireSnapshot(latestSnapshot).newTaskAgentReviewEnabled).toBe(true);
+	});
+});
+
+describe("useTaskEditor issue summary", () => {
+	let container: HTMLDivElement;
+	let root: Root;
+	let latest: { editor: UseTaskEditorResult; board: BoardData } | null = null;
+
+	function SummaryHarness({ githubIssueSyncEnabled }: { githubIssueSyncEnabled: boolean }): null {
+		const [board, setBoard] = useState<BoardData>(createBoard());
+		const [, setSelectedTaskId] = useState<string | null>(null);
+		const editor = useTaskEditor({
+			board,
+			setBoard,
+			currentProjectId: "project-1",
+			createTaskBranchOptions: [{ value: "main", label: "main" }],
+			defaultTaskBranchRef: "main",
+			selectedAgentId: null,
+			setSelectedTaskId,
+			githubIssueSyncEnabled,
+		});
+		latest = { editor, board };
+		return null;
+	}
+
+	function current(): { editor: UseTaskEditorResult; board: BoardData } {
+		if (!latest) {
+			throw new Error("Expected the harness to render.");
+		}
+		return latest;
+	}
+
+	async function createWithSummary(githubIssueSyncEnabled: boolean, summary: string): Promise<string | null> {
+		await act(async () => {
+			root.render(<SummaryHarness githubIssueSyncEnabled={githubIssueSyncEnabled} />);
+		});
+		await act(async () => {
+			current().editor.setNewTaskPrompt("Fix the login bug");
+			current().editor.setNewTaskIssueSummary(summary);
+		});
+		let taskId: string | null = null;
+		await act(async () => {
+			taskId = current().editor.handleCreateTask();
+		});
+		return taskId;
+	}
+
+	beforeEach(() => {
+		(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+		setTaskIssueSummaryMock.mockClear();
+		latest = null;
+		container = document.createElement("div");
+		document.body.appendChild(container);
+		root = createRoot(container);
+	});
+
+	afterEach(() => {
+		act(() => {
+			root.unmount();
+		});
+		container.remove();
+	});
+
+	it("stores the summary under the new card id, and the board save waits for it", async () => {
+		let resolveWrite: () => void = () => {};
+		setTaskIssueSummaryMock.mockImplementationOnce(
+			() =>
+				new Promise((resolve) => {
+					resolveWrite = () => resolve({ ok: true });
+				}),
+		);
+		const taskId = await createWithSummary(true, "  Users cannot log in.  ");
+
+		expect(taskId).not.toBeNull();
+		expect(current().board.columns[0]?.cards[0]?.id).toBe(taskId);
+		expect(setTaskIssueSummaryMock).toHaveBeenCalledWith({ taskId, summary: "Users cannot log in." });
+		expect(current().editor.newTaskIssueSummary).toBe("");
+
+		let saveMayRun = false;
+		const waiting = current()
+			.editor.waitForIssueSummaryWrites()
+			.then(() => {
+				saveMayRun = true;
+			});
+		await Promise.resolve();
+		expect(saveMayRun).toBe(false);
+		resolveWrite();
+		await waiting;
+		expect(saveMayRun).toBe(true);
+	});
+
+	it("does not store an empty summary", async () => {
+		await createWithSummary(true, "   ");
+		expect(setTaskIssueSummaryMock).not.toHaveBeenCalled();
+	});
+
+	it("does not store a summary when sync is off", async () => {
+		await createWithSummary(false, "Users cannot log in.");
+		expect(setTaskIssueSummaryMock).not.toHaveBeenCalled();
 	});
 });

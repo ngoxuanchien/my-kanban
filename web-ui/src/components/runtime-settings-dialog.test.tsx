@@ -147,6 +147,26 @@ vi.mock("@/runtime/use-runtime-config", () => ({
 	}),
 }));
 
+const saveConfigMutateMock = vi.hoisted(() => vi.fn(async (_input: { githubIssueSyncEnabled: boolean }) => ({})));
+const syncGithubIssuesMutateMock = vi.hoisted(() =>
+	vi.fn(async () => ({ ok: true, created: 1, updated: 2, closed: 0 }) as Record<string, unknown>),
+);
+const showAppToastMock = vi.hoisted(() => vi.fn());
+const notifyErrorMock = vi.hoisted(() => vi.fn());
+
+vi.mock("@/runtime/trpc-client", () => ({
+	getRuntimeTrpcClient: () => ({
+		runtime: { saveConfig: { mutate: saveConfigMutateMock } },
+		workspace: { syncGithubIssues: { mutate: syncGithubIssuesMutateMock } },
+	}),
+}));
+
+vi.mock("@/components/app-toaster", async () => ({
+	...(await vi.importActual<typeof import("@/components/app-toaster")>("@/components/app-toaster")),
+	showAppToast: showAppToastMock,
+	notifyError: notifyErrorMock,
+}));
+
 vi.mock("@/runtime/runtime-config-query", () => ({
 	openFileOnHost: vi.fn(async () => undefined),
 }));
@@ -218,6 +238,10 @@ describe("RuntimeSettingsDialog", () => {
 	let previousActEnvironment: boolean | undefined;
 
 	beforeEach(() => {
+		saveConfigMutateMock.mockClear();
+		syncGithubIssuesMutateMock.mockClear();
+		showAppToastMock.mockClear();
+		notifyErrorMock.mockClear();
 		resetLayoutCustomizationsMock.mockReset();
 		saveRuntimeConfigMock.mockClear();
 		clineSetupSectionOnSavedRef.onSaved = null;
@@ -254,6 +278,66 @@ describe("RuntimeSettingsDialog", () => {
 		await act(async () => saveButton?.click());
 
 		expect(saveRuntimeConfigMock).toHaveBeenCalledWith(expect.objectContaining({ claudeDefaultModel: "haiku" }));
+	});
+
+	async function renderWithGithubSync(enabled: boolean, onSaved?: () => void): Promise<void> {
+		await act(async () => {
+			root.render(
+				<RuntimeSettingsDialog
+					open={true}
+					workspaceId="workspace-1"
+					initialConfig={{ ...savedClineOauthConfig, githubIssueSyncEnabled: enabled }}
+					onOpenChange={() => {}}
+					onSaved={onSaved}
+				/>,
+			);
+		});
+	}
+
+	it("reflects and saves the GitHub issue sync switch", async () => {
+		const onSaved = vi.fn();
+		await renderWithGithubSync(false, onSaved);
+		const toggle = findButtonByAriaLabel(document.body, "Sync tasks to GitHub issues");
+		expect(toggle?.getAttribute("aria-checked")).toBe("false");
+		expect(findButtonByText(document.body, "Sync now")?.disabled).toBe(true);
+
+		await act(async () => toggle?.click());
+
+		expect(saveConfigMutateMock).toHaveBeenCalledWith({ githubIssueSyncEnabled: true });
+		expect(onSaved).toHaveBeenCalled();
+		expect(toggle?.getAttribute("aria-checked")).toBe("true");
+		expect(findButtonByText(document.body, "Sync now")?.disabled).toBe(false);
+	});
+
+	it("shows the switch on when the project has sync enabled", async () => {
+		await renderWithGithubSync(true);
+		expect(findButtonByAriaLabel(document.body, "Sync tasks to GitHub issues")?.getAttribute("aria-checked")).toBe(
+			"true",
+		);
+	});
+
+	it("runs Sync now and shows a success toast", async () => {
+		await renderWithGithubSync(true);
+		await act(async () => findButtonByText(document.body, "Sync now")?.click());
+
+		expect(syncGithubIssuesMutateMock).toHaveBeenCalledTimes(1);
+		expect(showAppToastMock).toHaveBeenCalledWith(expect.objectContaining({ intent: "success" }));
+		expect(notifyErrorMock).not.toHaveBeenCalled();
+	});
+
+	it("shows the gh error when Sync now fails", async () => {
+		syncGithubIssuesMutateMock.mockResolvedValueOnce({
+			ok: false,
+			created: 0,
+			updated: 0,
+			closed: 0,
+			error: "gh: not logged in",
+		});
+		await renderWithGithubSync(true);
+		await act(async () => findButtonByText(document.body, "Sync now")?.click());
+
+		expect(notifyErrorMock).toHaveBeenCalledWith(expect.stringContaining("gh: not logged in"));
+		expect(showAppToastMock).not.toHaveBeenCalledWith(expect.objectContaining({ intent: "success" }));
 	});
 
 	afterEach(() => {

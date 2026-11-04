@@ -27,6 +27,7 @@ function createRuntimeConfigResponse(
 ): RuntimeConfigResponse {
 	return {
 		selectedAgentId,
+		githubIssueSyncEnabled: false,
 		claudeDefaultModel: "opus",
 		selectedShortcutLabel: shortcuts[0]?.label ?? null,
 		agentAutonomousModeEnabled: true,

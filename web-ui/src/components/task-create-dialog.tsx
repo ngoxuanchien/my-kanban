@@ -136,6 +136,9 @@ export function TaskCreateDialog({
 	claudeModel,
 	claudeDefaultModel,
 	onClaudeModelChange,
+	issueSummaryEnabled = false,
+	issueSummary = "",
+	onIssueSummaryChange,
 }: {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
@@ -176,6 +179,10 @@ export function TaskCreateDialog({
 	claudeModel?: RuntimeClaudeModel;
 	claudeDefaultModel?: RuntimeClaudeModel;
 	onClaudeModelChange?: (model: RuntimeClaudeModel | undefined) => void;
+	/** True when the project syncs tasks to GitHub issues; shows the optional issue summary field. */
+	issueSummaryEnabled?: boolean;
+	issueSummary?: string;
+	onIssueSummaryChange?: (value: string) => void;
 }): ReactElement {
 	const [mode, setMode] = useState<"single" | "multi">("single");
 	const [createMore, setCreateMore] = useState(false);
@@ -481,6 +488,19 @@ export function TaskCreateDialog({
 								</button>
 							) : null}
 						</div>
+						{issueSummaryEnabled && onIssueSummaryChange ? (
+							<label className="mt-3 flex flex-col gap-1 text-[12px] text-text-secondary">
+								Issue summary (optional)
+								<textarea
+									aria-label="Issue summary"
+									value={issueSummary}
+									onChange={(event) => onIssueSummaryChange(event.target.value)}
+									rows={2}
+									placeholder="1–3 sentences for the GitHub issue. No file paths or secrets."
+									className="w-full resize-y rounded-md border border-border bg-surface-2 px-2.5 py-1.5 text-[13px] text-text-primary placeholder:text-text-tertiary focus:border-border-focus focus:outline-none"
+								/>
+							</label>
+						) : null}
 					</div>
 				) : (
 					<div>

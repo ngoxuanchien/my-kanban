@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
 import { Spinner } from "@/components/ui/spinner";
 import { Tooltip } from "@/components/ui/tooltip";
+import { useGithubIssue } from "@/hooks/use-github-issues";
 import type { RuntimeAgentId, RuntimeTaskSessionSummary } from "@/runtime/types";
 import { useTaskWorkspaceSnapshotValue } from "@/stores/workspace-metadata-store";
 import type { BoardCard as BoardCardModel, BoardColumnId } from "@/types";
@@ -280,6 +281,7 @@ export function BoardCard({
 	const [descriptionFont, setDescriptionFont] = useState(DEFAULT_TEXT_MEASURE_FONT);
 	const [isDescriptionExpanded, setIsDescriptionExpanded] = useState(false);
 	const reviewWorkspaceSnapshot = useTaskWorkspaceSnapshotValue(card.id);
+	const githubIssue = useGithubIssue(card.id);
 	const isTrashCard = columnId === "trash";
 	const isCardInteractive = true;
 	const descriptionWidth = descriptionRect.width > 0 ? descriptionRect.width : descriptionWidthFallback;
@@ -735,21 +737,38 @@ export function BoardCard({
 									</p>
 								</div>
 							) : null}
-							{taskAgentSettingsLabel ? (
-								<div className="mt-1">
-									<span
-										className={cn(
-											"inline-flex max-w-full items-center gap-1 rounded-md border px-1.5 py-0.5 text-xs",
-											isTrashCard
-												? "border-border text-text-tertiary bg-surface-1"
-												: columnId === "review" && card.quotaBlockedAt
-													? "border-status-red/30 bg-status-red/10 text-status-red"
-													: "border-status-blue/30 bg-status-blue/10 text-status-blue",
-										)}
-									>
-										<Bot size={12} className="shrink-0" />
-										<span className="truncate">{taskAgentSettingsLabel}</span>
-									</span>
+							{taskAgentSettingsLabel || githubIssue ? (
+								<div className="mt-1 flex min-w-0 items-center gap-2">
+									{taskAgentSettingsLabel ? (
+										<span
+											className={cn(
+												"inline-flex min-w-0 max-w-full items-center gap-1 rounded-md border px-1.5 py-0.5 text-xs",
+												isTrashCard
+													? "border-border text-text-tertiary bg-surface-1"
+													: columnId === "review" && card.quotaBlockedAt
+														? "border-status-red/30 bg-status-red/10 text-status-red"
+														: "border-status-blue/30 bg-status-blue/10 text-status-blue",
+											)}
+										>
+											<Bot size={12} className="shrink-0" />
+											<span className="truncate">{taskAgentSettingsLabel}</span>
+										</span>
+									) : null}
+									{githubIssue ? (
+										<a
+											href={githubIssue.url}
+											target="_blank"
+											rel="noreferrer"
+											className="shrink-0 text-xs text-text-secondary hover:text-text-primary hover:underline"
+											onClick={(event) => {
+												event.preventDefault();
+												event.stopPropagation();
+												window.open(githubIssue.url, "_blank");
+											}}
+										>
+											#{githubIssue.number}
+										</a>
+									) : null}
 								</div>
 							) : null}
 							{sessionActivity ? (

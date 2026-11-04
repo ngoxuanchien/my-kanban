@@ -1,13 +1,15 @@
 import { deriveTaskTitleFromPrompt } from "@runtime-task-title";
 import type { Dispatch, SetStateAction } from "react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { notifyError } from "@/components/app-toaster";
 import {
 	normalizeStoredTaskAutoReviewMode,
 	TASK_AUTO_REVIEW_ENABLED_STORAGE_KEY,
 	TASK_AUTO_REVIEW_MODE_STORAGE_KEY,
 	TASK_START_IN_PLAN_MODE_STORAGE_KEY,
 } from "@/hooks/app-utils";
+import { getRuntimeTrpcClient } from "@/runtime/trpc-client";
 import type { RuntimeAgentId, RuntimeClaudeModel, RuntimeTaskClineSettings } from "@/runtime/types";
 import { addTaskToColumnWithResult, findCardSelection, updateTask, updateTaskTitle } from "@/state/board-state";
 import { toTelemetrySelectedAgentId, trackTaskCreated } from "@/telemetry/events";
@@ -24,6 +26,8 @@ interface UseTaskEditorInput {
 	selectedAgentId: RuntimeAgentId | null;
 	setSelectedTaskId: Dispatch<SetStateAction<string | null>>;
 	queueTaskStartAfterEdit?: (taskId: string) => void;
+	/** When true, a non-empty `newTaskIssueSummary` is stored for the created task. */
+	githubIssueSyncEnabled?: boolean;
 }
 
 interface OpenEditTaskOptions {
@@ -57,6 +61,8 @@ export interface UseTaskEditorResult {
 	setNewTaskClineSettings: Dispatch<SetStateAction<RuntimeTaskClineSettings | undefined>>;
 	newTaskClaudeModel: RuntimeClaudeModel | undefined;
 	setNewTaskClaudeModel: Dispatch<SetStateAction<RuntimeClaudeModel | undefined>>;
+	newTaskIssueSummary: string;
+	setNewTaskIssueSummary: Dispatch<SetStateAction<string>>;
 	editingTaskId: string | null;
 	editTaskPrompt: string;
 	setEditTaskPrompt: Dispatch<SetStateAction<string>>;
@@ -89,6 +95,8 @@ export interface UseTaskEditorResult {
 	handleCreateTask: (options?: CreateTaskOptions) => string | null;
 	handleCreateTasks: (prompts: string[], options?: CreateTaskOptions) => string[];
 	resetTaskEditorState: () => void;
+	/** Resolves once every issue summary sent for a created task is stored. Await before saving the board. */
+	waitForIssueSummaryWrites: () => Promise<void>;
 }
 
 export function useTaskEditor({
@@ -100,6 +108,7 @@ export function useTaskEditor({
 	selectedAgentId,
 	setSelectedTaskId,
 	queueTaskStartAfterEdit,
+	githubIssueSyncEnabled = false,
 }: UseTaskEditorInput): UseTaskEditorResult {
 	const [isInlineTaskCreateOpen, setIsInlineTaskCreateOpen] = useState(false);
 	const [newTaskPrompt, setNewTaskPrompt] = useState("");
@@ -134,6 +143,8 @@ export function useTaskEditor({
 	const [newTaskAgentId, setNewTaskAgentId] = useState<RuntimeAgentId | undefined>(undefined);
 	const [newTaskClineSettings, setNewTaskClineSettings] = useState<RuntimeTaskClineSettings | undefined>(undefined);
 	const [newTaskClaudeModel, setNewTaskClaudeModel] = useState<RuntimeClaudeModel | undefined>(undefined);
+	const [newTaskIssueSummary, setNewTaskIssueSummary] = useState("");
+	const pendingIssueSummaryWritesRef = useRef<Promise<void>[]>([]);
 	const [editTaskAgentId, setEditTaskAgentId] = useState<RuntimeAgentId | undefined>(undefined);
 	const [editTaskClineSettings, setEditTaskClineSettings] = useState<RuntimeTaskClineSettings | undefined>(undefined);
 	const [editTaskClaudeModel, setEditTaskClaudeModel] = useState<RuntimeClaudeModel | undefined>(undefined);
@@ -381,6 +392,19 @@ export function useTaskEditor({
 				claudeModel: newTaskClaudeModel,
 				baseRef,
 			});
+			const issueSummary = newTaskIssueSummary.trim();
+			if (githubIssueSyncEnabled && issueSummary && currentProjectId) {
+				// The board save waits for this write (waitForIssueSummaryWrites), so the issue is never
+				// created without the summary the user typed.
+				pendingIssueSummaryWritesRef.current.push(
+					getRuntimeTrpcClient(currentProjectId)
+						.workspace.setTaskIssueSummary.mutate({ taskId: created.task.id, summary: issueSummary })
+						.then(
+							() => undefined,
+							(error: unknown) => notifyError(`Could not save the issue summary: ${String(error)}`),
+						),
+				);
+			}
 			setBoard(created.board);
 			trackTaskCreated({
 				selected_agent_id: toTelemetrySelectedAgentId(newTaskAgentId ?? selectedAgentId),
@@ -402,6 +426,7 @@ export function useTaskEditor({
 			setNewTaskAgentId(undefined);
 			setNewTaskClineSettings(undefined);
 			setNewTaskClaudeModel(undefined);
+			setNewTaskIssueSummary("");
 			if (!options?.keepDialogOpen) {
 				setIsInlineTaskCreateOpen(false);
 			}
@@ -418,8 +443,10 @@ export function useTaskEditor({
 			newTaskClineSettings,
 			newTaskClaudeModel,
 			newTaskImages,
+			newTaskIssueSummary,
 			newTaskPrompt,
 			newTaskStartInPlanMode,
+			githubIssueSyncEnabled,
 			resolvedDefaultTaskBranchRef,
 			selectedAgentId,
 			setBoard,
@@ -527,6 +554,13 @@ export function useTaskEditor({
 		setNewTaskAgentId(undefined);
 		setNewTaskClineSettings(undefined);
 		setNewTaskClaudeModel(undefined);
+		setNewTaskIssueSummary("");
+	}, []);
+
+	const waitForIssueSummaryWrites = useCallback(async () => {
+		const pending = pendingIssueSummaryWritesRef.current;
+		pendingIssueSummaryWritesRef.current = [];
+		await Promise.all(pending);
 	}, []);
 
 	return {
@@ -552,6 +586,8 @@ export function useTaskEditor({
 		setNewTaskClineSettings,
 		newTaskClaudeModel,
 		setNewTaskClaudeModel,
+		newTaskIssueSummary,
+		setNewTaskIssueSummary,
 		editingTaskId,
 		editTaskPrompt,
 		setEditTaskPrompt,
@@ -584,5 +620,6 @@ export function useTaskEditor({
 		handleCreateTask,
 		handleCreateTasks,
 		resetTaskEditorState,
+		waitForIssueSummaryWrites,
 	};
 }

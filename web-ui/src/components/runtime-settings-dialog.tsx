@@ -19,11 +19,13 @@ import {
 	GitCommit,
 	Palette,
 	Plus,
+	RefreshCw,
 	Settings,
 	SlidersHorizontal,
 	X,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { notifyError, showAppToast } from "@/components/app-toaster";
 import { AccountOrganizationSection } from "@/components/shared/account-organization-section";
 import { ClineSetupSection } from "@/components/shared/cline-setup-section";
 import {
@@ -43,6 +45,7 @@ import { useRuntimeSettingsClineMcpController } from "@/hooks/use-runtime-settin
 import { previewThemeId, readStoredThemeId, saveThemeId, THEME_GROUPS, THEMES, type ThemeId } from "@/hooks/use-theme";
 import { useLayoutCustomizations } from "@/resize/layout-customizations";
 import { openFileOnHost } from "@/runtime/runtime-config-query";
+import { getRuntimeTrpcClient } from "@/runtime/trpc-client";
 import type {
 	RuntimeAgentId,
 	RuntimeClaudeModel,
@@ -371,6 +374,9 @@ export function RuntimeSettingsDialog({
 	const [claudeDefaultModel, setClaudeDefaultModel] = useState<RuntimeClaudeModel>("opus");
 	const [agentAutonomousModeEnabled, setAgentAutonomousModeEnabled] = useState(true);
 	const [readyForReviewNotificationsEnabled, setReadyForReviewNotificationsEnabled] = useState(true);
+	const [githubIssueSyncEnabled, setGithubIssueSyncEnabled] = useState(false);
+	const [isGithubIssueSyncSaving, setIsGithubIssueSyncSaving] = useState(false);
+	const [isGithubIssueSyncRunning, setIsGithubIssueSyncRunning] = useState(false);
 	const [initialThemeId, setInitialThemeId] = useState<ThemeId>(readStoredThemeId);
 	const [draftThemeId, setDraftThemeId] = useState<ThemeId>(readStoredThemeId);
 	const [notificationPermission, setNotificationPermission] = useState<BrowserNotificationPermission>("unsupported");
@@ -387,6 +393,40 @@ export function RuntimeSettingsDialog({
 	const bodyRef = useRef<HTMLDivElement>(null);
 	const isScrollingProgrammatically = useRef(false);
 	const [activeSection, setActiveSection] = useState<SettingsNavId>("general");
+	// The sync switch saves at once (not on Save) so "Sync now" always runs against the saved setting.
+	const handleGithubIssueSyncChange = async (checked: boolean) => {
+		setGithubIssueSyncEnabled(checked);
+		setIsGithubIssueSyncSaving(true);
+		try {
+			await getRuntimeTrpcClient(workspaceId).runtime.saveConfig.mutate({ githubIssueSyncEnabled: checked });
+			onSaved?.();
+		} catch (error) {
+			setGithubIssueSyncEnabled(!checked);
+			notifyError(`Could not save GitHub issue sync: ${error instanceof Error ? error.message : String(error)}`);
+		} finally {
+			setIsGithubIssueSyncSaving(false);
+		}
+	};
+
+	const handleSyncGithubIssuesNow = async () => {
+		setIsGithubIssueSyncRunning(true);
+		try {
+			const result = await getRuntimeTrpcClient(workspaceId).workspace.syncGithubIssues.mutate();
+			if (result.ok) {
+				showAppToast({
+					intent: "success",
+					message: `GitHub issues synced: ${result.created} created, ${result.updated} updated, ${result.closed} closed.`,
+				});
+			} else {
+				notifyError(`GitHub issue sync failed: ${result.error ?? "unknown error"}`);
+			}
+		} catch (error) {
+			notifyError(`GitHub issue sync failed: ${error instanceof Error ? error.message : String(error)}`);
+		} finally {
+			setIsGithubIssueSyncRunning(false);
+		}
+	};
+
 	const controlsDisabled = isLoading || isSaving || config === null;
 	const commitPromptTemplateDefault = config?.commitPromptTemplateDefault ?? "";
 	const openPrPromptTemplateDefault = config?.openPrPromptTemplateDefault ?? "";
@@ -528,6 +568,7 @@ export function RuntimeSettingsDialog({
 		setClaudeDefaultModel(config?.claudeDefaultModel ?? "opus");
 		setAgentAutonomousModeEnabled(config?.agentAutonomousModeEnabled ?? true);
 		setReadyForReviewNotificationsEnabled(config?.readyForReviewNotificationsEnabled ?? true);
+		setGithubIssueSyncEnabled(config?.githubIssueSyncEnabled ?? false);
 		setShortcuts(config?.shortcuts ?? []);
 		setCommitPromptTemplate(config?.commitPromptTemplate ?? "");
 		setOpenPrPromptTemplate(config?.openPrPromptTemplate ?? "");
@@ -536,6 +577,7 @@ export function RuntimeSettingsDialog({
 		config?.agentAutonomousModeEnabled,
 		config?.claudeDefaultModel,
 		config?.commitPromptTemplate,
+		config?.githubIssueSyncEnabled,
 		config?.openPrPromptTemplate,
 		config?.readyForReviewNotificationsEnabled,
 		config?.selectedAgentId,
@@ -1095,6 +1137,39 @@ export function RuntimeSettingsDialog({
 							: "<project>/.cline/kanban/config.json"}
 						{config?.projectConfigPath ? <ExternalLink size={12} className="inline ml-1.5 align-middle" /> : null}
 					</p>
+					<div className="rounded-lg border border-border bg-surface-0 px-4 py-3 mb-4">
+						<div className="flex items-center justify-between gap-2">
+							<div className="flex items-center gap-2">
+								<RadixSwitch.Root
+									aria-label="Sync tasks to GitHub issues"
+									checked={githubIssueSyncEnabled}
+									disabled={controlsDisabled || !workspaceId || isGithubIssueSyncSaving}
+									onCheckedChange={(checked) => void handleGithubIssueSyncChange(checked)}
+									className="relative h-5 w-9 rounded-full bg-surface-4 data-[state=checked]:bg-accent cursor-pointer disabled:opacity-40"
+								>
+									<RadixSwitch.Thumb className="block h-4 w-4 rounded-full bg-white shadow-sm transition-transform translate-x-0.5 data-[state=checked]:translate-x-[18px]" />
+								</RadixSwitch.Root>
+								<span className="text-[13px] text-text-primary">Sync tasks to GitHub issues</span>
+							</div>
+							<Button
+								size="sm"
+								icon={<RefreshCw size={14} />}
+								disabled={
+									!githubIssueSyncEnabled ||
+									!workspaceId ||
+									isGithubIssueSyncSaving ||
+									isGithubIssueSyncRunning
+								}
+								onClick={() => void handleSyncGithubIssuesNow()}
+							>
+								Sync now
+							</Button>
+						</div>
+						<p className="text-text-secondary text-[13px] m-0 mt-2">
+							Mirrors each task to an issue (status label, column comments, close on Done) via the gh CLI. Task
+							prompts are never published. Saved immediately.
+						</p>
+					</div>
 					<div className="rounded-lg border border-border bg-surface-0 px-4 py-3 mb-4">
 						<div className="flex items-center justify-between mb-2">
 							<h6

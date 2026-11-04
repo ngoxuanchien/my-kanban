@@ -9,6 +9,7 @@ import type { RuntimeTaskSessionSummary } from "@/runtime/types";
 import type { ReviewTaskWorkspaceSnapshot } from "@/types";
 
 let mockWorkspaceSnapshot: ReviewTaskWorkspaceSnapshot | undefined;
+let mockGithubIssue: { number: number; url: string } | null = null;
 let mockMeasureWidths = [240, 240, 240];
 let mockMeasureCallCount = 0;
 
@@ -31,6 +32,10 @@ vi.mock("@hello-pangea/dnd", () => ({
 
 vi.mock("@/stores/workspace-metadata-store", () => ({
 	useTaskWorkspaceSnapshotValue: () => mockWorkspaceSnapshot,
+}));
+
+vi.mock("@/hooks/use-github-issues", () => ({
+	useGithubIssue: () => mockGithubIssue,
 }));
 
 vi.mock("@/utils/react-use", () => ({
@@ -140,6 +145,7 @@ describe("BoardCard", () => {
 
 	beforeEach(() => {
 		mockWorkspaceSnapshot = undefined;
+		mockGithubIssue = null;
 		mockMeasureWidths = [240, 240, 240];
 		mockMeasureCallCount = 0;
 		previousActEnvironment = (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean })
@@ -187,6 +193,30 @@ describe("BoardCard", () => {
 		});
 		return container.querySelector("span.truncate")?.textContent ?? null;
 	};
+
+	it("shows the GitHub issue link and opens it without opening the card", async () => {
+		mockGithubIssue = { number: 12, url: "https://github.com/acme/repo/issues/12" };
+		const onClick = vi.fn();
+		const openSpy = vi.spyOn(window, "open").mockImplementation(() => null);
+		await act(async () => {
+			root.render(<BoardCard card={createCard()} index={0} columnId="backlog" onClick={onClick} />);
+		});
+		const link = Array.from(container.querySelectorAll("a")).find((anchor) => anchor.textContent === "#12");
+		expect(link).toBeDefined();
+
+		await act(async () => link?.click());
+
+		expect(openSpy).toHaveBeenCalledWith("https://github.com/acme/repo/issues/12", "_blank");
+		expect(onClick).not.toHaveBeenCalled();
+	});
+
+	it("shows no issue link when the task has no issue", async () => {
+		await act(async () => {
+			root.render(<BoardCard card={createCard()} index={0} columnId="backlog" />);
+		});
+		expect(container.querySelector("a")).toBeNull();
+		expect(container.textContent).not.toContain("#");
+	});
 
 	it("shows the agent override before the session agent", async () => {
 		expect(

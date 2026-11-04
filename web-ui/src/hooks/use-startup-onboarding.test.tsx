@@ -17,6 +17,7 @@ type HookSnapshot = UseStartupOnboardingResult;
 function createRuntimeConfigResponse(selectedAgentId: RuntimeConfigResponse["selectedAgentId"]): RuntimeConfigResponse {
 	return {
 		selectedAgentId,
+		githubIssueSyncEnabled: false,
 		claudeDefaultModel: "opus",
 		selectedShortcutLabel: null,
 		agentAutonomousModeEnabled: true,
