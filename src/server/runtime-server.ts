@@ -58,6 +58,7 @@ import { handleHttpRequest, handleSocketUpgrade } from "./middleware";
 import { readOpenCodeLogTail } from "./opencode-log-usage-limit";
 import { resumeInterruptedTasks } from "./resume-interrupted-tasks";
 import type { RuntimeStateHub } from "./runtime-state-hub";
+import { createSessionColumnSync } from "./session-column-sync";
 import { createSidebarReviewService, type SidebarReviewService } from "./sidebar-review-service";
 import type { WorkspaceRegistry } from "./workspace-registry";
 
@@ -158,11 +159,18 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 		};
 	};
 
+	const ensureTerminalManagerForWorkspace = async (
+		workspaceId: string,
+		workspacePath: string,
+	): Promise<TerminalSessionManager> => {
+		await ensureSessionColumnSync(workspaceId, workspacePath);
+		return await deps.ensureTerminalManagerForWorkspace(workspaceId, workspacePath);
+	};
 	const getScopedTerminalManager = async (scope: RuntimeTrpcWorkspaceScope): Promise<TerminalSessionManager> =>
-		await deps.ensureTerminalManagerForWorkspace(scope.workspaceId, scope.workspacePath);
+		await ensureTerminalManagerForWorkspace(scope.workspaceId, scope.workspacePath);
 	const clineTaskSessionServiceByWorkspaceId = new Map<string, ClineTaskSessionService>();
 	const clineWatcherRegistry = createClineWatcherRegistry();
-	const getScopedClineTaskSessionService = async (
+	const getOrCreateClineTaskSessionService = async (
 		scope: RuntimeTrpcWorkspaceScope,
 	): Promise<ClineTaskSessionService> => {
 		let service = clineTaskSessionServiceByWorkspaceId.get(scope.workspaceId);
@@ -174,6 +182,12 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 			deps.runtimeStateHub.trackClineTaskSessionService(scope.workspaceId, scope.workspacePath, service);
 		}
 		return service;
+	};
+	const getScopedClineTaskSessionService = async (
+		scope: RuntimeTrpcWorkspaceScope,
+	): Promise<ClineTaskSessionService> => {
+		await ensureSessionColumnSync(scope.workspaceId, scope.workspacePath);
+		return await getOrCreateClineTaskSessionService(scope);
 	};
 	const disposeClineTaskSessionServiceAsync = async (workspaceId: string): Promise<void> => {
 		const service = clineTaskSessionServiceByWorkspaceId.get(workspaceId);
@@ -187,10 +201,49 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 		void disposeClineTaskSessionServiceAsync(workspaceId);
 	};
 	const sidebarReviewServiceByWorkspaceId = new Map<string, Promise<SidebarReviewService>>();
+	const sessionColumnSyncByWorkspaceId = new Map<string, Promise<ReturnType<typeof createSessionColumnSync>>>();
+	const onWorkspaceStateChanged = (workspaceId: string, workspacePath: string): void => {
+		void notifySidebarReviewBoardChanged(workspaceId, workspacePath);
+	};
+	const ensureSessionColumnSync = async (workspaceId: string, workspacePath: string) => {
+		let service = sessionColumnSyncByWorkspaceId.get(workspaceId);
+		if (!service) {
+			const created = (async () => {
+				const instance = createSessionColumnSync({
+					workspaceId,
+					workspacePath,
+					terminalManager: await deps.ensureTerminalManagerForWorkspace(workspaceId, workspacePath),
+					clineService: await getOrCreateClineTaskSessionService({ workspaceId, workspacePath }),
+					onBoardMoved: async () => {
+						onWorkspaceStateChanged(workspaceId, workspacePath);
+						await deps.runtimeStateHub.broadcastRuntimeProjectsUpdated(workspaceId);
+						await deps.runtimeStateHub.broadcastRuntimeWorkspaceStateUpdated(workspaceId, workspacePath);
+					},
+					warn: deps.warn,
+				});
+				await instance.start();
+				return instance;
+			})();
+			service = created;
+			sessionColumnSyncByWorkspaceId.set(workspaceId, created);
+			created.catch(() => {
+				if (sessionColumnSyncByWorkspaceId.get(workspaceId) === created)
+					sessionColumnSyncByWorkspaceId.delete(workspaceId);
+			});
+		}
+		return await service;
+	};
+	const disposeSessionColumnSync = async (workspaceId: string): Promise<void> => {
+		const service = sessionColumnSyncByWorkspaceId.get(workspaceId);
+		if (!service) return;
+		sessionColumnSyncByWorkspaceId.delete(workspaceId);
+		(await service).stop();
+	};
 	const ensureSidebarReviewService = async (
 		workspaceId: string,
 		workspacePath: string,
 	): Promise<SidebarReviewService> => {
+		await ensureSessionColumnSync(workspaceId, workspacePath);
 		let service = sidebarReviewServiceByWorkspaceId.get(workspaceId);
 		if (!service) {
 			const scope = { workspaceId, workspacePath };
@@ -250,6 +303,7 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 	const startSidebarReviewForRegisteredWorkspaces = async (): Promise<void> => {
 		for (const { workspaceId, repoPath } of await listWorkspaceIndexEntries()) {
 			try {
+				await ensureSessionColumnSync(workspaceId, repoPath);
 				if (hasSidebarReviewTasks(await loadWorkspaceBoardById(workspaceId))) {
 					await ensureSidebarReviewService(workspaceId, repoPath);
 				}
@@ -266,6 +320,7 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 		return internalRuntimeApi;
 	};
 	const prepareForStateReset = async (): Promise<void> => {
+		await Promise.all([...sessionColumnSyncByWorkspaceId.keys()].map(disposeSessionColumnSync));
 		await Promise.all([...sidebarReviewServiceByWorkspaceId.keys()].map(disposeSidebarReviewService));
 		const workspaceIds = new Set<string>();
 		for (const { workspaceId } of deps.workspaceRegistry.listManagedWorkspaces()) {
@@ -316,14 +371,12 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 			runtimeApi: createRuntimeApi(runtimeApiDependencies),
 			workspaceApi: createWorkspaceApi({
 				githubIssueSync: deps.githubIssueSync,
-				ensureTerminalManagerForWorkspace: deps.ensureTerminalManagerForWorkspace,
+				ensureTerminalManagerForWorkspace,
 				getScopedClineTaskSessionService,
 				broadcastRuntimeWorkspaceStateUpdated: deps.runtimeStateHub.broadcastRuntimeWorkspaceStateUpdated,
 				broadcastRuntimeProjectsUpdated: deps.runtimeStateHub.broadcastRuntimeProjectsUpdated,
 				buildWorkspaceStateSnapshot: deps.workspaceRegistry.buildWorkspaceStateSnapshot,
-				onWorkspaceStateChanged: (workspaceId, workspacePath) => {
-					void notifySidebarReviewBoardChanged(workspaceId, workspacePath);
-				},
+				onWorkspaceStateChanged,
 			}),
 			projectsApi: createProjectsApi({
 				getActiveWorkspacePath: deps.workspaceRegistry.getActiveWorkspacePath,
@@ -339,6 +392,7 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 				broadcastRuntimeProjectsUpdated: deps.runtimeStateHub.broadcastRuntimeProjectsUpdated,
 				getTerminalManagerForWorkspace: deps.workspaceRegistry.getTerminalManagerForWorkspace,
 				disposeWorkspace: (workspaceId, options) => {
+					void disposeSessionColumnSync(workspaceId);
 					void disposeSidebarReviewService(workspaceId);
 					disposeClineTaskSessionService(workspaceId);
 					return deps.disposeWorkspace(workspaceId, options);
@@ -351,7 +405,7 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 			}),
 			hooksApi: createHooksApi({
 				getWorkspacePathById: deps.workspaceRegistry.getWorkspacePathById,
-				ensureTerminalManagerForWorkspace: deps.ensureTerminalManagerForWorkspace,
+				ensureTerminalManagerForWorkspace,
 				broadcastRuntimeWorkspaceStateUpdated: deps.runtimeStateHub.broadcastRuntimeWorkspaceStateUpdated,
 				broadcastTaskReadyForReview: deps.runtimeStateHub.broadcastTaskReadyForReview,
 			}),
@@ -614,6 +668,7 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 		},
 		close: async () => {
 			stopGithubIssuePolling?.();
+			await Promise.all([...sessionColumnSyncByWorkspaceId.keys()].map(disposeSessionColumnSync));
 			await Promise.all([...sidebarReviewServiceByWorkspaceId.keys()].map(disposeSidebarReviewService));
 			await Promise.all(
 				Array.from(clineTaskSessionServiceByWorkspaceId.values()).map(async (service) => {

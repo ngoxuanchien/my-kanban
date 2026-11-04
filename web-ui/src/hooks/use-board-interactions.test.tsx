@@ -198,6 +198,121 @@ describe("useBoardInteractions", () => {
 		}
 	});
 
+	function setupColumnSyncHarness() {
+		const tryProgrammaticCardMove = vi.fn(() => "unavailable" as const);
+		useProgrammaticCardMovesMock.mockReturnValue({
+			handleProgrammaticCardMoveReady: () => {},
+			setRequestMoveTaskToTrashHandler: () => {},
+			tryProgrammaticCardMove,
+			consumeProgrammaticCardMove: () => ({}),
+			resolvePendingProgrammaticTrashMove: () => {},
+			waitForProgrammaticCardMoveAvailability: async () => {},
+			resetProgrammaticCardMoves: () => {},
+			requestMoveTaskToTrashWithAnimation: async () => {},
+			programmaticCardMoveCycle: 0,
+		});
+		useLinkedBacklogTaskActionsMock.mockReturnValue({
+			handleCreateDependency: () => {},
+			handleDeleteDependency: () => {},
+			confirmMoveTaskToTrash: async () => {},
+			requestMoveTaskToTrash: async () => {},
+		});
+		return tryProgrammaticCardMove;
+	}
+
+	function session(state: RuntimeTaskSessionSummary["state"]): RuntimeTaskSessionSummary {
+		return {
+			taskId: "task-1",
+			state,
+			agentId: "codex",
+			workspacePath: null,
+			pid: null,
+			startedAt: 1,
+			updatedAt: 1,
+			lastOutputAt: null,
+			reviewReason: null,
+			exitCode: null,
+			lastHookAt: null,
+			latestHookActivity: null,
+		};
+	}
+
+	it.each([
+		["in_progress", "running", "awaiting_review"],
+		["review", "awaiting_review", "running"],
+	] as const)("does not move cards on session state changes (%s)", async (columnId, previous, next) => {
+		const tryMove = setupColumnSyncHarness();
+		const board = createBoard();
+		const task = board.columns[0]!.cards.pop()!;
+		board.columns.find((column) => column.id === columnId)!.cards.push(task);
+		let currentBoard = board;
+		const setBoard: Dispatch<SetStateAction<BoardData>> = (update) => {
+			currentBoard = typeof update === "function" ? update(currentBoard) : update;
+		};
+		const render = (state: RuntimeTaskSessionSummary["state"]) =>
+			root.render(
+				<HookHarness
+					board={currentBoard}
+					setBoard={setBoard}
+					sessions={{ "task-1": session(state) }}
+					ensureTaskWorkspace={async () => ({ ok: true as const })}
+					startTaskSession={async () => ({ ok: true as const })}
+				/>,
+			);
+		await act(async () => {
+			render(previous);
+		});
+		await act(async () => {
+			render(next);
+		});
+		expect(currentBoard).toEqual(board);
+		expect(tryMove).not.toHaveBeenCalled();
+	});
+
+	it("renders runtime board column change", async () => {
+		setupColumnSyncHarness();
+		const initial = createBoard();
+		const task = initial.columns[0]!.cards.pop()!;
+		initial.columns.find((column) => column.id === "in_progress")!.cards.push(task);
+		let applyRuntimeBoard: Dispatch<SetStateAction<BoardData>>;
+		function RuntimeBoardHarness() {
+			const [board, setBoard] = useState(initial);
+			applyRuntimeBoard = setBoard;
+			return (
+				<>
+					<HookHarness
+						board={board}
+						setBoard={setBoard}
+						sessions={{ "task-1": session("running") }}
+						ensureTaskWorkspace={async () => ({ ok: true as const })}
+						startTaskSession={async () => ({ ok: true as const })}
+					/>
+					{board.columns.map((column) => (
+						<section key={column.id} aria-label={column.title}>
+							{column.cards.map((card) => (
+								<span key={card.id}>{card.title}</span>
+							))}
+						</section>
+					))}
+				</>
+			);
+		}
+		await act(async () => {
+			root.render(<RuntimeBoardHarness />);
+		});
+		expect(container.querySelector('[aria-label="In Progress"]')?.textContent).toBe("Backlog task");
+		const runtimeBoard = {
+			...initial,
+			columns: initial.columns.map((column) => ({ ...column, cards: column.id === "review" ? [task] : [] })),
+		};
+		await act(async () => {
+			applyRuntimeBoard(runtimeBoard);
+		});
+		expect(container.querySelector('[aria-label="Review"]')?.textContent).toBe("Backlog task");
+		expect(container.querySelector('[aria-label="In Progress"]')?.textContent).toBe("");
+		expect(container.querySelectorAll("span")).toHaveLength(1);
+	});
+
 	it("starts dependency-unblocked tasks even when setBoard updater is deferred", async () => {
 		let startBacklogTaskWithAnimation: ((task: BoardCard) => Promise<boolean>) | null = null;
 
