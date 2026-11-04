@@ -2,6 +2,8 @@
 
 Date: 2026-11-04
 
+> Partly superseded by `2026-11-04-github-issue-format-design.md` (issue body, comments, sync back, title edits).
+
 ## Why
 
 The owner uses Kanban on a course project (`mapf-cbs-ecbs-project`). The lecturer follows progress on GitHub and never opens Kanban. Kanban tasks are local only, so the lecturer currently sees nothing. Each task should have a GitHub issue that shows where the task is (backlog, in progress, review) and, when it is done, which commit finished it.
