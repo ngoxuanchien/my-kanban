@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import type { RuntimeBoardData } from "../../src/core/api-contract";
+import type { RuntimeBoardColumnId, RuntimeBoardData } from "../../src/core/api-contract";
 import {
 	addTaskDependency,
 	addTaskToColumn,
 	deleteTasksFromBoard,
+	getReadyLinkedTaskIdsForTaskInTrash,
 	moveTaskToColumn,
 	trashTaskAndGetReadyLinkedTaskIds,
 	updateTask,
@@ -91,6 +92,85 @@ describe("deleteTasksFromBoard", () => {
 		expect(deleted.deleted).toBe(true);
 		expect(deleted.deletedTaskIds.sort()).toEqual(["aaaaa", "bbbbb"]);
 		expect(deleted.board.columns.find((column) => column.id === "trash")?.cards).toEqual([]);
+	});
+});
+
+describe("linked task readiness with several prerequisites", () => {
+	function createLinkedBoard(columnByTaskId: Record<string, RuntimeBoardColumnId>): RuntimeBoardData {
+		let board = createBoard();
+		for (const [taskId, columnId] of Object.entries(columnByTaskId)) {
+			board = addTaskToColumn(board, columnId, { prompt: taskId, baseRef: "main", taskId }, () => taskId).board;
+		}
+		return board;
+	}
+
+	function waitOn(board: RuntimeBoardData, fromTaskId: string, toTaskId: string): RuntimeBoardData {
+		return {
+			...board,
+			dependencies: [...board.dependencies, { id: `${fromTaskId}-${toTaskId}`, fromTaskId, toTaskId, createdAt: 1 }],
+		};
+	}
+
+	function createBoardWaitingOnTwo(columnOfC: RuntimeBoardColumnId): RuntimeBoardData {
+		return waitOn(waitOn(createLinkedBoard({ A: "backlog", B: "review", C: columnOfC }), "A", "B"), "A", "C");
+	}
+
+	function createBoardWaitingOnDeletedTask(): RuntimeBoardData {
+		return waitOn(waitOn(createLinkedBoard({ A: "backlog", B: "review" }), "A", "B"), "A", "deleted");
+	}
+
+	describe("trashTaskAndGetReadyLinkedTaskIds", () => {
+		it("starts the waiting task only after its last prerequisite is trashed", () => {
+			const trashedB = trashTaskAndGetReadyLinkedTaskIds(createBoardWaitingOnTwo("review"), "B");
+			expect(trashedB.moved).toBe(true);
+			expect(trashedB.readyTaskIds).toEqual([]);
+
+			const trashedC = trashTaskAndGetReadyLinkedTaskIds(trashedB.board, "C");
+			expect(trashedC.moved).toBe(true);
+			expect(trashedC.readyTaskIds).toEqual(["A"]);
+		});
+
+		it("does not start the waiting task while another prerequisite is in progress", () => {
+			const trashed = trashTaskAndGetReadyLinkedTaskIds(createBoardWaitingOnTwo("in_progress"), "B");
+			expect(trashed.readyTaskIds).toEqual([]);
+		});
+
+		it("does not start the waiting task on a review pass while another prerequisite is unfinished", () => {
+			const board = waitOn(
+				waitOn(createLinkedBoard({ A: "backlog", B: "in_progress", C: "in_progress" }), "A", "B"),
+				"A",
+				"C",
+			);
+			expect(trashTaskAndGetReadyLinkedTaskIds(board, "B", 1, true).readyTaskIds).toEqual([]);
+		});
+
+		it("counts a prerequisite already in trash as finished", () => {
+			expect(trashTaskAndGetReadyLinkedTaskIds(createBoardWaitingOnTwo("trash"), "B").readyTaskIds).toEqual(["A"]);
+		});
+
+		it("counts a prerequisite that no longer exists as finished", () => {
+			expect(trashTaskAndGetReadyLinkedTaskIds(createBoardWaitingOnDeletedTask(), "B").readyTaskIds).toEqual(["A"]);
+		});
+	});
+
+	describe("getReadyLinkedTaskIdsForTaskInTrash", () => {
+		it("returns nothing while another prerequisite is unfinished", () => {
+			expect(getReadyLinkedTaskIdsForTaskInTrash(createBoardWaitingOnTwo("review"), "B")).toEqual([]);
+			expect(getReadyLinkedTaskIdsForTaskInTrash(createBoardWaitingOnTwo("in_progress"), "B")).toEqual([]);
+		});
+
+		it("returns the waiting task when the other prerequisite is already in trash", () => {
+			expect(getReadyLinkedTaskIdsForTaskInTrash(createBoardWaitingOnTwo("trash"), "B")).toEqual(["A"]);
+		});
+
+		it("returns the waiting task for a single prerequisite", () => {
+			const board = waitOn(createLinkedBoard({ A: "backlog", B: "review" }), "A", "B");
+			expect(getReadyLinkedTaskIdsForTaskInTrash(board, "B")).toEqual(["A"]);
+		});
+
+		it("counts a prerequisite that no longer exists as finished", () => {
+			expect(getReadyLinkedTaskIdsForTaskInTrash(createBoardWaitingOnDeletedTask(), "B")).toEqual(["A"]);
+		});
 	});
 });
 

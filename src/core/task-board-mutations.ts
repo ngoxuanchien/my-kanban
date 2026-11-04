@@ -226,9 +226,23 @@ function getLinkedBacklogTaskIdsReadyAfterTaskTrashed(
 		if (getTaskColumnId(board, dependency.fromTaskId) !== "backlog") {
 			continue;
 		}
+		if (!areOtherPrerequisitesFinished(board, dependency.fromTaskId, taskId)) {
+			continue;
+		}
 		readyTaskIds.add(dependency.fromTaskId);
 	}
 	return [...readyTaskIds];
+}
+
+function areOtherPrerequisitesFinished(board: RuntimeBoardData, waitingTaskId: string, movingTaskId: string): boolean {
+	return board.dependencies.every((dependency) => {
+		if (dependency.fromTaskId !== waitingTaskId || dependency.toTaskId === movingTaskId) {
+			return true;
+		}
+		const prerequisiteColumnId = getTaskColumnId(board, dependency.toTaskId);
+		// A null column means the prerequisite was deleted, which counts as finished.
+		return prerequisiteColumnId === "trash" || prerequisiteColumnId === null;
+	});
 }
 
 export function updateTaskDependencies(board: RuntimeBoardData): RuntimeBoardData {
