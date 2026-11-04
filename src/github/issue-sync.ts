@@ -69,7 +69,8 @@ export async function reconcileGithubIssues(
 		const remote = /^(?:https?:\/\/github\.com\/|(?:ssh:\/\/)?git@github\.com[:/])([^/]+\/[^/]+?)(?:\.git)?\/?$/.exec(
 			origin,
 		);
-		if (!remote) throw new Error(`Could not parse the project's origin remote URL: ${origin || "empty URL"}`);
+		if (!remote || !remote[1])
+			throw new Error(`Could not parse the project's origin remote URL: ${origin || "empty URL"}`);
 		const repo = remote[1];
 		const path = getGithubIssueMapPath(input.workspaceId);
 		await lockedFileSystem.withLock(
