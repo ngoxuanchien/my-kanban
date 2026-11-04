@@ -58,7 +58,11 @@ export interface RuntimeStateHub {
 	broadcastRuntimeProjectsUpdated: (preferredCurrentProjectId: string | null) => Promise<void>;
 	broadcastClineMcpAuthStatusesUpdated: (statuses: RuntimeClineMcpServerAuthStatus[]) => void;
 	bumpClineSessionContextVersion: () => void;
-	broadcastTaskReadyForReview: (workspaceId: string, taskId: string) => void;
+	broadcastTaskReadyForReview: (
+		workspaceId: string,
+		taskId: string,
+		reason?: RuntimeStateStreamTaskReadyForReviewMessage["reason"],
+	) => void;
 	close: () => Promise<void>;
 }
 
@@ -331,7 +335,11 @@ export function createRuntimeStateHub(deps: CreateRuntimeStateHubDependencies): 
 		await broadcastRuntimeWorkspaceStateUpdatedToClients(workspaceId, workspacePath);
 	};
 
-	const broadcastTaskReadyForReview = (workspaceId: string, taskId: string) => {
+	const broadcastTaskReadyForReview = (
+		workspaceId: string,
+		taskId: string,
+		reason?: RuntimeStateStreamTaskReadyForReviewMessage["reason"],
+	) => {
 		const runtimeClients = runtimeStateClientsByWorkspaceId.get(workspaceId);
 		if (!runtimeClients || runtimeClients.size === 0) {
 			return;
@@ -341,6 +349,7 @@ export function createRuntimeStateHub(deps: CreateRuntimeStateHubDependencies): 
 			workspaceId,
 			taskId,
 			triggeredAt: Date.now(),
+			...(reason ? { reason } : {}),
 		};
 		for (const client of runtimeClients) {
 			sendRuntimeStateMessage(client, payload);

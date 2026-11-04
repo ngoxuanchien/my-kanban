@@ -529,6 +529,7 @@ export const runtimeStateStreamTaskReadyForReviewMessageSchema = z.object({
 	workspaceId: z.string(),
 	taskId: z.string(),
 	triggeredAt: z.number(),
+	reason: z.enum(["permission", "blocked"]).optional(),
 });
 export type RuntimeStateStreamTaskReadyForReviewMessage = z.infer<
 	typeof runtimeStateStreamTaskReadyForReviewMessageSchema

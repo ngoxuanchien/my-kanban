@@ -188,7 +188,14 @@ export function useReviewReadyNotifications({
 			taskSessions,
 		);
 		setPendingReviewReadyNotificationCount((current) => current + 1);
-		const notificationTitle = workspaceTitle ? `${workspaceTitle} ready for review` : "Ready for review";
+		const notificationTitle =
+			latestTaskReadyForReview.reason === "permission"
+				? workspaceTitle
+					? `${workspaceTitle} needs approval`
+					: "Needs approval"
+				: workspaceTitle
+					? `${workspaceTitle} ready for review`
+					: "Ready for review";
 		showReadyForReviewNotification(latestTaskReadyForReview.taskId, notificationTitle, notificationBody);
 	}, [
 		activeWorkspaceId,

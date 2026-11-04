@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { RuntimeTaskSessionSummary } from "../../../src/core/api-contract";
 import type { TaskHistoryEvent } from "../../../src/state/task-history";
-import type { TerminalSessionManager } from "../../../src/terminal/session-manager";
+import { TerminalSessionManager } from "../../../src/terminal/session-manager";
 import { type CreateHooksApiDependencies, createHooksApi } from "../../../src/trpc/hooks-api";
 
 let testHome = "";
@@ -64,6 +64,31 @@ function createCaptureApi(
 	return { api, manager };
 }
 
+function createPermissionApi(agentId: RuntimeTaskSessionSummary["agentId"] = "claude") {
+	const manager = new TerminalSessionManager();
+	manager.hydrateFromRecord({ "task-1": createSummary({ agentId }) });
+	const broadcastTaskReadyForReview = vi.fn();
+	const broadcastRuntimeWorkspaceStateUpdated = vi.fn();
+	const captureTaskTurnCheckpoint = vi.fn(async () => ({ turn: 1, ref: "ref", commit: "commit", createdAt: 1 }));
+	const recordTaskHistoryEvent = vi.fn(async () => true);
+	const api = createHooksApi({
+		getWorkspacePathById: () => "/tmp/worktree",
+		ensureTerminalManagerForWorkspace: async () => manager,
+		broadcastRuntimeWorkspaceStateUpdated,
+		broadcastTaskReadyForReview,
+		captureTaskTurnCheckpoint,
+		recordTaskHistoryEvent,
+	});
+	return {
+		api,
+		manager,
+		broadcastTaskReadyForReview,
+		broadcastRuntimeWorkspaceStateUpdated,
+		captureTaskTurnCheckpoint,
+		recordTaskHistoryEvent,
+	};
+}
+
 async function createTranscript(agentId: "codex" | "claude" | "antigravity"): Promise<{
 	metadata: { source: string; conversationId?: string; transcriptPath?: string };
 	expectedId: string;
@@ -105,6 +130,165 @@ async function createTranscript(agentId: "codex" | "claude" | "antigravity"): Pr
 }
 
 describe("createHooksApi", () => {
+	it.each([
+		{ hookEventName: "PermissionRequest" },
+		{ notificationType: "permission_prompt" },
+		{ hookEventName: "PermissionRequest", notificationType: "permission.asked" },
+		{ hookEventName: "Notification", notificationType: "permission_prompt" },
+		{ hookEventName: "permissionrequest" },
+	])("keeps a running session running on a permission to_review (%j)", async (metadata) => {
+		const transcript = await createTranscript("claude");
+		const {
+			api,
+			manager,
+			broadcastTaskReadyForReview,
+			broadcastRuntimeWorkspaceStateUpdated,
+			captureTaskTurnCheckpoint,
+			recordTaskHistoryEvent,
+		} = createPermissionApi();
+		expect(
+			await api.ingest({
+				taskId: "task-1",
+				workspaceId: "workspace-1",
+				event: "to_review",
+				metadata: { ...transcript.metadata, ...metadata },
+			}),
+		).toEqual({ ok: true });
+		expect(manager.getSummary("task-1")).toMatchObject({
+			state: "running",
+			reviewReason: null,
+			latestHookActivity: { activityText: "Waiting for approval" },
+		});
+		expect(captureTaskTurnCheckpoint).not.toHaveBeenCalled();
+		expect(broadcastRuntimeWorkspaceStateUpdated).toHaveBeenCalledExactlyOnceWith("workspace-1", "/tmp/worktree");
+		expect(broadcastTaskReadyForReview).toHaveBeenCalledExactlyOnceWith("workspace-1", "task-1", "permission");
+		await new Promise<void>((resolve) => setImmediate(resolve));
+		expect(recordTaskHistoryEvent).not.toHaveBeenCalled();
+	});
+
+	it.each([
+		{ source: "claude", event: "activity" as const, hookEventName: "PostToolUse" },
+		{ source: "codex", event: "activity" as const, hookEventName: "PostToolUse" },
+		{ source: "opencode", event: "activity" as const, hookEventName: "AfterTool" },
+		{ source: "claude", event: "to_in_progress" as const, hookEventName: "UserPromptSubmit" },
+		{ source: "codex", event: "to_in_progress" as const, hookEventName: "UserPromptSubmit" },
+		{ source: "opencode", event: "to_in_progress" as const, hookEventName: "session.status" },
+	] as const)("clears the stored permission wait on $source $event", async ({ source, event, hookEventName }) => {
+		const { api, manager } = createPermissionApi(source);
+		await api.ingest({
+			taskId: "task-1",
+			workspaceId: "workspace-1",
+			event: "to_review",
+			metadata: {
+				source,
+				hookEventName: "PermissionRequest",
+				notificationType: "permission_prompt",
+				toolName: "Bash",
+			},
+		});
+		expect(manager.getSummary("task-1")?.latestHookActivity?.activityText).toBe("Waiting for approval");
+		await api.ingest({
+			taskId: "task-1",
+			workspaceId: "workspace-1",
+			event,
+			metadata: { source, hookEventName, activityText: "Completed Bash" },
+		});
+		expect(manager.getSummary("task-1")).toMatchObject({
+			state: "running",
+			latestHookActivity: {
+				activityText: "Completed Bash",
+				notificationType: "permission_prompt",
+				toolName: "Bash",
+			},
+		});
+	});
+
+	it("moves to awaiting_review on a plain Stop to_review", async () => {
+		const { api, manager, broadcastTaskReadyForReview, captureTaskTurnCheckpoint } = createPermissionApi();
+		await api.ingest({
+			taskId: "task-1",
+			workspaceId: "workspace-1",
+			event: "to_review",
+			metadata: { hookEventName: "Stop", activityText: "Final: done" },
+		});
+		expect(manager.getSummary("task-1")).toMatchObject({ state: "awaiting_review", reviewReason: "hook" });
+		expect(captureTaskTurnCheckpoint).toHaveBeenCalledOnce();
+		expect(broadcastTaskReadyForReview).toHaveBeenCalledExactlyOnceWith("workspace-1", "task-1");
+	});
+
+	it("two permission hooks in one turn broadcast twice and stay running", async () => {
+		const { api, manager, broadcastTaskReadyForReview, captureTaskTurnCheckpoint } = createPermissionApi();
+		for (let i = 0; i < 2; i++) {
+			await api.ingest({
+				taskId: "task-1",
+				workspaceId: "workspace-1",
+				event: "to_review",
+				metadata: { hookEventName: "PermissionRequest" },
+			});
+		}
+		expect(manager.getSummary("task-1")?.state).toBe("running");
+		expect(broadcastTaskReadyForReview.mock.calls).toEqual([
+			["workspace-1", "task-1", "permission"],
+			["workspace-1", "task-1", "permission"],
+		]);
+		expect(captureTaskTurnCheckpoint).not.toHaveBeenCalled();
+	});
+
+	it.each(["Stop", "session.idle"])(
+		"clears a permission wait on %s without a final message",
+		async (hookEventName) => {
+			const { api, manager } = createPermissionApi();
+			await api.ingest({
+				taskId: "task-1",
+				workspaceId: "workspace-1",
+				event: "to_review",
+				metadata: { hookEventName: "PermissionRequest" },
+			});
+			await api.ingest({
+				taskId: "task-1",
+				workspaceId: "workspace-1",
+				event: "to_review",
+				metadata: { hookEventName, activityText: null, finalMessage: null },
+			});
+			expect(manager.getSummary("task-1")).toMatchObject({
+				state: "awaiting_review",
+				latestHookActivity: { activityText: "Waiting for review" },
+			});
+		},
+	);
+
+	it("broadcasts permission activity once per wait and reviews the real turn end", async () => {
+		const { api, manager, broadcastTaskReadyForReview, captureTaskTurnCheckpoint } = createPermissionApi("opencode");
+		const permission = {
+			taskId: "task-1",
+			workspaceId: "workspace-1",
+			event: "activity" as const,
+			metadata: { source: "opencode", hookEventName: "PermissionRequest", notificationType: "permission.asked" },
+		};
+		await api.ingest(permission);
+		await api.ingest(permission);
+		expect(manager.getSummary("task-1")).toMatchObject({
+			state: "running",
+			latestHookActivity: { activityText: "Waiting for approval" },
+		});
+		expect(broadcastTaskReadyForReview).toHaveBeenCalledExactlyOnceWith("workspace-1", "task-1", "permission");
+		expect(captureTaskTurnCheckpoint).not.toHaveBeenCalled();
+		await api.ingest({
+			...permission,
+			metadata: { source: "opencode", hookEventName: "AfterTool", activityText: "Completed Read" },
+		});
+		await api.ingest(permission);
+		expect(broadcastTaskReadyForReview).toHaveBeenCalledTimes(2);
+		await api.ingest({
+			...permission,
+			event: "to_review",
+			metadata: { source: "opencode", hookEventName: "session.idle", activityText: "Final: done" },
+		});
+		expect(manager.getSummary("task-1")).toMatchObject({ state: "awaiting_review", reviewReason: "hook" });
+		expect(broadcastTaskReadyForReview).toHaveBeenLastCalledWith("workspace-1", "task-1");
+		expect(captureTaskTurnCheckpoint).toHaveBeenCalledOnce();
+	});
+
 	it.each(["codex", "claude", "antigravity"] as const)(
 		"records the %s session from a to_review hook",
 		async (agentId) => {

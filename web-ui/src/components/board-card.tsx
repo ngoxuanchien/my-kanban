@@ -31,6 +31,7 @@ import {
 } from "@/utils/task-prompt";
 import { DEFAULT_TEXT_MEASURE_FONT, measureTextWidth, readElementFontShorthand } from "@/utils/text-measure";
 import { type DifficultyModelMap, resolveTaskAgentModel } from "../../../src/core/agent-model";
+import { isPermissionWaitActivity } from "../../../src/core/permission-hook";
 
 interface CardSessionActivity {
 	dotColor: string;
@@ -159,6 +160,9 @@ function getCardSessionActivity(summary: RuntimeTaskSessionSummary | undefined):
 		return { dotColor: SESSION_ACTIVITY_COLOR.warning, text: "Out of credits" };
 	}
 	const hookActivity = summary.latestHookActivity;
+	if (isPermissionWaitActivity(hookActivity)) {
+		return { dotColor: SESSION_ACTIVITY_COLOR.waiting, text: "Waiting for approval" };
+	}
 	const activityText = hookActivity?.activityText?.trim();
 	const toolName = hookActivity?.toolName?.trim() ?? null;
 	const toolInputSummary = hookActivity?.toolInputSummary?.trim() ?? null;

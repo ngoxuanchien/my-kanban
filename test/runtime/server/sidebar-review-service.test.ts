@@ -1056,6 +1056,76 @@ describe("createSidebarReviewService", () => {
 		service.dispose();
 	});
 
+	it("does not nudge or hand off a running task waiting for approval", async () => {
+		let clock = 1_000_000;
+		const getRestoreSnapshot = vi.fn(async () => null);
+		const { service, runInterval, card } = await startUsageLimitTurn({
+			agentId: "codex",
+			columnId: "in_progress",
+			now: () => clock,
+			getRestoreSnapshot,
+			session: {
+				...summary("task-1", "running"),
+				agentId: "codex",
+				lastOutputAt: clock - 300001,
+				latestHookActivity: {
+					activityText: "Waiting for approval",
+					hookEventName: "PermissionRequest",
+					notificationType: "permission_prompt",
+					toolName: "Bash",
+					toolInputSummary: null,
+					finalMessage: null,
+					source: "codex",
+				},
+			},
+		});
+		try {
+			runInterval();
+			await new Promise<void>((resolve) => setImmediate(resolve));
+			clock += 600000;
+			runInterval();
+			await new Promise<void>((resolve) => setImmediate(resolve));
+			expect(getRestoreSnapshot).toHaveBeenCalledTimes(2);
+			expect(sendPromptToSession).not.toHaveBeenCalled();
+			expect(handOffTask).not.toHaveBeenCalled();
+			expect(card.reviewRound).toBe(0);
+			expect(recordTaskHistoryEvent).not.toHaveBeenCalled();
+		} finally {
+			service.dispose();
+		}
+	});
+
+	it("still nudges a silent running task after the approval is answered", async () => {
+		const clock = 1_000_000;
+		const { service, runInterval } = await startUsageLimitTurn({
+			agentId: "codex",
+			now: () => clock,
+			session: {
+				...summary("task-1", "running"),
+				lastOutputAt: clock - 300001,
+				latestHookActivity: {
+					activityText: "Completed Bash",
+					hookEventName: "PostToolUse",
+					notificationType: "permission_prompt",
+					toolName: "Bash",
+					toolInputSummary: null,
+					finalMessage: null,
+					source: "codex",
+				},
+			},
+		});
+		try {
+			runInterval();
+			await vi.waitFor(() =>
+				expect(sendPromptToSession).toHaveBeenCalledExactlyOnceWith(
+					expect.objectContaining({ prompt: "continue", sessionId: "task-1" }),
+				),
+			);
+		} finally {
+			service.dispose();
+		}
+	});
+
 	it("does not nudge a running task that produced output within five minutes", async () => {
 		const clock = 1_000_000;
 		const { service, runInterval } = await startUsageLimitTurn({

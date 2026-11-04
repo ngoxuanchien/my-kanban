@@ -4,11 +4,13 @@ import { isAbsolute, join, relative, resolve } from "node:path";
 import type {
 	RuntimeHookEvent,
 	RuntimeHookIngestResponse,
+	RuntimeStateStreamTaskReadyForReviewMessage,
 	RuntimeTaskHookActivity,
 	RuntimeTaskSessionSummary,
 	RuntimeTaskTurnCheckpoint,
 } from "../core/api-contract";
 import { parseHookIngestRequest } from "../core/api-validation";
+import { isPermissionRequestHook, isPermissionWaitActivity } from "../core/permission-hook";
 import { recordTaskHistoryEvent, type TaskHistoryEvent } from "../state/task-history";
 import { loadWorkspaceContextById } from "../state/workspace-state";
 import type { TerminalSessionManager } from "../terminal/session-manager";
@@ -19,7 +21,11 @@ export interface CreateHooksApiDependencies {
 	getWorkspacePathById: (workspaceId: string) => string | null;
 	ensureTerminalManagerForWorkspace: (workspaceId: string, repoPath: string) => Promise<TerminalSessionManager>;
 	broadcastRuntimeWorkspaceStateUpdated: (workspaceId: string, workspacePath: string) => Promise<void> | void;
-	broadcastTaskReadyForReview: (workspaceId: string, taskId: string) => void;
+	broadcastTaskReadyForReview: (
+		workspaceId: string,
+		taskId: string,
+		reason?: RuntimeStateStreamTaskReadyForReviewMessage["reason"],
+	) => void;
 	captureTaskTurnCheckpoint?: (input: {
 		cwd: string;
 		taskId: string;
@@ -194,9 +200,24 @@ export function createHooksApi(deps: CreateHooksApiDependencies): RuntimeTrpcCon
 					return { ok: true } satisfies RuntimeHookIngestResponse;
 				}
 
+				if ((event === "to_review" || event === "activity") && isPermissionRequestHook(body.metadata)) {
+					manager.applyHookActivity(taskId, { ...body.metadata, activityText: "Waiting for approval" });
+					void deps.broadcastRuntimeWorkspaceStateUpdated(workspaceId, workspacePath);
+					if (event === "to_review" || !isPermissionWaitActivity(summary.latestHookActivity)) {
+						deps.broadcastTaskReadyForReview(workspaceId, taskId, "permission");
+					}
+					return { ok: true } satisfies RuntimeHookIngestResponse;
+				}
+
+				const activity =
+					event === "to_review" &&
+					isPermissionWaitActivity(summary.latestHookActivity) &&
+					!body.metadata?.activityText
+						? { ...body.metadata, activityText: "Waiting for review" }
+						: body.metadata;
 				if (!canTransitionTaskForHookEvent(summary, event)) {
-					if (body.metadata) {
-						manager.applyHookActivity(taskId, body.metadata);
+					if (activity) {
+						manager.applyHookActivity(taskId, activity);
 					}
 					return {
 						ok: true,
@@ -236,8 +257,8 @@ export function createHooksApi(deps: CreateHooksApiDependencies): RuntimeTrpcCon
 					}
 				}
 
-				if (body.metadata) {
-					manager.applyHookActivity(taskId, body.metadata);
+				if (activity) {
+					manager.applyHookActivity(taskId, activity);
 				}
 
 				void deps.broadcastRuntimeWorkspaceStateUpdated(workspaceId, workspacePath);

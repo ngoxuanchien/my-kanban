@@ -145,7 +145,7 @@ describe("Kanban OpenCode v2 plugin", () => {
 		expect(calls.map((call) => call.event)).toEqual(["to_in_progress"]);
 	});
 
-	it("moves to review for a pending permission and back once it is answered", async () => {
+	it("permission.asked then succeeded sends activity then review", async () => {
 		const plugin = await loadPlugin();
 		let reply = () => {};
 		const replied = new Promise<void>((resolve) => {
@@ -158,20 +158,24 @@ describe("Kanban OpenCode v2 plugin", () => {
 					yield { type: "permission.asked", data: { sessionID: root, id: "per_1" } };
 					await replied;
 					yield { type: "permission.replied", data: { sessionID: root, requestID: "per_1" } };
+					yield { type: "session.execution.succeeded", data: { sessionID: root } };
 				},
 			},
 		});
-		await vi.advanceTimersByTimeAsync(1000);
+		await vi.advanceTimersByTimeAsync(499);
+		expect(recordedCalls()).toEqual([{ event: "to_in_progress", metadata: { hook_event_name: "session.status" } }]);
+		await vi.advanceTimersByTimeAsync(1);
+		expect(recordedCalls().map((call) => call.event)).toEqual(["to_in_progress", "activity"]);
 		reply();
 		await vi.advanceTimersByTimeAsync(0);
 
 		expect(recordedCalls()).toEqual([
 			{ event: "to_in_progress", metadata: { hook_event_name: "session.status" } },
 			{
-				event: "to_review",
+				event: "activity",
 				metadata: { hook_event_name: "PermissionRequest", notification_type: "permission.asked" },
 			},
-			{ event: "to_in_progress", metadata: { hook_event_name: "session.status" } },
+			{ event: "to_review", metadata: { hook_event_name: "session.idle" } },
 		]);
 	});
 

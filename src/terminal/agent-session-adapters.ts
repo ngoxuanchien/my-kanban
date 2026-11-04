@@ -348,10 +348,10 @@ const setup = async (ctx) => {
       clearPendingPermission();
       pendingPermission = setTimeout(() => {
         pendingPermission = null;
-        void handleReview(sessionID, { hook_event_name: "PermissionRequest", notification_type: "permission.asked" }, true);
+        void notify("activity", { hook_event_name: "PermissionRequest", notification_type: "permission.asked" });
       }, PERMISSION_REVIEW_DELAY_MS);
     } else if (type === "permission.replied") {
-      if (!clearPendingPermission()) await handleBusy(sessionID);
+      clearPendingPermission();
     } else if (type === "session.execution.succeeded" || type === "session.execution.interrupted") {
       clearPendingPermission();
       await handleReview(sessionID, { hook_event_name: "session.idle" });

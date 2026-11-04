@@ -569,6 +569,68 @@ describe("BoardCard", () => {
 		expect(container.textContent).not.toContain("GPT-5.5 (High)");
 	});
 
+	it("shows Waiting for approval even with a stored toolName", async () => {
+		await act(async () => {
+			root.render(
+				<BoardCard
+					card={createCard()}
+					index={0}
+					columnId="in_progress"
+					sessionSummary={createSummary("running", {
+						latestHookActivity: {
+							activityText: "Waiting for approval",
+							toolName: "Bash",
+							toolInputSummary: "npm test",
+							finalMessage: "Earlier reply",
+							hookEventName: "PermissionRequest",
+							notificationType: "permission_prompt",
+							source: "claude",
+						},
+					})}
+				/>,
+			);
+		});
+		expect(container.textContent).toContain("Waiting for approval");
+		expect(container.textContent).not.toContain("Bash(npm test)");
+		expect(container.querySelector<HTMLElement>('[style*="--color-status-gold"]')).not.toBeNull();
+	});
+
+	it.each([
+		{ source: "claude", hookEventName: "PostToolUse", activityText: "Completed Bash" },
+		{ source: "codex", hookEventName: "PostToolUse", activityText: "Completed Bash" },
+		{ source: "opencode", hookEventName: "AfterTool", activityText: "Completed Bash" },
+		{ source: "claude", hookEventName: "UserPromptSubmit", activityText: "Agent active" },
+		{ source: "codex", hookEventName: "UserPromptSubmit", activityText: "Agent active" },
+		{ source: "opencode", hookEventName: "session.status", activityText: "Agent active" },
+		{ source: "claude", hookEventName: "Stop", activityText: "Final: done" },
+	] as const)("clears the rendered approval label on the next $source $hookEventName hook", async (metadata) => {
+		const waiting = {
+			activityText: "Waiting for approval",
+			toolName: "Bash",
+			toolInputSummary: "npm test",
+			finalMessage: null,
+			hookEventName: "PermissionRequest",
+			notificationType: "permission_prompt",
+			source: metadata.source,
+		};
+		const renderActivity = async (activity: typeof waiting) => {
+			await act(async () => {
+				root.render(
+					<BoardCard
+						card={createCard()}
+						index={0}
+						columnId="in_progress"
+						sessionSummary={createSummary("running", { agentId: metadata.source, latestHookActivity: activity })}
+					/>,
+				);
+			});
+		};
+		await renderActivity(waiting);
+		expect(container.textContent).toContain("Waiting for approval");
+		await renderActivity({ ...waiting, ...metadata });
+		expect(container.textContent).not.toContain("Waiting for approval");
+	});
+
 	it("shows tool input details in the session preview text", async () => {
 		await act(async () => {
 			root.render(

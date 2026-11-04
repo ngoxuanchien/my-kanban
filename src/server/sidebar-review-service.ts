@@ -4,6 +4,7 @@ import type { RuntimeBoardCard, RuntimeTaskSessionSummary } from "../core/api-co
 import { resolveEffectiveTaskAgentId } from "../core/effective-task-agent";
 import { getHandOffCount, getReviewRoundCap, isHandOffAgentId, MAX_HAND_OFFS } from "../core/hand-off-cap";
 import { createHomeAgentSessionId, isHomeAgentSessionId } from "../core/home-agent-session";
+import { isPermissionWaitActivity } from "../core/permission-hook";
 import { recordTaskHistoryEvent } from "../state/task-history";
 import { loadWorkspaceState, mutateWorkspaceState } from "../state/workspace-state";
 import { sendPromptToSession } from "../terminal/send-prompt-to-session";
@@ -365,7 +366,10 @@ export function createSidebarReviewService(deps: CreateSidebarReviewServiceDepen
 					const phrase = terminal ? await findUsageLimit(summary, card, terminal.snapshot) : null;
 					const idleSince = summary.lastOutputAt ?? summary.startedAt;
 					const silent = idleSince !== null && now() - idleSince >= QUOTA_NUDGE_WAIT_MS;
-					if (phrase || silent || quotaNudges.has(card.id)) {
+					if (
+						phrase ||
+						(!isPermissionWaitActivity(summary.latestHookActivity) && (silent || quotaNudges.has(card.id)))
+					) {
 						processingTaskIds.add(card.id);
 						try {
 							await handleUsageLimit(summary, card, phrase, true);
