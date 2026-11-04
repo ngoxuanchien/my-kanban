@@ -9,6 +9,7 @@ const cliMocks = vi.hoisted(() => ({
 			getState: { query: vi.fn(async () => ({}) as never) },
 			deleteWorktree: { mutate: vi.fn(async () => ({ ok: true, removed: true })) },
 			ensureWorktree: { mutate: vi.fn(async () => ({ ok: true })) },
+			setTaskIssueSummary: { mutate: vi.fn(async (_input: { taskId: string; summary: string }) => ({ ok: true })) },
 		},
 		runtime: {
 			getConfig: { query: vi.fn(async () => ({ selectedAgentId: "claude" })) },
@@ -155,6 +156,69 @@ describe("task create agent review default", () => {
 	it("enables agent review by default and allows opting out", async () => {
 		expect((await create([])).task.agentReviewEnabled).toBe(true);
 		expect((await create(["--agent-review-enabled", "false"])).task.agentReviewEnabled).toBe(false);
+	});
+});
+
+describe("task create --summary", () => {
+	let cardCountsAtSummary: number[] = [];
+	const backlogIds = () =>
+		((cliMocks.workspaceState.board.columns[0]?.cards ?? []) as Array<{ id: string }>).map((card) => card.id);
+
+	beforeEach(() => {
+		cliMocks.workspaceState.board.columns[0]?.cards.splice(0);
+		cliMocks.client.workspace.getState.query.mockImplementation(async () => cliMocks.workspaceState as never);
+		cardCountsAtSummary = [];
+		cliMocks.client.workspace.setTaskIssueSummary.mutate.mockReset();
+		cliMocks.client.workspace.setTaskIssueSummary.mutate.mockImplementation(async () => {
+			cardCountsAtSummary.push(cliMocks.workspaceState.board.columns[0]?.cards.length ?? -1);
+			return { ok: true };
+		});
+		process.exitCode = 0;
+	});
+
+	async function create(args: string[]): Promise<{ task: { id: string } }> {
+		let output = "";
+		const write = vi.spyOn(process.stdout, "write").mockImplementation(((chunk: string | Uint8Array) => {
+			output += chunk.toString();
+			return true;
+		}) as typeof process.stdout.write);
+		const program = new Command();
+		registerTaskCommand(program);
+		await program.parseAsync(["node", "kanban", "task", "create", "--prompt", "Ship it", ...args]);
+		write.mockRestore();
+		return JSON.parse(output) as { task: { id: string } };
+	}
+
+	it("passes summary before creating the task", async () => {
+		const created = await create(["--summary", "  Adds a login page.  "]);
+
+		expect(cliMocks.client.workspace.setTaskIssueSummary.mutate).toHaveBeenCalledWith({
+			taskId: created.task.id,
+			summary: "Adds a login page.",
+		});
+		expect(cardCountsAtSummary).toEqual([0]);
+		expect(backlogIds()).toEqual([created.task.id]);
+	});
+
+	it("does not call setTaskIssueSummary without --summary", async () => {
+		await create([]);
+		expect(cliMocks.client.workspace.setTaskIssueSummary.mutate).not.toHaveBeenCalled();
+	});
+
+	it("does not send a whitespace-only summary", async () => {
+		await create(["--summary", "   "]);
+		expect(cliMocks.client.workspace.setTaskIssueSummary.mutate).not.toHaveBeenCalled();
+	});
+
+	it("warns and still creates the task when storing the summary fails", async () => {
+		cliMocks.client.workspace.setTaskIssueSummary.mutate.mockRejectedValue(new Error("runtime down"));
+		const stderr = vi.spyOn(process.stderr, "write").mockImplementation((() => true) as typeof process.stderr.write);
+		const created = await create(["--summary", "Adds a login page."]);
+		const warnings = stderr.mock.calls.map((call) => String(call[0]));
+		stderr.mockRestore();
+
+		expect(warnings.join("")).toContain("could not store the issue summary: runtime down");
+		expect(backlogIds()).toEqual([created.task.id]);
 	});
 });
 

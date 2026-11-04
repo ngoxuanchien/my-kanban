@@ -26,6 +26,7 @@ import {
 	removeTaskDependency,
 	updateTask,
 } from "../core/task-board-mutations";
+import { createUniqueTaskId } from "../core/task-id";
 import { resolveProjectInputPath } from "../projects/project-path";
 import { recordAgentScoreEvent } from "../state/agent-scores";
 import {
@@ -761,6 +762,28 @@ async function deleteTaskWorkspace(
 	}
 }
 
+// The issue summary must be stored before the task reaches the board, so the GitHub
+// sync never creates the issue without it. Returns the pre-generated task id.
+async function storeTaskIssueSummary(
+	runtimeClient: ReturnType<typeof createRuntimeTrpcClient>,
+	summary: string | undefined,
+): Promise<string | undefined> {
+	const trimmed = summary?.trim();
+	if (!trimmed) {
+		return undefined;
+	}
+	try {
+		const state = await runtimeClient.workspace.getState.query();
+		const existingIds = new Set(state.board.columns.flatMap((column) => column.cards.map((card) => card.id)));
+		const taskId = createUniqueTaskId(existingIds, () => globalThis.crypto.randomUUID());
+		await runtimeClient.workspace.setTaskIssueSummary.mutate({ taskId, summary: trimmed });
+		return taskId;
+	} catch (error) {
+		process.stderr.write(`Warning: could not store the issue summary: ${toErrorMessage(error)}\n`);
+		return undefined;
+	}
+}
+
 async function createTask(input: {
 	cwd: string;
 	title?: string;
@@ -774,6 +797,7 @@ async function createTask(input: {
 	agentId?: RuntimeAgentId;
 	model?: string;
 	clineSettings?: RuntimeTaskClineSettings;
+	summary?: string;
 }): Promise<JsonRecord> {
 	const model = parseTaskClaudeModel(input.model, false);
 	const config = model ? await createRuntimeTrpcClient(null).runtime.getConfig.query() : null;
@@ -783,6 +807,7 @@ async function createTask(input: {
 	const workspaceRepoPath = await resolveWorkspaceRepoPath(input.projectPath, input.cwd);
 	const workspaceId = await ensureRuntimeWorkspace(workspaceRepoPath);
 	const runtimeClient = createRuntimeTrpcClient(workspaceId);
+	const taskId = await storeTaskIssueSummary(runtimeClient, input.summary);
 	const created = await updateRuntimeWorkspaceState(runtimeClient, workspaceRepoPath, (state) => {
 		const resolvedBaseRef = (input.baseRef ?? "").trim() || resolveTaskBaseRef(state);
 		if (!resolvedBaseRef) {
@@ -792,6 +817,7 @@ async function createTask(input: {
 			state.board,
 			"backlog",
 			{
+				taskId,
 				title: input.title,
 				prompt: input.prompt,
 				startInPlanMode: input.startInPlanMode,
@@ -1571,6 +1597,7 @@ export function registerTaskCommand(program: Command): void {
 		.option("--auto-review-mode <mode>", "Auto-review mode: commit | pr.", parseAutoReviewMode)
 		.option("--agent-id <id>", `Agent override: ${VALID_AGENT_IDS_TEXT} | default.`)
 		.option("--model <model>", "Claude model: haiku | sonnet | opus.")
+		.option("--summary <text>", "Short summary for the GitHub issue body when issue sync is on.")
 		.option(
 			"--cline-provider <id>",
 			'Cline provider override (e.g. anthropic, openai, cline). Use "default" for workspace default.',
@@ -1587,6 +1614,7 @@ export function registerTaskCommand(program: Command): void {
 			async (options: {
 				title?: string;
 				prompt: string;
+				summary?: string;
 				projectPath?: string;
 				baseRef?: string;
 				startInPlanMode?: unknown;
@@ -1616,6 +1644,7 @@ export function registerTaskCommand(program: Command): void {
 							autoReviewMode: options.autoReviewMode,
 							agentId: parseAgentId(options.agentId) ?? undefined,
 							model: options.model,
+							summary: options.summary,
 							clineSettings: buildTaskClineSettingsForCreate({
 								providerId: parseOptionalStringOrDefault(options.clineProvider) ?? undefined,
 								modelId: parseOptionalStringOrDefault(options.clineModel) ?? undefined,

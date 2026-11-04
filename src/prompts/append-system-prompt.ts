@@ -213,7 +213,7 @@ Command:
 Purpose: create a new task in \`backlog\`, with optional plan mode and auto-review behavior.
 
 Command:
-\`${kanbanCommand} task create [--title "<text>"] --prompt "<text>" [--project-path <path>] [--base-ref <branch>] [--start-in-plan-mode <true|false>] [--auto-review-enabled <true|false>] [--auto-review-mode commit|pr] [--agent-id <${RUNTIME_AGENT_IDS_TEXT}>] [--model <haiku|sonnet|opus>] [--agent-review-enabled <true|false>]\`
+\`${kanbanCommand} task create [--title "<text>"] --prompt "<text>" [--project-path <path>] [--base-ref <branch>] [--start-in-plan-mode <true|false>] [--auto-review-enabled <true|false>] [--auto-review-mode commit|pr] [--agent-id <${RUNTIME_AGENT_IDS_TEXT}>] [--model <haiku|sonnet|opus>] [--agent-review-enabled <true|false>] [--summary "<text>"]\`
 
 Parameters:
 - \`--title "<text>"\` optional task title. If omitted, Kanban derives one from the prompt.
@@ -226,6 +226,7 @@ Parameters:
 - \`--agent-id <${RUNTIME_AGENT_IDS_TEXT}>\` optional runtime agent for this task.
 - \`--model <haiku|sonnet|opus>\` optional Claude model. Use it only when the user names a Claude model.
 - \`--agent-review-enabled <true|false>\` optional. Default false. When true, the sidebar agent reviews the task when it reaches Review, with up to 3 fix rounds before \`task handoff\`.
+- \`--summary "<text>"\` optional GitHub issue body. When the project has GitHub issue sync on, pass a 1–3 sentence lecturer-facing summary of the task with no file paths, no \`contexte/\` content, and no secrets. The task prompt itself never goes to GitHub.
 
 ## task update
 

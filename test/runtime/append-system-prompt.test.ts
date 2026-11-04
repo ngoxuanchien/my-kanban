@@ -77,6 +77,17 @@ describe("renderAppendSystemPrompt", () => {
 		expect(updateSection).toContain("Use `default` to clear the override.");
 	});
 
+	it("documents the GitHub issue summary for task creation", () => {
+		const rendered = renderAppendSystemPrompt("kanban");
+		const createSection = rendered.slice(rendered.indexOf("## task create"), rendered.indexOf("## task update"));
+		const commandLine = createSection.split("Command:\n")[1]?.split("\n")[0] ?? "";
+
+		expect(commandLine).toContain('[--summary "<text>"]');
+		expect(createSection).toContain("When the project has GitHub issue sync on");
+		expect(createSection).toContain("1–3 sentence lecturer-facing summary");
+		expect(createSection).toContain("no file paths, no `contexte/` content, and no secrets");
+	});
+
 	it("documents Claude model selection for user-requested models", () => {
 		const rendered = renderAppendSystemPrompt("kanban");
 		expect(rendered).toContain("--model <haiku|sonnet|opus>");
