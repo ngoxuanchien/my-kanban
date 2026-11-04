@@ -1,12 +1,16 @@
-import type { DragStart, DropResult } from "@hello-pangea/dnd";
+import type { BeforeCapture, DragStart, DropResult } from "@hello-pangea/dnd";
 import type { ReactNode } from "react";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { KanbanBoard, type RequestProgrammaticCardMove } from "@/components/kanban-board";
+import type { RuntimeTaskSessionSummary } from "@/runtime/types";
+import { applyDragResult } from "@/state/board-state";
+import { isCardDropDisabled } from "@/state/drag-rules";
 import type { BoardCard, BoardData } from "@/types";
 
 const dndMock = vi.hoisted(() => ({
+	onBeforeCapture: null as ((start: BeforeCapture) => void) | null,
 	sensorApi: null as {
 		tryGetLock: ReturnType<typeof vi.fn>;
 	} | null,
@@ -22,13 +26,16 @@ vi.mock("@hello-pangea/dnd", async () => {
 			children,
 			sensors,
 			onDragStart,
+			onBeforeCapture,
 			onDragEnd,
 		}: {
 			children: ReactNode;
 			sensors?: Array<(api: NonNullable<typeof dndMock.sensorApi>) => void>;
 			onDragStart?: (start: DragStart) => void;
+			onBeforeCapture?: (start: BeforeCapture) => void;
 			onDragEnd: (result: DropResult) => void;
 		}): React.ReactElement => {
+			dndMock.onBeforeCapture = onBeforeCapture ?? null;
 			dndMock.onDragStart = onDragStart ?? null;
 			dndMock.onDragEnd = onDragEnd;
 			React.useEffect(() => {
@@ -49,11 +56,16 @@ vi.mock("@/components/board-column", () => ({
 	BoardColumn: ({
 		column,
 		onCardClick,
+		activeDragSourceColumnId,
 	}: {
 		column: BoardData["columns"][number];
+		activeDragSourceColumnId?: BoardData["columns"][number]["id"] | null;
 		onCardClick?: (card: BoardCard) => void;
 	}): React.ReactElement => (
-		<section data-column-id={column.id}>
+		<section
+			data-column-id={column.id}
+			data-drop-disabled={isCardDropDisabled(column.id, activeDragSourceColumnId ?? null)}
+		>
 			<div className="kb-column-cards">
 				{column.cards.map((card) => (
 					<div
@@ -143,6 +155,7 @@ describe("KanbanBoard", () => {
 			root.unmount();
 		});
 		dndMock.sensorApi = null;
+		dndMock.onBeforeCapture = null;
 		dndMock.onDragStart = null;
 		dndMock.onDragEnd = null;
 		vi.restoreAllMocks();
@@ -260,6 +273,130 @@ describe("KanbanBoard", () => {
 			updatedAt: 1,
 		};
 	}
+
+	async function renderAttentionBoard(columnId: "review" | "in_progress") {
+		let board: BoardData = {
+			columns: [
+				{
+					id: columnId,
+					title: columnId,
+					cards: [
+						{ ...createCard("sidebar-a"), agentReviewEnabled: true, quotaBlockedAt: 1 },
+						createCard("owner-a"),
+						{ ...createCard("sidebar-b"), agentReviewEnabled: true, quotaBlockedAt: 1 },
+						createCard("owner-b"),
+					],
+				},
+			],
+			dependencies: [],
+		};
+		const sessions: Record<string, RuntimeTaskSessionSummary> =
+			columnId === "in_progress"
+				? {
+						"owner-b": {
+							taskId: "owner-b",
+							state: "running",
+							agentId: "codex",
+							workspacePath: null,
+							pid: null,
+							startedAt: null,
+							updatedAt: 1,
+							lastOutputAt: null,
+							reviewReason: null,
+							exitCode: null,
+							lastHookAt: null,
+							latestHookActivity: {
+								activityText: "Waiting for approval",
+								toolName: null,
+								toolInputSummary: null,
+								finalMessage: null,
+								hookEventName: null,
+								notificationType: null,
+								source: null,
+							},
+						},
+					}
+				: {};
+		const render = () =>
+			root.render(
+				<KanbanBoard
+					data={board}
+					taskSessions={sessions}
+					onCardSelect={() => {}}
+					onCreateTask={() => {}}
+					dependencies={[]}
+					onDragEnd={(result) => {
+						board = applyDragResult(board, result).board;
+						render();
+					}}
+				/>,
+			);
+		await act(async () => {
+			render();
+		});
+		return {
+			ids: () =>
+				Array.from(container.querySelectorAll("[data-task-id]"), (node) => node.getAttribute("data-task-id")),
+			storedIds: () => board.columns[0]?.cards.map(({ id }) => id),
+		};
+	}
+
+	it("renders owner cards first in Review keeping relative order", async () => {
+		const view = await renderAttentionBoard("review");
+		expect(view.ids()).toEqual(["owner-a", "owner-b", "sidebar-a", "sidebar-b"]);
+		expect(view.storedIds()).toEqual(["sidebar-a", "owner-a", "sidebar-b", "owner-b"]);
+	});
+
+	it("renders approval wait first in In Progress", async () => {
+		const view = await renderAttentionBoard("in_progress");
+		expect(view.ids()).toEqual(["owner-b", "sidebar-a", "owner-a", "sidebar-b"]);
+	});
+
+	it.each([
+		["sidebar-a", 1, 3, ["owner-b", "owner-a", "sidebar-b", "sidebar-a"]],
+		["sidebar-b", 3, 1, ["owner-b", "sidebar-b", "sidebar-a", "owner-a"]],
+	] as const)("drops a dragged card at the shown position in a sorted column: %s", async (id, from, to, expected) => {
+		const view = await renderAttentionBoard("in_progress");
+		await act(async () => {
+			dndMock.onBeforeCapture?.({ draggableId: id, mode: "FLUID" });
+		});
+		expect(container.querySelector('[data-column-id="in_progress"]')?.getAttribute("data-drop-disabled")).toBe(
+			"false",
+		);
+		await act(async () => {
+			dndMock.onDragEnd?.({
+				draggableId: id,
+				type: "CARD",
+				reason: "DROP",
+				mode: "FLUID",
+				combine: null,
+				source: { droppableId: "in_progress", index: from },
+				destination: { droppableId: "in_progress", index: to },
+			});
+		});
+		expect(view.ids()).toEqual(expected);
+	});
+
+	it("rejects a Review to Review drag", async () => {
+		const view = await renderAttentionBoard("review");
+		await act(async () => {
+			dndMock.onBeforeCapture?.({ draggableId: "owner-a", mode: "FLUID" });
+		});
+		expect(container.querySelector('[data-column-id="review"]')?.getAttribute("data-drop-disabled")).toBe("true");
+		await act(async () => {
+			dndMock.onDragEnd?.({
+				draggableId: "owner-a",
+				type: "CARD",
+				reason: "DROP",
+				mode: "FLUID",
+				combine: null,
+				source: { droppableId: "review", index: 0 },
+				destination: null,
+			});
+		});
+		expect(view.ids()).toEqual(["owner-a", "owner-b", "sidebar-a", "sidebar-b"]);
+		expect(view.storedIds()).toEqual(["sidebar-a", "owner-a", "sidebar-b", "owner-b"]);
+	});
 
 	async function renderWithProgrammaticMove() {
 		const dragActions = {

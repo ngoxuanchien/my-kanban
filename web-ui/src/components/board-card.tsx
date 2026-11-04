@@ -17,6 +17,7 @@ import { cn } from "@/components/ui/cn";
 import { Spinner } from "@/components/ui/spinner";
 import { Tooltip } from "@/components/ui/tooltip";
 import { useGithubIssue } from "@/hooks/use-github-issues";
+import { getCardAttention } from "@/kanban/card-attention";
 import type { RuntimeAgentId, RuntimeClaudeModel, RuntimeTaskSessionSummary } from "@/runtime/types";
 import { useTaskWorkspaceSnapshotValue } from "@/stores/workspace-metadata-store";
 import type { BoardCard as BoardCardModel, BoardColumnId } from "@/types";
@@ -499,6 +500,7 @@ export function BoardCard({
 			showReasoningEffort: Boolean(inheritedReasoningEffort),
 		});
 	}, [card.clineSettings, defaultClineModelId]);
+	const attention = getCardAttention(card, columnId, sessionSummary);
 	const taskAgentSettingsLabel = useMemo(() => {
 		const handOffCount = getHandOffCount(card);
 		const handoffLabel = handOffCount === 1 ? "Handed off" : handOffCount > 1 ? `Handed off ×${handOffCount}` : null;
@@ -779,7 +781,7 @@ export function BoardCard({
 									</span>
 								</div>
 							) : null}
-							{taskAgentSettingsLabel || githubIssue ? (
+							{taskAgentSettingsLabel || githubIssue || attention === "owner" || attention === "sidebar" ? (
 								<div className="mt-1 flex min-w-0 items-center gap-2">
 									{taskAgentSettingsLabel ? (
 										<span
@@ -794,6 +796,16 @@ export function BoardCard({
 										>
 											<Bot size={12} className="shrink-0" />
 											<span className="truncate">{taskAgentSettingsLabel}</span>
+										</span>
+									) : null}
+									{attention === "owner" || attention === "sidebar" ? (
+										<span
+											className={cn(
+												"shrink-0 text-xs",
+												attention === "owner" ? "text-status-orange" : "text-text-tertiary",
+											)}
+										>
+											{attention === "owner" ? "Needs you" : "Sidebar"}
 										</span>
 									) : null}
 									{githubIssue ? (

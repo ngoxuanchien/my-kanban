@@ -14,6 +14,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { BoardColumn } from "@/components/board-column";
 import { DependencyOverlay } from "@/components/dependencies/dependency-overlay";
 import { useDependencyLinking } from "@/components/dependencies/use-dependency-linking";
+import { getCardAttention, sortCardsByAttention } from "@/kanban/card-attention";
 import type { RuntimeAgentId, RuntimeTaskSessionSummary } from "@/runtime/types";
 import { canCreateTaskDependency } from "@/state/board-state";
 import { findCardColumnId, type ProgrammaticCardMoveInFlight } from "@/state/drag-rules";
@@ -458,9 +459,43 @@ export function KanbanBoard({
 			requestAnimationFrame(() => {
 				dragOccurredRef.current = false;
 			});
-			onDragEnd(result);
+			const { source, destination } = result;
+			const sourceColumn = data.columns.find((column) => column.id === source.droppableId);
+			const targetColumn = data.columns.find((column) => column.id === destination?.droppableId);
+			const sourceIndex = sourceColumn?.cards.findIndex((card) => card.id === result.draggableId) ?? -1;
+			const draggedCard = sourceColumn?.cards[sourceIndex];
+			if (
+				!destination ||
+				!targetColumn ||
+				!draggedCard ||
+				result.type === "COLUMN" ||
+				(source.droppableId === destination.droppableId && source.index === destination.index)
+			) {
+				onDragEnd(result);
+				return;
+			}
+			const stored = targetColumn.cards.filter((card) => card.id !== result.draggableId);
+			const displayed = sortCardsByAttention(stored, targetColumn.id, taskSessions);
+			const attention = getCardAttention(draggedCard, targetColumn.id, taskSessions[draggedCard.id]);
+			// Anchor within the same priority group; stored groups can be interleaved.
+			const sameGroup = (card: BoardCard) =>
+				getCardAttention(card, targetColumn.id, taskSessions[card.id]) === attention;
+			const next = displayed.slice(destination.index).find(sameGroup);
+			const previous = displayed.slice(0, destination.index).reverse().find(sameGroup);
+			const destinationIndex = next
+				? stored.findIndex((card) => card.id === next.id)
+				: previous
+					? stored.findIndex((card) => card.id === previous.id) + 1
+					: displayed[destination.index]
+						? stored.findIndex((card) => card.id === displayed[destination.index]?.id)
+						: stored.length;
+			onDragEnd({
+				...result,
+				source: { ...source, index: sourceIndex },
+				destination: { ...destination, index: destinationIndex },
+			});
 		},
-		[clearProgrammaticCardMoveInFlight, onDragEnd],
+		[clearProgrammaticCardMoveInFlight, data, onDragEnd, taskSessions],
 	);
 
 	// Dependency links should reroute as soon as motion starts, not only after drop.
@@ -486,7 +521,7 @@ export function KanbanBoard({
 				{data.columns.map((column) => (
 					<BoardColumn
 						key={column.id}
-						column={column}
+						column={{ ...column, cards: sortCardsByAttention(column.cards, column.id, taskSessions) }}
 						taskSessions={taskSessions}
 						onCreateTask={column.id === "backlog" ? onCreateTask : undefined}
 						onStartTask={column.id === "backlog" ? onStartTask : undefined}
