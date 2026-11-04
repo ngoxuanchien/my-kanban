@@ -54,6 +54,7 @@ export interface RuntimeStateHub {
 	) => void;
 	disposeWorkspace: (workspaceId: string, options?: DisposeRuntimeStateWorkspaceOptions) => void;
 	broadcastRuntimeWorkspaceStateUpdated: (workspaceId: string, workspacePath: string) => Promise<void>;
+	broadcastRuntimeWorkspaceStateUpdatedToClients: (workspaceId: string, workspacePath: string) => Promise<void>;
 	broadcastRuntimeProjectsUpdated: (preferredCurrentProjectId: string | null) => Promise<void>;
 	broadcastClineMcpAuthStatusesUpdated: (statuses: RuntimeClineMcpServerAuthStatus[]) => void;
 	bumpClineSessionContextVersion: () => void;
@@ -298,8 +299,10 @@ export function createRuntimeStateHub(deps: CreateRuntimeStateHubDependencies): 
 		runtimeStateClientsByWorkspaceId.delete(workspaceId);
 	};
 
-	const broadcastRuntimeWorkspaceStateUpdated = async (workspaceId: string, workspacePath: string): Promise<void> => {
-		deps.onWorkspaceStateChanged?.(workspaceId, workspacePath);
+	const broadcastRuntimeWorkspaceStateUpdatedToClients = async (
+		workspaceId: string,
+		workspacePath: string,
+	): Promise<void> => {
 		const clients = runtimeStateClientsByWorkspaceId.get(workspaceId);
 		if (!clients || clients.size === 0) {
 			return;
@@ -322,6 +325,10 @@ export function createRuntimeStateHub(deps: CreateRuntimeStateHubDependencies): 
 		} catch {
 			// Ignore transient state read failures; next update will resync.
 		}
+	};
+	const broadcastRuntimeWorkspaceStateUpdated = async (workspaceId: string, workspacePath: string): Promise<void> => {
+		deps.onWorkspaceStateChanged?.(workspaceId, workspacePath);
+		await broadcastRuntimeWorkspaceStateUpdatedToClients(workspaceId, workspacePath);
 	};
 
 	const broadcastTaskReadyForReview = (workspaceId: string, taskId: string) => {
@@ -550,6 +557,7 @@ export function createRuntimeStateHub(deps: CreateRuntimeStateHubDependencies): 
 		},
 		disposeWorkspace,
 		broadcastRuntimeWorkspaceStateUpdated,
+		broadcastRuntimeWorkspaceStateUpdatedToClients,
 		broadcastRuntimeProjectsUpdated,
 		broadcastClineMcpAuthStatusesUpdated,
 		bumpClineSessionContextVersion,

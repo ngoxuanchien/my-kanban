@@ -61,6 +61,7 @@ import { isRuntimeClaudeModel, type RuntimeClaudeModel, resolveScoreAgentKey } f
 import { resolveEffectiveTaskAgentId } from "../core/effective-task-agent";
 import { isHomeAgentSessionId } from "../core/home-agent-session";
 import { resolveTaskTitle } from "../core/task-title.js";
+import { issueReportInstruction } from "../github/issue-report";
 import { resolveAppendSystemPromptCommandPrefix } from "../prompts/append-system-prompt";
 import { openInBrowser } from "../server/browser";
 import { EditorFileLinkError, resolveEditorFileUrl } from "../server/editor-link";
@@ -80,10 +81,14 @@ import type { RuntimeTrpcContext, RuntimeTrpcWorkspaceScope } from "./app-router
 
 const warnAgentScoreRecording = console.warn.bind(console);
 
-function appendKanbanNotesFooter(prompt: string): string {
-	if (prompt.includes("[Kanban notes]")) return prompt;
+function appendKanbanNotesFooter(prompt: string, issueSyncEnabled: boolean): string {
+	if (prompt.includes("[Kanban notes]") && (!issueSyncEnabled || prompt.includes(issueReportInstruction())))
+		return prompt;
 	const command = resolveAppendSystemPromptCommandPrefix();
-	return `${prompt}\n\n---\n[Kanban notes] Record key decisions, progress, and blockers for the next agent with:\n${command} task comment --message "<1-3 lines>"\nComment when you make a non-obvious decision and before you stop with work unfinished. Keep it short; never paste diffs or secrets.`;
+	const notes = prompt.includes("[Kanban notes]")
+		? ""
+		: `\n\n---\n[Kanban notes] Record key decisions, progress, and blockers for the next agent with:\n${command} task comment --message "<1-3 lines>"\nComment when you make a non-obvious decision and before you stop with work unfinished. Keep it short; never paste diffs or secrets.`;
+	return `${prompt}${notes}${issueSyncEnabled ? `\n\n${issueReportInstruction()}` : ""}`;
 }
 
 export interface CreateRuntimeApiDependencies {
@@ -399,8 +404,14 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 				const resumesPreviousConversation = body.resumeFromTrash || body.resumeFromPersistence;
 				const prompt =
 					!isHomeAgentSessionId(body.taskId) && body.prompt.trim() && !resumesPreviousConversation
-						? appendKanbanNotesFooter(body.prompt)
-						: body.prompt;
+						? appendKanbanNotesFooter(body.prompt, scopedRuntimeConfig.githubIssueSyncEnabled)
+						: !isHomeAgentSessionId(body.taskId) &&
+								body.prompt.trim() &&
+								scopedRuntimeConfig.githubIssueSyncEnabled
+							? body.prompt.includes(issueReportInstruction())
+								? body.prompt
+								: `${body.prompt}\n\n${issueReportInstruction()}`
+							: body.prompt;
 				const previousTerminalAgentId = resumesPreviousConversation
 					? (terminalManager.getSummary(body.taskId)?.agentId ?? null)
 					: null;

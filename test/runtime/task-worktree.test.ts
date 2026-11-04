@@ -270,6 +270,11 @@ describe.sequential("task-worktree serialization", () => {
 				type: "directory",
 				lockfileName: "kanban-task-worktree-setup.lock",
 			});
+			expect(
+				lockedFileSystemMocks.writeTextFileAtomic.mock.calls.some(([, content]) =>
+					String(content).includes("/.kanban-issue-report.md"),
+				),
+			).toBe(true);
 			expect(maxConcurrentSubmoduleUpdates).toBe(1);
 		} finally {
 			cleanup();

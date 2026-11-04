@@ -45,7 +45,7 @@ describe("useGithubIssues", () => {
 	});
 
 	it("refetches on each workspace state update and exposes the issue to cards", async () => {
-		getGithubIssuesQueryMock.mockResolvedValue({ enabled: true, issues: {} });
+		getGithubIssuesQueryMock.mockResolvedValue({ enabled: true, issues: {}, reports: {} });
 		await act(async () => {
 			root.render(<Harness workspaceState={null} />);
 		});
@@ -55,6 +55,7 @@ describe("useGithubIssues", () => {
 		getGithubIssuesQueryMock.mockResolvedValue({
 			enabled: true,
 			issues: { "task-1": { number: 12, url: "https://github.com/acme/repo/issues/12" } },
+			reports: {},
 		});
 		await act(async () => {
 			root.render(<Harness workspaceState={workspaceState()} />);

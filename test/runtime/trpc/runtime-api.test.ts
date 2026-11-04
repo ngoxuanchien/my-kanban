@@ -486,9 +486,13 @@ describe("createRuntimeApi startTaskSession", () => {
 			applyTurnCheckpoint: vi.fn(),
 		};
 		const clineTaskSessionService = createClineTaskSessionServiceMock();
+		const loadScopedRuntimeConfig = vi.fn(async () => ({
+			...createRuntimeConfigState(),
+			githubIssueSyncEnabled: true,
+		}));
 		const api = createTestRuntimeApi({
 			getActiveWorkspaceId: vi.fn(() => "workspace-1"),
-			loadScopedRuntimeConfig: vi.fn(async () => createRuntimeConfigState()),
+			loadScopedRuntimeConfig,
 			setActiveRuntimeConfig: vi.fn(),
 			getScopedTerminalManager: vi.fn(async () => terminalManager as never),
 			getScopedClineTaskSessionService: vi.fn(async () => clineTaskSessionService as never),
@@ -527,6 +531,13 @@ describe("createRuntimeApi startTaskSession", () => {
 			"[Kanban notes] Record key decisions, progress, and blockers for the next agent with:",
 		);
 		expect(startedPrompt?.match(/\[Kanban notes\]/gu)).toHaveLength(1);
+		expect(startedPrompt).toContain(".kanban-issue-report.md");
+		loadScopedRuntimeConfig.mockResolvedValue(createRuntimeConfigState());
+		await api.startTaskSession(
+			{ workspaceId: "workspace-1", workspacePath: "/tmp/repo" },
+			{ taskId: "task-1", baseRef: "main", prompt: "Continue with sync disabled" },
+		);
+		expect(terminalManager.startTaskSession.mock.calls[1]?.[0].prompt).not.toContain(".kanban-issue-report.md");
 	});
 
 	it("does not append the Kanban notes footer to an empty task prompt", async () => {
@@ -922,6 +933,7 @@ describe("createRuntimeApi startTaskSession", () => {
 			loadScopedRuntimeConfig: vi.fn(async () => {
 				const runtimeConfigState = createRuntimeConfigState();
 				runtimeConfigState.selectedAgentId = "cline";
+				runtimeConfigState.githubIssueSyncEnabled = true;
 				return runtimeConfigState;
 			}),
 			setActiveRuntimeConfig: vi.fn(),
@@ -1098,6 +1110,7 @@ describe("createRuntimeApi startTaskSession", () => {
 			loadScopedRuntimeConfig: vi.fn(async () => {
 				const runtimeConfigState = createRuntimeConfigState();
 				runtimeConfigState.selectedAgentId = "cline";
+				runtimeConfigState.githubIssueSyncEnabled = true;
 				return runtimeConfigState;
 			}),
 			setActiveRuntimeConfig: vi.fn(),
@@ -1118,7 +1131,7 @@ describe("createRuntimeApi startTaskSession", () => {
 			expect.objectContaining({
 				taskId: "task-1",
 				agentId: "codex",
-				prompt: "Continue",
+				prompt: expect.stringContaining(".kanban-issue-report.md"),
 				resumeFromPersistence: true,
 			}),
 		);

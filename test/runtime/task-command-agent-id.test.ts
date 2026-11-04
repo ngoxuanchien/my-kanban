@@ -7,6 +7,7 @@ const cliMocks = vi.hoisted(() => ({
 		workspace: {
 			notifyStateUpdated: { mutate: vi.fn(async () => ({ ok: true })) },
 			getState: { query: vi.fn(async () => ({}) as never) },
+			getGithubIssues: { query: vi.fn(async () => ({ enabled: false, issues: {}, reports: {} })) },
 			deleteWorktree: { mutate: vi.fn(async () => ({ ok: true, removed: true })) },
 			ensureWorktree: { mutate: vi.fn(async () => ({ ok: true })) },
 			setTaskIssueSummary: { mutate: vi.fn(async (_input: { taskId: string; summary: string }) => ({ ok: true })) },
@@ -1267,6 +1268,7 @@ describe("compact task list and task show", () => {
 				prompt: "Prompt",
 				reviewRound: 2,
 				handOffCount: 2,
+				issueReport: "none",
 				comments: [
 					{ agentId: "codex", at: 100, body: "first" },
 					{ agentId: "opencode", at: 200, body: "second" },
@@ -1278,6 +1280,16 @@ describe("compact task list and task show", () => {
 		expect(missing).toMatchObject({ ok: false, error: expect.stringContaining("Task not found: missing") });
 		expect(process.exitCode).toBe(1);
 		process.exitCode = 0;
+	});
+
+	it.each(["posted", "pending", "none"] as const)("shows issue report state %s", async (issueReport) => {
+		cliMocks.client.workspace.getGithubIssues.query.mockResolvedValue({
+			enabled: true,
+			issues: {},
+			reports: { "active-1": issueReport },
+		});
+		const shown = JSON.parse(await execute(["show", "--task-id", "active-1"]));
+		expect(shown.task.issueReport).toBe(issueReport);
 	});
 
 	it("records comments using --task-id or KANBAN_HOOK_TASK_ID", async () => {

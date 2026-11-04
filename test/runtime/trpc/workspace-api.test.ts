@@ -341,6 +341,8 @@ it("workspace state callback fires with zero clients connected", async () => {
 	try {
 		await hub.broadcastRuntimeWorkspaceStateUpdated("workspace", "/repo");
 		expect(onWorkspaceStateChanged).toHaveBeenCalledWith("workspace", "/repo");
+		await hub.broadcastRuntimeWorkspaceStateUpdatedToClients("workspace", "/repo");
+		expect(onWorkspaceStateChanged).toHaveBeenCalledTimes(1);
 		expect(snapshot).not.toHaveBeenCalled();
 	} finally {
 		await hub.close();

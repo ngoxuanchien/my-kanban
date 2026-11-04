@@ -365,6 +365,9 @@ async function startServer(): Promise<{
 		runGh,
 		getOriginRemoteUrl,
 		warn: (message) => console.warn(message),
+		broadcastRuntimeWorkspaceStateUpdated: async (workspaceId, workspacePath) => {
+			await runtimeStateHub?.broadcastRuntimeWorkspaceStateUpdatedToClients(workspaceId, workspacePath);
+		},
 	});
 	runtimeStateHub = createRuntimeStateHub({
 		workspaceRegistry,

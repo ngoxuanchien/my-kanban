@@ -20,9 +20,11 @@ import {
 } from "../core/api-validation";
 import { trashTaskAndGetReadyLinkedTaskIds } from "../core/task-board-mutations";
 import { readGithubIssueMap, setGithubIssueSummary } from "../github/issue-map";
+import { readIssueReport } from "../github/issue-report";
 import type { GithubIssueSyncService } from "../github/issue-sync";
 import { deleteTaskHistory } from "../state/task-history";
 import {
+	loadWorkspaceBoardById,
 	loadWorkspaceState,
 	mutateWorkspaceState,
 	saveWorkspaceState,
@@ -227,11 +229,31 @@ export function createWorkspaceApi(deps: CreateWorkspaceApiDependencies): Runtim
 			const config = await loadRuntimeConfig(scope.workspacePath);
 			const map = await readGithubIssueMap(scope.workspaceId);
 			const issues: Record<string, { number: number; url: string }> = {};
-			for (const [taskId, entry] of Object.entries(map)) {
-				if (entry.issueNumber && entry.issueUrl)
-					issues[taskId] = { number: entry.issueNumber, url: entry.issueUrl };
-			}
-			return { enabled: config.githubIssueSyncEnabled, issues };
+			const reports: Record<string, "posted" | "pending" | "none"> = {};
+			const board = await loadWorkspaceBoardById(scope.workspaceId);
+			for (const column of board.columns)
+				for (const card of column.cards) {
+					const entry = map[card.id];
+					if (entry?.issueNumber && entry.issueUrl)
+						issues[card.id] = { number: entry.issueNumber, url: entry.issueUrl };
+					if (config.githubIssueSyncEnabled && column.id !== "trash") {
+						if (entry?.reportHash) {
+							reports[card.id] = "posted";
+							continue;
+						}
+						try {
+							const worktree = await resolveTaskCwd({
+								cwd: scope.workspacePath,
+								taskId: card.id,
+								baseRef: card.baseRef,
+							});
+							reports[card.id] = (await readIssueReport(worktree)) ? "pending" : "none";
+						} catch {
+							reports[card.id] = "none";
+						}
+					}
+				}
+			return { enabled: config.githubIssueSyncEnabled, issues, reports };
 		},
 		loadGitSummary: async (workspaceScope, input) => {
 			try {

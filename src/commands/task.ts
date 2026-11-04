@@ -840,7 +840,15 @@ async function showTask(input: { cwd: string; projectPath?: string; taskId: stri
 	const comments = (await loadTaskHistory(workspace.workspaceId, input.taskId))
 		.filter((event) => event.type === "comment" && event.detail !== undefined)
 		.map(({ agentId, at, detail }) => ({ agentId, at, body: detail }));
-	return { ok: true, task: { ...formatTaskRecord(state, record.task, record.columnId), comments } };
+	const issueState = await createRuntimeTrpcClient(workspace.workspaceId).workspace.getGithubIssues.query();
+	return {
+		ok: true,
+		task: {
+			...formatTaskRecord(state, record.task, record.columnId),
+			comments,
+			issueReport: issueState.reports[input.taskId] ?? "none",
+		},
+	};
 }
 
 async function commentOnTask(input: {

@@ -1473,6 +1473,7 @@ export const runtimeGithubIssueSyncResultSchema = z.object({
 export const runtimeGithubIssuesResponseSchema = z.object({
 	enabled: z.boolean(),
 	issues: z.record(z.string(), z.object({ number: z.number().int().positive(), url: z.string().url() })),
+	reports: z.record(z.string(), z.enum(["posted", "pending", "none"])),
 });
 export type RuntimeSetTaskIssueSummaryRequest = z.infer<typeof runtimeSetTaskIssueSummaryRequestSchema>;
 export type RuntimeGithubIssuesResponse = z.infer<typeof runtimeGithubIssuesResponseSchema>;

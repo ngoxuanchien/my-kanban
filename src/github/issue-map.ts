@@ -13,6 +13,10 @@ export interface GithubIssueEntry {
 	summary?: string;
 	syncedSummary?: string;
 	skipped?: boolean;
+	syncedTitle?: string;
+	doneCommented?: boolean;
+	reportHash?: string;
+	lastError?: string;
 }
 export type GithubIssueMap = Record<string, GithubIssueEntry>;
 const issueMapSchema = z.record(
@@ -25,6 +29,10 @@ const issueMapSchema = z.record(
 		summary: z.string().optional(),
 		syncedSummary: z.string().optional(),
 		skipped: z.boolean().optional(),
+		syncedTitle: z.string().optional(),
+		doneCommented: z.boolean().optional(),
+		reportHash: z.string().optional(),
+		lastError: z.string().optional(),
 	}),
 );
 export const getGithubIssueMapPath = (workspaceId: string): string =>

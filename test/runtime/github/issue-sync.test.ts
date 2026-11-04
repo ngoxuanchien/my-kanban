@@ -1,10 +1,11 @@
 import { execFileSync } from "node:child_process";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { access, mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { RuntimeBoardCard, RuntimeBoardColumnId, RuntimeBoardData } from "../../../src/core/api-contract";
 import { getOriginRemoteUrl } from "../../../src/github/gh-runner";
 import { type GithubIssueMap, readGithubIssueMap, setGithubIssueSummary } from "../../../src/github/issue-map";
+import { hashReport, ISSUE_REPORT_FILE } from "../../../src/github/issue-report";
 import { createGithubIssueSyncService, reconcileGithubIssues } from "../../../src/github/issue-sync";
 import { createRuntimeStateHub } from "../../../src/server/runtime-state-hub";
 import type * as WorkspaceStateModule from "../../../src/state/workspace-state";
@@ -16,10 +17,12 @@ import {
 import type { TerminalSessionManager } from "../../../src/terminal/session-manager";
 import { type RuntimeTrpcContext, runtimeAppRouter } from "../../../src/trpc/app-router";
 import { createWorkspaceApi } from "../../../src/trpc/workspace-api";
+import type * as TaskWorktreeModule from "../../../src/workspace/task-worktree";
+import { resolveTaskCwd } from "../../../src/workspace/task-worktree";
 import { createGitTestEnv } from "../../utilities/git-env";
 import { createTempDir } from "../../utilities/temp-dir";
 
-const mocks = vi.hoisted(() => ({ config: vi.fn(), board: vi.fn(), history: vi.fn() }));
+const mocks = vi.hoisted(() => ({ config: vi.fn(), board: vi.fn(), history: vi.fn(), reportDir: "" }));
 vi.mock("../../../src/config/runtime-config", () => ({ loadRuntimeConfig: mocks.config }));
 vi.mock("../../../src/state/workspace-state", async (original) => {
 	const actual = await original<typeof WorkspaceStateModule>();
@@ -30,6 +33,10 @@ vi.mock("../../../src/state/workspace-state", async (original) => {
 	};
 });
 vi.mock("../../../src/state/task-history", () => ({ loadTaskHistory: mocks.history }));
+vi.mock("../../../src/workspace/task-worktree", async (original) => ({
+	...(await original<typeof TaskWorktreeModule>()),
+	resolveTaskCwd: vi.fn(async () => mocks.reportDir),
+}));
 const input = { workspaceId: "issue-test", repoPath: "/repo" };
 const secret = "PRIVATE PROMPT MUST NEVER LEAVE";
 const task = {
@@ -63,7 +70,12 @@ function board(column: RuntimeBoardColumnId = "backlog"): RuntimeBoardData {
 async function seed(map: GithubIssueMap) {
 	await writeFile(mapPath, JSON.stringify(map));
 }
-const mapped = { issueNumber: 12, issueUrl: "https://github.com/o/r/issues/12", syncedColumn: "backlog" as const };
+const mapped = {
+	issueNumber: 12,
+	issueUrl: "https://github.com/o/r/issues/12",
+	syncedColumn: "backlog" as const,
+	syncedTitle: "Public title",
+};
 const reconcile = () => reconcileGithubIssues(input, deps);
 beforeEach(async () => {
 	temp = createTempDir("github-sync-");
@@ -184,7 +196,13 @@ describe("reconcileGithubIssues", () => {
 		]);
 		expect(JSON.stringify(calls)).not.toContain(secret);
 		expect(await readGithubIssueMap(input.workspaceId)).toEqual({
-			one: { ...mapped, summary: "Public summary", syncedSummary: "Public summary", closed: false },
+			one: {
+				...mapped,
+				summary: "Public summary",
+				syncedSummary: "Public summary",
+				syncedTitle: task.title,
+				closed: false,
+			},
 		});
 	});
 	it("ensures labels before first use", async () => {
@@ -203,7 +221,7 @@ describe("reconcileGithubIssues", () => {
 		await reconcile();
 		expect(calls.slice(-2)).toEqual([
 			["issue", "edit", "12", "--add-label", "kanban: in progress", "--remove-label", "kanban: backlog"],
-			["issue", "comment", "12", "--body", "Moved to In progress (agent: codex)"],
+			["issue", "comment", "12", "--body", "**Agent:** codex\n**Status:** In progress\n\n<!-- kanban-sync -->"],
 		]);
 		expect(JSON.stringify(calls)).not.toContain(secret);
 	});
@@ -221,7 +239,7 @@ describe("reconcileGithubIssues", () => {
 				suffix: " (agent: cline, model: public-model)",
 			},
 			{ name: "codex agent only", card: { agentId: "codex" }, suffix: " (agent: codex)" },
-			{ name: "no agent", card: { agentId: undefined }, suffix: "" },
+			{ name: "no agent", card: { agentId: undefined }, suffix: "unknown" },
 		])("$name", async ({ card, suffix }) => {
 			await seed({ one: mapped });
 			mocks.config.mockResolvedValue({ githubIssueSyncEnabled: true, claudeDefaultModel: "opus" });
@@ -230,7 +248,16 @@ describe("reconcileGithubIssues", () => {
 				dependencies: [],
 			});
 			await reconcile();
-			expect(calls.at(-1)).toEqual(["issue", "comment", "12", "--body", `Moved to In progress${suffix}`]);
+			expect(calls.at(-1)).toEqual([
+				"issue",
+				"comment",
+				"12",
+				"--body",
+				`**Agent:** ${suffix.replace(" (agent: ", "").replace(")", "")}
+**Status:** In progress
+
+<!-- kanban-sync -->`,
+			]);
 			expect(JSON.stringify(calls)).not.toContain(secret);
 		});
 
@@ -279,7 +306,16 @@ describe("reconcileGithubIssues", () => {
 				dependencies: [],
 			});
 			await reconcile();
-			expect(calls.at(-1)).toEqual(["issue", "comment", "12", "--body", `Moved to In progress${suffix}`]);
+			expect(calls.at(-1)).toEqual([
+				"issue",
+				"comment",
+				"12",
+				"--body",
+				`**Agent:** ${suffix.replace(" (agent: ", "").replace(")", "")}
+**Status:** In progress
+
+<!-- kanban-sync -->`,
+			]);
 		});
 
 		it("claude without a session record uses the difficulty table", async () => {
@@ -301,7 +337,7 @@ describe("reconcileGithubIssues", () => {
 				"comment",
 				"12",
 				"--body",
-				"Moved to In progress (agent: claude, model: sonnet)",
+				"**Agent:** claude, model: sonnet\n**Status:** In progress\n\n<!-- kanban-sync -->",
 			]);
 		});
 
@@ -310,7 +346,13 @@ describe("reconcileGithubIssues", () => {
 			vi.mocked(loadWorkspaceState).mockRejectedValueOnce(new Error("sessions unreadable"));
 			mocks.board.mockResolvedValue(board("in_progress"));
 			expect((await reconcile()).ok).toBe(true);
-			expect(calls.at(-1)).toEqual(["issue", "comment", "12", "--body", "Moved to In progress (agent: codex)"]);
+			expect(calls.at(-1)).toEqual([
+				"issue",
+				"comment",
+				"12",
+				"--body",
+				"**Agent:** codex\n**Status:** In progress\n\n<!-- kanban-sync -->",
+			]);
 		});
 	});
 	it("done with commit", async () => {
@@ -323,7 +365,7 @@ describe("reconcileGithubIssues", () => {
 		]);
 		await reconcile();
 		expect(calls).toEqual([
-			["issue", "comment", "12", "--body", "Done in commit full-sha"],
+			["issue", "comment", "12", "--body", "**Status:** Done\n**Commit:** full-sha\n\n<!-- kanban-sync -->"],
 			["issue", "edit", "12", "--remove-label", "kanban: backlog"],
 			["issue", "close", "12", "--reason", "completed"],
 		]);
@@ -333,7 +375,7 @@ describe("reconcileGithubIssues", () => {
 		await seed({ one: mapped });
 		mocks.board.mockResolvedValue(board("trash"));
 		await reconcile();
-		expect(calls[0]).toEqual(["issue", "comment", "12", "--body", "Moved to Done"]);
+		expect(calls[0]).toEqual(["issue", "comment", "12", "--body", "**Status:** Done\n\n<!-- kanban-sync -->"]);
 		expect(calls.at(-1)).toEqual(["issue", "close", "12", "--reason", "completed"]);
 	});
 	it("task back from done reopens", async () => {
@@ -341,7 +383,25 @@ describe("reconcileGithubIssues", () => {
 		await reconcile();
 		expect(calls).toContainEqual(["issue", "reopen", "12"]);
 		expect(calls).toContainEqual(["issue", "edit", "12", "--add-label", "kanban: backlog"]);
-		expect(calls.at(-1)).toEqual(["issue", "comment", "12", "--body", "Reopened, moved to Backlog"]);
+		expect(calls.at(-1)).toEqual([
+			"issue",
+			"comment",
+			"12",
+			"--body",
+			"**Agent:** codex\n**Status:** Reopened, moved to Backlog\n\n<!-- kanban-sync -->",
+		]);
+	});
+	it("posts a second Done comment after a task is reopened", async () => {
+		await seed({ one: mapped });
+		mocks.board.mockResolvedValue(board("trash"));
+		await reconcile();
+		mocks.board.mockResolvedValue(board("backlog"));
+		await reconcile();
+		mocks.board.mockResolvedValue(board("trash"));
+		await reconcile();
+		expect(
+			calls.filter((args) => args[0] === "issue" && args[1] === "comment" && args[4]?.includes("**Status:** Done")),
+		).toHaveLength(2);
 	});
 	it("deleted open task closes not planned", async () => {
 		await seed({ one: mapped });
@@ -375,11 +435,10 @@ describe("reconcileGithubIssues", () => {
 	});
 	it("reconcile aborts on gh error and keeps mapping", async () => {
 		await seed({ one: mapped });
-		const before = await readFile(mapPath, "utf8");
-		mocks.board.mockResolvedValue(board("review"));
+		mocks.board.mockResolvedValue(board("in_progress"));
 		gh.mockRejectedValueOnce(new Error("offline"));
 		expect(await reconcile()).toEqual({ ok: false, created: 0, updated: 0, closed: 0, error: "offline" });
-		expect(await readFile(mapPath, "utf8")).toBe(before);
+		expect((await readGithubIssueMap(input.workspaceId)).one.lastError).toBe("offline");
 		expect(warn).toHaveBeenCalledTimes(1);
 	});
 	it("passes title and body as single argv elements", async () => {
@@ -401,6 +460,84 @@ describe("reconcileGithubIssues", () => {
 			"--label",
 			"kanban: backlog",
 		]);
+	});
+	it("posts a Review report once, saves its hash, and deletes the file", async () => {
+		mocks.reportDir = join(temp.path, "report-worktree");
+		await mkdir(mocks.reportDir);
+		const report =
+			"### Summary\nDone\n\n### Changes\nCode\n\n### Tests\nPassed\n\n### References\nNone\n\n### Next Steps\nNone";
+		await writeFile(join(mocks.reportDir, ISSUE_REPORT_FILE), report);
+		await seed({ one: { ...mapped, syncedColumn: "review" } });
+		mocks.board.mockResolvedValue(board("review"));
+		await reconcile();
+		expect(calls.filter((args) => args[1] === "comment")).toHaveLength(1);
+		expect(calls.find((args) => args[1] === "comment")?.[4]).toContain("## Implementation Update");
+		expect(calls.find((args) => args[1] === "comment")?.[4]).toContain("**Base:** main");
+		expect((await readGithubIssueMap(input.workspaceId)).one.reportHash).toBe(hashReport(report));
+		await expect(access(join(mocks.reportDir, ISSUE_REPORT_FILE))).rejects.toThrow();
+		const count = calls.length;
+		await reconcile();
+		expect(calls).toHaveLength(count);
+	});
+	it("keeps Done comment recorded when close fails, then retries only close", async () => {
+		await seed({ one: mapped });
+		mocks.board.mockResolvedValue(board("trash"));
+		gh.mockImplementationOnce(runFakeGh)
+			.mockImplementationOnce(runFakeGh)
+			.mockRejectedValueOnce(new Error("close failed"));
+		expect((await reconcile()).ok).toBe(false);
+		expect((await readGithubIssueMap(input.workspaceId)).one.doneCommented).toBe(true);
+		const before = calls.filter((args) => args[1] === "comment").length;
+		const callsBeforeRetry = calls.length;
+		await reconcile();
+		expect(calls.filter((args) => args[1] === "comment")).toHaveLength(before);
+		expect(calls.slice(callsBeforeRetry)).toEqual([["issue", "close", "12", "--reason", "completed"]]);
+	});
+	it("sanitizes internal paths from GitHub titles and bodies", async () => {
+		await setGithubIssueSummary(input.workspaceId, "one", "See contexte/x.md and /Users/a/b; docs/a.md is public");
+		mocks.board.mockResolvedValue({
+			columns: [{ id: "backlog", title: "Local /Users/a/b", cards: [{ ...task, title: "Local /Users/a/b" }] }],
+			dependencies: [],
+		});
+		await reconcile();
+		expect(JSON.stringify(calls)).not.toContain("/Users/");
+		expect(JSON.stringify(calls)).not.toContain("contexte/");
+		expect(JSON.stringify(calls)).toContain("[internal path]");
+		expect(JSON.stringify(calls)).toContain("docs/a.md");
+	});
+	it("syncs card title changes and broadcasts map changes", async () => {
+		await seed({ one: mapped });
+		mocks.board.mockResolvedValue({
+			...board(),
+			columns: [{ id: "backlog", title: "Backlog", cards: [{ ...task, title: "Changed title" }] }],
+		});
+		const broadcast = vi.fn();
+		expect(
+			(await reconcileGithubIssues(input, { ...deps, broadcastRuntimeWorkspaceStateUpdated: broadcast })).ok,
+		).toBe(true);
+		expect(calls).toContainEqual(["issue", "edit", "12", "--title", "Changed title"]);
+		expect((await readGithubIssueMap(input.workspaceId)).one.syncedTitle).toBe("Changed title");
+		expect(broadcast).toHaveBeenCalledOnce();
+	});
+	it("isolates a task failure and syncs the next task", async () => {
+		const second = { ...task, id: "two", title: "Second" };
+		mocks.board.mockResolvedValue({
+			columns: [{ id: "in_progress", title: "In progress", cards: [task, second] }],
+			dependencies: [],
+		});
+		await seed({
+			one: mapped,
+			two: { ...mapped, issueNumber: 13, issueUrl: "https://github.com/o/r/issues/13", syncedTitle: "Second" },
+		});
+		gh.mockImplementation(async (args, options) => {
+			if (args.includes("12") && args.includes("--add-label")) throw new Error("first failed");
+			return runFakeGh(args, options);
+		});
+		const result = await reconcile();
+		expect(result.ok).toBe(false);
+		expect(result.error).toBe("first failed");
+		expect((await readGithubIssueMap(input.workspaceId)).one.lastError).toBe("first failed");
+		expect(calls.some((args) => args.includes("13") && args[1] === "comment")).toBe(true);
 	});
 	it("concurrent requestSync creates one issue", async () => {
 		let release!: () => void;
@@ -453,10 +590,31 @@ it("workspace tRPC endpoints store summaries, sync now, and return open and clos
 	expect(await caller.workspace.getGithubIssues()).toEqual({
 		enabled: true,
 		issues: { one: { number: 12, url: mapped.issueUrl } },
+		reports: { one: "none" },
 	});
 	mocks.board.mockResolvedValue(board("trash"));
 	await caller.workspace.syncGithubIssues();
 	expect((await caller.workspace.getGithubIssues()).issues.one.number).toBe(12);
+});
+
+it("getGithubIssues skips report worktree lookups when sync is off", async () => {
+	mocks.config.mockResolvedValue({ githubIssueSyncEnabled: false });
+	const api = createWorkspaceApi({
+		ensureTerminalManagerForWorkspace: vi.fn(),
+		getScopedClineTaskSessionService: vi.fn(),
+		broadcastRuntimeWorkspaceStateUpdated: vi.fn(),
+		broadcastRuntimeProjectsUpdated: vi.fn(),
+		buildWorkspaceStateSnapshot: vi.fn(),
+	});
+	vi.mocked(resolveTaskCwd).mockClear();
+	const scope = { workspaceId: input.workspaceId, workspacePath: input.repoPath };
+	const caller = runtimeAppRouter.createCaller({
+		requestedWorkspaceId: input.workspaceId,
+		workspaceScope: scope,
+		workspaceApi: api,
+	} as RuntimeTrpcContext);
+	expect(await caller.workspace.getGithubIssues()).toEqual({ enabled: false, issues: {}, reports: {} });
+	expect(resolveTaskCwd).not.toHaveBeenCalled();
 });
 
 it("CLI notifyStateUpdated requests runtime sync without waiting for gh", async () => {
@@ -492,7 +650,7 @@ it("CLI notifyStateUpdated requests runtime sync without waiting for gh", async 
 		await vi.waitFor(() => expect(gh).toHaveBeenCalled());
 		release();
 		await vi.waitFor(() => expect(warn).toHaveBeenCalledTimes(1));
-		expect(await readGithubIssueMap(input.workspaceId)).toEqual({ one: {} });
+		expect((await readGithubIssueMap(input.workspaceId)).one).toMatchObject({ lastError: "offline" });
 	} finally {
 		release();
 		await hub.close();
@@ -502,7 +660,7 @@ it("CLI notifyStateUpdated requests runtime sync without waiting for gh", async 
 it("offline-created task still creates and closes an issue after moving to done", async () => {
 	gh.mockRejectedValueOnce(new Error("offline"));
 	expect((await reconcile()).ok).toBe(false);
-	expect(await readGithubIssueMap(input.workspaceId)).toEqual({ one: {} });
+	expect((await readGithubIssueMap(input.workspaceId)).one).toMatchObject({ lastError: "offline" });
 	mocks.board.mockResolvedValue(board("trash"));
 	expect(await reconcile()).toEqual({ ok: true, created: 1, updated: 0, closed: 1 });
 });
@@ -535,7 +693,6 @@ it("board writes succeed while gh is failing", async () => {
 	const issuePath = join(getWorkspaceDirectoryPath(scope.workspaceId), "github-issues.json");
 	await mkdir(getWorkspaceDirectoryPath(scope.workspaceId), { recursive: true });
 	await writeFile(issuePath, JSON.stringify({ one: mapped }));
-	const before = await readFile(issuePath, "utf8");
 	mocks.board.mockResolvedValue(board("review"));
 	gh.mockRejectedValue(new Error("gh unavailable"));
 	const service = createGithubIssueSyncService(deps);
@@ -551,7 +708,7 @@ it("board writes succeed while gh is failing", async () => {
 	const api = createWorkspaceApi({
 		ensureTerminalManagerForWorkspace: async () => manager,
 		getScopedClineTaskSessionService: vi.fn(),
-		broadcastRuntimeWorkspaceStateUpdated: hub.broadcastRuntimeWorkspaceStateUpdated,
+		broadcastRuntimeWorkspaceStateUpdated: hub.broadcastRuntimeWorkspaceStateUpdatedToClients,
 		broadcastRuntimeProjectsUpdated: vi.fn(),
 		buildWorkspaceStateSnapshot: vi.fn(),
 		githubIssueSync: service,
@@ -563,7 +720,38 @@ it("board writes succeed while gh is failing", async () => {
 		expect(
 			(await loadWorkspaceState(repoPath)).board.columns.find((column) => column.id === "review")?.cards[0].id,
 		).toBe("one");
-		expect(await readFile(issuePath, "utf8")).toBe(before);
+		expect((await readGithubIssueMap(scope.workspaceId)).one.lastError).toBe("gh unavailable");
+	} finally {
+		await hub.close();
+	}
+});
+
+it("does not resync after a failed reconcile broadcasts to runtime clients", async () => {
+	await seed({ one: mapped });
+	mocks.board.mockResolvedValue(board("review"));
+	gh.mockRejectedValue(new Error("offline"));
+	let requestSync: (workspaceId: string, repoPath: string) => void = () => {};
+	const hub = createRuntimeStateHub({
+		onWorkspaceStateChanged: (workspaceId, repoPath) => requestSync(workspaceId, repoPath),
+		workspaceRegistry: {
+			resolveWorkspaceForStream: vi.fn(),
+			buildProjectsPayload: vi.fn(),
+			buildWorkspaceStateSnapshot: vi.fn(),
+		},
+	});
+	const broadcast = vi.fn((workspaceId: string, repoPath: string) =>
+		hub.broadcastRuntimeWorkspaceStateUpdatedToClients(workspaceId, repoPath),
+	);
+	const sync = createGithubIssueSyncService({ ...deps, broadcastRuntimeWorkspaceStateUpdated: broadcast });
+	requestSync = sync.requestSync;
+	try {
+		sync.requestSync(input.workspaceId, input.repoPath);
+		await vi.waitFor(() => expect(warn).toHaveBeenCalledTimes(1));
+		await new Promise((resolve) => setTimeout(resolve, 50));
+		expect(mocks.board).toHaveBeenCalledTimes(1);
+		expect(gh).toHaveBeenCalledTimes(1);
+		expect(broadcast).not.toHaveBeenCalled();
+		expect((await readGithubIssueMap(input.workspaceId)).one.lastError).toBe("offline");
 	} finally {
 		await hub.close();
 	}
@@ -576,11 +764,12 @@ it("remembers every open task before aborting on the first gh error", async () =
 	});
 	gh.mockRejectedValueOnce(new Error("offline"));
 	await reconcile();
-	expect(await readGithubIssueMap(input.workspaceId)).toEqual({ one: {}, two: {} });
+	expect((await readGithubIssueMap(input.workspaceId)).one.lastError).toBe("offline");
+	expect((await readGithubIssueMap(input.workspaceId)).two.issueNumber).toBe(12);
 	mocks.board.mockResolvedValue({
 		columns: [{ id: "trash", title: "Done", cards: [{ ...task, id: "two" }] }],
 		dependencies: [],
 	});
-	expect(await reconcile()).toEqual({ ok: true, created: 1, updated: 0, closed: 1 });
+	expect(await reconcile()).toEqual({ ok: true, created: 0, updated: 0, closed: 1 });
 	expect((await readGithubIssueMap(input.workspaceId)).two.closed).toBe(true);
 });

@@ -10,6 +10,7 @@ import type {
 } from "../core/api-contract";
 import { createGitProcessEnv } from "../core/git-process-env";
 import { type LockRequest, lockedFileSystem } from "../fs/locked-file-system";
+import { ISSUE_REPORT_FILE } from "../github/issue-report";
 import { getRuntimeHomePath, getTaskWorktreesHomePath, loadWorkspaceContext } from "../state/workspace-state";
 import { getGitCommandErrorMessage, getGitStdout, readGitHeadInfo, runGit } from "./git-utils";
 import { getWorkspaceFolderLabelForWorktreePath, normalizeTaskIdForWorktreePath } from "./task-worktree-path";
@@ -515,7 +516,7 @@ async function syncIgnoredPathsIntoWorktree(repoPath: string, worktreePath: stri
 	const turbopackNodeModulesSkipPaths = new Set(await listTurbopackNodeModulesSymlinkSkipPaths(repoPath));
 	const mirroredIgnoredPaths = ignoredPaths.filter((relativePath) => !turbopackNodeModulesSkipPaths.has(relativePath));
 
-	await syncManagedIgnoredPathExcludes(repoPath, mirroredIgnoredPaths);
+	await syncManagedIgnoredPathExcludes(repoPath, [...mirroredIgnoredPaths, ISSUE_REPORT_FILE]);
 	for (const relativePath of mirroredIgnoredPaths) {
 		if (shouldSkipSymlink(relativePath)) {
 			continue;
