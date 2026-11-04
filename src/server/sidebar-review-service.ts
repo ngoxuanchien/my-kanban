@@ -14,6 +14,7 @@ import {
 	findAntigravityLogUsageLimit,
 	readAntigravityLogs as readAntigravityLogsDefault,
 } from "./antigravity-log-usage-limit";
+import { readCodexModelNotFound } from "./codex-log-model-error";
 import { findOpenCodeLogUsageLimit, readOpenCodeLogTail } from "./opencode-log-usage-limit";
 import { createSidebarReviewQueue } from "./sidebar-review-queue";
 import { detectUsageLimit } from "./usage-limit-detector";
@@ -36,6 +37,7 @@ export interface CreateSidebarReviewServiceDependencies {
 	warn: (message: string) => void;
 	readOpenCodeLog?: () => Promise<string | null>;
 	readAntigravityLogs?: typeof readAntigravityLogsDefault;
+	readCodexModelError?: typeof readCodexModelNotFound;
 	now?: () => number;
 	setInterval?: typeof setInterval;
 	clearInterval?: typeof clearInterval;
@@ -82,6 +84,7 @@ export function createSidebarReviewService(deps: CreateSidebarReviewServiceDepen
 	const now = deps.now ?? Date.now;
 	const readOpenCodeLog = deps.readOpenCodeLog ?? readOpenCodeLogTail;
 	const readAntigravityLogs = deps.readAntigravityLogs ?? readAntigravityLogsDefault;
+	const readCodexModelError = deps.readCodexModelError ?? readCodexModelNotFound;
 	const findUsageLimit = async (
 		summary: RuntimeTaskSessionSummary,
 		card: RuntimeBoardCard,
@@ -101,8 +104,8 @@ export function createSidebarReviewService(deps: CreateSidebarReviewServiceDepen
 					? (await deps.loadRuntimeConfig()).selectedAgentId
 					: undefined;
 			const agentId = resolveEffectiveTaskAgentId(card.agentId, summary.agentId, selectedAgentId);
-			if (agentId !== "opencode" && agentId !== "antigravity") return null;
-			logSource = agentId === "opencode" ? "OpenCode" : "Antigravity";
+			if (agentId !== "opencode" && agentId !== "antigravity" && agentId !== "codex") return null;
+			logSource = agentId === "opencode" ? "OpenCode" : agentId === "antigravity" ? "Antigravity" : "Codex";
 			const { path: worktreePath } = await getTaskWorkspacePathInfo({
 				cwd: deps.workspacePath,
 				taskId: summary.taskId,
@@ -114,6 +117,7 @@ export function createSidebarReviewService(deps: CreateSidebarReviewServiceDepen
 					? findOpenCodeLogUsageLimit(logText, { worktreePath, sinceMs: summary.startedAt ?? 0 })
 					: null;
 			}
+			if (agentId === "codex") return await readCodexModelError({ worktreePath, sinceMs: summary.startedAt ?? 0 });
 			return findAntigravityLogUsageLimit(await readAntigravityLogs(), {
 				worktreePath,
 				sinceMs: summary.startedAt ?? 0,
@@ -304,20 +308,32 @@ export function createSidebarReviewService(deps: CreateSidebarReviewServiceDepen
 				);
 			}
 		} else {
+			const isCodexModelError = phrase === "model_not_found";
 			const detail = !phrase
 				? "The previous agent produced no terminal output for 5 minutes after continue."
 				: `The previous agent hit its usage limit ("${phrase}").`;
-			const reason = phrase ? "The previous agent hit its usage limit." : detail;
+			const reason = isCodexModelError
+				? "Codex cannot use its configured model (model_not_found)."
+				: phrase
+					? "The previous agent hit its usage limit."
+					: detail;
 			const result = await deps.handOffTask(summary.taskId, reason);
 			if (result.ok) {
-				if (card.agentId)
+				if (card.agentId) {
 					await recordHistory(summary.taskId, {
 						type: "handoff",
 						agentId: result.fromAgentId ?? card.agentId,
 						toAgentId: result.toAgentId,
 						round: card.reviewRound,
-						detail,
+						detail: isCodexModelError ? reason : detail,
 					});
+					if (isCodexModelError)
+						await recordHistory(summary.taskId, {
+							type: "comment",
+							agentId: card.agentId,
+							detail: 'Change "model" in ~/.codex/config.toml to one your account supports.',
+						});
+				}
 			} else {
 				deps.warn(`[sidebar-review] Could not hand off task ${summary.taskId}: ${result.error ?? "unknown error"}`);
 				quotaNudges.delete(summary.taskId);

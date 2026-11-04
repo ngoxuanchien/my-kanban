@@ -115,6 +115,7 @@ async function startUsageLimitTurn(options: {
 	clearInterval?: typeof clearInterval;
 	readOpenCodeLog?: () => Promise<string | null>;
 	readAntigravityLogs?: () => Promise<AntigravityLog[]>;
+	readCodexModelError?: () => Promise<"model_not_found" | null>;
 	session?: RuntimeTaskSessionSummary;
 }) {
 	const card = workspaceState.board.columns[0].cards[0];
@@ -155,6 +156,7 @@ async function startUsageLimitTurn(options: {
 		retryQuotaBlockedTask,
 		readOpenCodeLog: options.readOpenCodeLog ?? (async () => null),
 		readAntigravityLogs: options.readAntigravityLogs ?? (async () => []),
+		readCodexModelError: options.readCodexModelError,
 		now: options.now,
 		setInterval: (callback: Parameters<typeof setInterval>[0], delay: Parameters<typeof setInterval>[1]) => {
 			intervalCallback = callback as () => void;
@@ -869,6 +871,43 @@ describe("createSidebarReviewService", () => {
 		await vi.waitFor(() =>
 			expect(handOffTask).toHaveBeenCalledWith("task-1", "The previous agent hit its usage limit."),
 		);
+		expect(sendPromptToSession).not.toHaveBeenCalled();
+		service.dispose();
+	});
+
+	it("hands off Codex immediately for model_not_found without continuing", async () => {
+		const { listeners, service } = await startUsageLimitTurn({
+			agentId: "codex",
+			getRestoreSnapshot: async () => ({ snapshot: "clean terminal", cols: 80, rows: 24 }),
+			readCodexModelError: async () => "model_not_found",
+		});
+		for (const listener of listeners) listener(summary("task-1", "awaiting_review"));
+		await vi.waitFor(() =>
+			expect(handOffTask).toHaveBeenCalledWith("task-1", "Codex cannot use its configured model (model_not_found)."),
+		);
+		expect(sendPromptToSession).not.toHaveBeenCalled();
+		expect(recordTaskHistoryEvent).toHaveBeenCalledWith(
+			"workspace-1",
+			"task-1",
+			expect.objectContaining({
+				type: "comment",
+				agentId: "codex",
+				detail: 'Change "model" in ~/.codex/config.toml to one your account supports.',
+			}),
+		);
+		service.dispose();
+	});
+
+	it("quota-blocks Codex with model_not_found when the handoff chain is exhausted", async () => {
+		const { listeners, service } = await startUsageLimitTurn({
+			agentId: "codex",
+			handOffCount: 2,
+			getRestoreSnapshot: async () => ({ snapshot: "clean terminal", cols: 80, rows: 24 }),
+			readCodexModelError: async () => "model_not_found",
+		});
+		for (const listener of listeners) listener(summary("task-1", "awaiting_review"));
+		await vi.waitFor(() => expect(workspaceState.board.columns[0].cards[0].quotaBlockedAt).toBeDefined());
+		expect(handOffTask).not.toHaveBeenCalled();
 		expect(sendPromptToSession).not.toHaveBeenCalled();
 		service.dispose();
 	});
