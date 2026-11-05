@@ -6,6 +6,7 @@ import { resolveEffectiveTaskAgentId } from "../core/effective-task-agent";
 import { getHandOffCount, getReviewRoundCap, isHandOffAgentId, MAX_HAND_OFFS } from "../core/hand-off-cap";
 import { createHomeAgentSessionId, isHomeAgentSessionId } from "../core/home-agent-session";
 import { isPermissionWaitActivity } from "../core/permission-hook";
+import { isTaskWaiting } from "../core/waiting-report";
 import { recordTaskHistoryEvent } from "../state/task-history";
 import { loadWorkspaceState, mutateWorkspaceState } from "../state/workspace-state";
 import { sendPromptToSession } from "../terminal/send-prompt-to-session";
@@ -18,6 +19,7 @@ import {
 } from "./antigravity-log-usage-limit";
 import { readCodexModelNotFound } from "./codex-log-model-error";
 import { findOpenCodeLogUsageLimit, readOpenCodeLogTail } from "./opencode-log-usage-limit";
+import type { SessionSummaryEvent } from "./session-column-sync";
 import { createSidebarReviewQueue } from "./sidebar-review-queue";
 import { detectUsageLimit } from "./usage-limit-detector";
 
@@ -26,6 +28,7 @@ export interface CreateSidebarReviewServiceDependencies {
 	workspacePath: string;
 	terminalManager: TerminalSessionManager;
 	clineService: ClineTaskSessionService;
+	onSessionSummary?: (listener: (event: SessionSummaryEvent) => void) => () => void;
 	loadRuntimeConfig: () => Promise<RuntimeConfigState>;
 	handOffTask: (
 		taskId: string,
@@ -151,6 +154,7 @@ export function createSidebarReviewService(deps: CreateSidebarReviewServiceDepen
 						card.agentReviewEnabled !== true ||
 						card.quotaBlockedAt === undefined ||
 						isTaskBlocked(card) ||
+						isTaskWaiting(card) ||
 						now() - card.quotaBlockedAt < 3600000 ||
 						processingTaskIds.has(card.id)
 					)
@@ -354,7 +358,13 @@ export function createSidebarReviewService(deps: CreateSidebarReviewServiceDepen
 		for (const column of state.board.columns) {
 			if (column.id !== "in_progress" && column.id !== "review") continue;
 			for (const card of column.cards) {
-				if (card.agentReviewEnabled !== true || isTaskBlocked(card) || processingTaskIds.has(card.id)) continue;
+				if (
+					card.agentReviewEnabled !== true ||
+					isTaskBlocked(card) ||
+					isTaskWaiting(card) ||
+					processingTaskIds.has(card.id)
+				)
+					continue;
 				const summary = summaries.find((candidate) => candidate.taskId === card.id);
 				if (!summary || summary.agentId === "cline" || card.agentId === "cline") continue;
 				if (summary.state === "running") {
@@ -398,6 +408,13 @@ export function createSidebarReviewService(deps: CreateSidebarReviewServiceDepen
 		if (!sidebarIdleAvailable) {
 			return;
 		}
+		const state = await loadWorkspaceState(deps.workspacePath);
+		if (!sidebarIdleAvailable) return;
+		for (const column of state.board.columns) {
+			for (const card of column.cards) {
+				if (isTaskBlocked(card) || isTaskWaiting(card)) queue.onTaskDone(card.id);
+			}
+		}
 		const prompt = queue.onSidebarIdle();
 		if (!prompt) {
 			return;
@@ -427,7 +444,7 @@ export function createSidebarReviewService(deps: CreateSidebarReviewServiceDepen
 		summary: RuntimeTaskSessionSummary,
 		card: RuntimeBoardCard,
 	): Promise<void> => {
-		if (isTaskBlocked(card) || processingTaskIds.has(summary.taskId)) return;
+		if (isTaskBlocked(card) || isTaskWaiting(card) || processingTaskIds.has(summary.taskId)) return;
 		processingTaskIds.add(summary.taskId);
 		try {
 			const completedRunningNudge = quotaNudges.get(summary.taskId)?.isRunning === true;
@@ -477,7 +494,12 @@ export function createSidebarReviewService(deps: CreateSidebarReviewServiceDepen
 			nudgedTaskIds.delete(summary.taskId);
 			const mutation = await mutateWorkspaceState(deps.workspacePath, (current) => {
 				const currentCard = findCard(current.board, summary.taskId)?.card;
-				if (!currentCard || (currentCard.reviewRound ?? 0) !== (card.reviewRound ?? 0)) {
+				if (
+					!currentCard ||
+					isTaskBlocked(currentCard) ||
+					isTaskWaiting(currentCard) ||
+					(currentCard.reviewRound ?? 0) !== (card.reviewRound ?? 0)
+				) {
 					return { board: current.board, value: null, save: false };
 				}
 				const review = queue.onTaskTurnEnd(currentCard);
@@ -502,7 +524,7 @@ export function createSidebarReviewService(deps: CreateSidebarReviewServiceDepen
 			processingTaskIds.delete(summary.taskId);
 		}
 	};
-	const handleSummary = (summary: RuntimeTaskSessionSummary): void => {
+	const handleSummary = (summary: RuntimeTaskSessionSummary, waitingReportCleared = false): void => {
 		const previous = previousSummaries.get(summary.taskId);
 		previousSummaries.set(summary.taskId, summary);
 		void (async () => {
@@ -544,11 +566,12 @@ export function createSidebarReviewService(deps: CreateSidebarReviewServiceDepen
 				!found ||
 				found.card.agentReviewEnabled !== true ||
 				isTaskBlocked(found.card) ||
+				isTaskWaiting(found.card) ||
 				found.columnId === "trash"
 			) {
 				return;
 			}
-			if (crashed) {
+			if (crashed && !waitingReportCleared) {
 				if (summary.agentId != null && summary.agentId !== found.card.agentId) {
 					return;
 				}
@@ -594,6 +617,8 @@ export function createSidebarReviewService(deps: CreateSidebarReviewServiceDepen
 				for (const card of column.cards) {
 					if (
 						column.id === "review" &&
+						!isTaskBlocked(card) &&
+						!isTaskWaiting(card) &&
 						card.quotaBlockedAt === undefined &&
 						card.agentReviewEnabled &&
 						(card.reviewRound ?? 0) >= 1 &&
@@ -613,7 +638,16 @@ export function createSidebarReviewService(deps: CreateSidebarReviewServiceDepen
 			const config = await deps.loadRuntimeConfig();
 			const sidebarId = createHomeAgentSessionId(deps.workspaceId, config.selectedAgentId);
 			sidebarIdleAvailable = isSidebarIdle(previousSummaries.get(sidebarId));
-			unsubscribers.push(deps.terminalManager.onSummary(handleSummary), deps.clineService.onSummary(handleSummary));
+			if (deps.onSessionSummary) {
+				unsubscribers.push(
+					deps.onSessionSummary((event) => handleSummary(event.summary, event.waitingReportCleared)),
+				);
+			} else {
+				unsubscribers.push(
+					deps.terminalManager.onSummary(handleSummary),
+					deps.clineService.onSummary(handleSummary),
+				);
+			}
 			await deliverNext();
 		},
 		notifyBoardChanged: async () => {
@@ -644,7 +678,8 @@ export function createSidebarReviewService(deps: CreateSidebarReviewServiceDepen
 			});
 			for (const column of mutation.value) {
 				for (const card of column.cards) {
-					if (column.id === "trash" || !card.agentReviewEnabled) queue.onTaskDone(card.id);
+					if (column.id === "trash" || !card.agentReviewEnabled || isTaskBlocked(card) || isTaskWaiting(card))
+						queue.onTaskDone(card.id);
 				}
 			}
 			const summaries = [...deps.terminalManager.listSummaries(), ...deps.clineService.listSummaries()];

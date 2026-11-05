@@ -4,7 +4,7 @@ import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { RuntimeBoardColumnId, RuntimeTaskSessionSummary } from "../../../src/core/api-contract";
+import type { RuntimeBoardCard, RuntimeBoardColumnId, RuntimeTaskSessionSummary } from "../../../src/core/api-contract";
 import { type LockRequest, lockedFileSystem } from "../../../src/fs/locked-file-system";
 import { clearBlockedReportOnRun } from "../../../src/server/blocked-report-clearing";
 import { createSessionColumnSync } from "../../../src/server/session-column-sync";
@@ -102,6 +102,7 @@ describe.sequential("session column sync", () => {
 		sessions: RuntimeTaskSessionSummary[] = [],
 		taskId = "task-1",
 		blockedReport?: { question: string; reportedAt: number },
+		waitingReport?: RuntimeBoardCard["waitingReport"],
 	) {
 		const initial = await loadWorkspaceState(workspacePath);
 		return await saveWorkspaceState(workspacePath, {
@@ -122,6 +123,7 @@ describe.sequential("session column sync", () => {
 						createdAt: 1,
 						updatedAt: 1,
 						...(id === taskId && blockedReport ? { blockedReport } : {}),
+						...(id === taskId && waitingReport ? { waitingReport } : {}),
 					})),
 				})),
 			},
@@ -272,7 +274,7 @@ describe.sequential("session column sync", () => {
 		});
 		const next = summary("awaiting_review");
 		await emit(next);
-		expect(events).toEqual([{ summary: next, previous }]);
+		expect(events).toEqual([{ summary: next, previous, waitingReportCleared: false }]);
 		expect(onBoardMoved).toHaveBeenCalledTimes(1);
 		unsubscribe();
 		await emit(summary("running"));
@@ -360,6 +362,53 @@ describe.sequential("session column sync", () => {
 		).toBe("task-1");
 		expect(onBoardMoved).not.toHaveBeenCalled();
 	});
+
+	const waiting = { reason: "Experiment: 3 hours", reportedAt: 10, pid: 12345 };
+	const waitingTask = async () =>
+		(await loadWorkspaceState(workspacePath)).board.columns
+			.flatMap((column) => column.cards)
+			.find((card) => card.id === "task-1");
+
+	it("keeps waiting cards in progress at turn end and on startup", async () => {
+		await saveCard("in_progress", [summary("awaiting_review")], "task-1", undefined, waiting);
+		await service.start();
+		await emit({ ...summary("running"), updatedAt: 5 });
+		await emit({ ...summary("awaiting_review"), updatedAt: 6 });
+		const state = await loadWorkspaceState(workspacePath);
+		expect(state.board.columns.find((column) => column.id === "in_progress")?.cards[0]?.waitingReport).toEqual(
+			waiting,
+		);
+		expect(onBoardMoved).not.toHaveBeenCalled();
+	});
+
+	it.each([5, 10, 11])("clears waiting only on a fresh running transition (%s)", async (updatedAt) => {
+		await saveCard("in_progress", [summary("awaiting_review")], "task-1", undefined, waiting);
+		await service.start();
+		await emit({ ...summary("running"), updatedAt });
+		expect((await waitingTask())?.waitingReport).toEqual(updatedAt > 10 ? undefined : waiting);
+	});
+
+	it("keeps waiting while the reporting turn is still running", async () => {
+		await saveCard("in_progress", [summary("running")], "task-1", undefined, waiting);
+		await service.start();
+		await emit({ ...summary("running"), updatedAt: 11 });
+		expect((await waitingTask())?.waitingReport).toEqual(waiting);
+	});
+
+	it.each(["failed", "interrupted", "idle", "awaiting_review"] as const)(
+		"clears waiting and moves to Review on session exit/error (%s)",
+		async (state) => {
+			await saveCard("in_progress", [summary("running")], "task-1", undefined, waiting);
+			await service.start();
+			await emit({ ...summary(state), updatedAt: 11, reviewReason: state === "awaiting_review" ? "exit" : "error" });
+			expect((await waitingTask())?.waitingReport).toBeUndefined();
+			expect(
+				(await loadWorkspaceState(workspacePath)).board.columns
+					.find((column) => column.id === "review")
+					?.cards.map((card) => card.id),
+			).toContain("task-1");
+		},
+	);
 
 	describe("blocked report clearing", () => {
 		const reportedTask = async () => {

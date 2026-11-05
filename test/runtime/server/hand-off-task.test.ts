@@ -70,16 +70,19 @@ describe("handOffTask", () => {
 		taskHistory.formatRecentTaskComments.mockReturnValue("");
 	});
 
-	it("handoff clears blockedReport", async () => {
+	it.each(["blockedReport", "waitingReport"])("handoff clears %s", async (field) => {
 		workspaceState.board.columns[2]?.cards.splice(0, 1, {
 			...card("codex"),
-			blockedReport: { question: "A or B?", reportedAt: 1 },
+			[field]:
+				field === "blockedReport"
+					? { question: "A or B?", reportedAt: 1 }
+					: { reason: "Experiment", reportedAt: 1 },
 		});
 
 		const result = await handOffTask(dependencies(), { taskId: "task-1", reason: "Stuck" });
 
 		expect(result.ok).toBe(true);
-		expect(workspaceState.board.columns[1]?.cards[0]).not.toHaveProperty("blockedReport");
+		expect(workspaceState.board.columns[1]?.cards[0]).not.toHaveProperty(field);
 	});
 
 	it("handoff clears agentModel and keeps difficulty", async () => {

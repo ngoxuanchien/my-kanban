@@ -17,6 +17,7 @@ Update this file whenever a file or folder is created or moved.
 | `scripts/` | Build / dev / dogfood scripts. |
 | `docs/` | Public docs: `architecture.md`, `smoke-tests/`. |
 | `docs/superpowers/specs/` | Design specs (`YYYY-MM-DD-<topic>-design.md`). |
+| `docs/superpowers/specs/2026-11-05-waiting-report-design.md` | Waiting reports: task 1 runtime/CLI and PID watcher; task 2 UI/prompts. |
 | `docs/superpowers/plans/` | Implementation plans (`YYYY-MM-DD-<topic>.md`). |
 | `docs/superpowers/specs/2026-10-28-agent-review-design.md` | Superseded (removed 2026-10-29). |
 | `docs/superpowers/specs/2026-10-28-agent-review-live-terminal-design.md` | Superseded (removed 2026-10-29). |

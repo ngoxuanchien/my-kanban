@@ -122,7 +122,7 @@ describe("task report", () => {
 		["an empty question", ["--state", "blocked", "--question", ""], "non-empty --question"],
 		["a whitespace question", ["--state", "blocked", "--question", "   "], "non-empty --question"],
 		["a question over 500 characters", ["--state", "blocked", "--question", "x".repeat(501)], "at most 500"],
-		["another state", ["--state", "ready", "--question", "Q?"], 'Only "blocked"'],
+		["another state", ["--state", "ready", "--question", "Q?"], 'Only "blocked" and "waiting"'],
 	])("rejects %s", async (_name, flags, message) => {
 		const result = JSON.parse(await run(["report", "--task-id", "task-1", ...flags]));
 		expect(result).toMatchObject({ ok: false, error: expect.stringContaining(message) });
@@ -158,5 +158,57 @@ describe("task report", () => {
 		expect(list).toContain("blocked: Use A or B?");
 		const shown = JSON.parse(await run(["show", "--task-id", "task-1"]));
 		expect(shown.task.blockedReport).toMatchObject({ question: "Use A or B?" });
+	});
+	it.each([undefined, "12345"])("sets and shows a waiting report (pid %s)", async (pid) => {
+		const flags = pid ? ["--pid", pid] : [];
+		const result = JSON.parse(
+			await run(["report", "--state", "waiting", "--reason", "  Experiment: 3 hours  ", ...flags], {
+				KANBAN_HOOK_TASK_ID: "task-1",
+			}),
+		);
+		expect(result.ok).toBe(true);
+		expect(blockedCard()?.waitingReport).toEqual({
+			reason: "Experiment: 3 hours",
+			reportedAt: result.reportedAt,
+			...(pid ? { pid: 12345 } : {}),
+		});
+		expect(await run(["list"])).toContain("waiting: Experiment: 3 hours");
+		expect(JSON.parse(await run(["show", "--task-id", "task-1"])).task.waitingReport).toEqual(
+			blockedCard()?.waitingReport,
+		);
+	});
+
+	it.each([
+		[[], "non-empty --reason"],
+		[["--reason", ""], "non-empty --reason"],
+		[["--reason", "   "], "non-empty --reason"],
+		[["--reason", "x".repeat(501)], "at most 500"],
+		...["0", "-1", "1.5", "abc", "Infinity", "9007199254740992"].map((pid) => [
+			["--reason", "Wait", "--pid", pid],
+			"positive integer",
+		]),
+	] as Array<[string[], string]>)("rejects invalid waiting flags %j", async (flags, error) => {
+		const result = JSON.parse(await run(["report", "--state", "waiting", "--task-id", "task-1", ...flags]));
+		expect(result).toMatchObject({ ok: false, error: expect.stringContaining(error) });
+		expect(blockedCard()).not.toHaveProperty("waitingReport");
+	});
+
+	it("accepts 500 reason characters and rejects an unknown waiting task", async () => {
+		expect(
+			JSON.parse(await run(["report", "--state", "waiting", "--task-id", "task-1", "--reason", "x".repeat(500)])).ok,
+		).toBe(true);
+		expect(
+			JSON.parse(await run(["report", "--state", "waiting", "--task-id", "missing", "--reason", "Wait"])),
+		).toMatchObject({ ok: false, error: expect.stringContaining("Task not found: missing") });
+	});
+
+	it("waiting and blocked replace each other", async () => {
+		await run(["report", "--state", "blocked", "--task-id", "task-1", "--question", "Q?"]);
+		await run(["report", "--state", "waiting", "--task-id", "task-1", "--reason", "Wait"]);
+		expect(blockedCard()).not.toHaveProperty("blockedReport");
+		expect(blockedCard()?.waitingReport?.reason).toBe("Wait");
+		await run(["report", "--state", "blocked", "--task-id", "task-1", "--question", "Q?"]);
+		expect(blockedCard()).not.toHaveProperty("waitingReport");
+		expect(blockedCard()?.blockedReport?.question).toBe("Q?");
 	});
 });

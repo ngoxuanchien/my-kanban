@@ -218,6 +218,8 @@ describe("createSidebarReviewService", () => {
 		delete workspaceState.board.columns[0].cards[1].quotaBlockedAt;
 		delete workspaceState.board.columns[0].cards[0].blockedReport;
 		delete workspaceState.board.columns[0].cards[1].blockedReport;
+		delete workspaceState.board.columns[0].cards[0].waitingReport;
+		delete workspaceState.board.columns[0].cards[1].waitingReport;
 		workspaceState.board.columns[0].cards[0].handedOff = false;
 		workspaceState.board.columns[0].cards[1].handedOff = false;
 		workspaceState.board.columns[0].cards[0].handOffCount = 0;
@@ -1646,12 +1648,33 @@ describe("createSidebarReviewService", () => {
 		service.dispose();
 	});
 
-	describe("blocked report", () => {
+	describe.each(["blocked", "waiting"] as const)("%s report", (reportState) => {
 		const settle = async () => await new Promise((resolve) => setTimeout(resolve, 25));
 		const block = () => {
-			workspaceState.board.columns[0].cards[0].blockedReport = { question: "A or B?", reportedAt: 1 };
+			const card = workspaceState.board.columns[0].cards[0];
+			if (reportState === "blocked") card.blockedReport = { question: "A or B?", reportedAt: 1 };
+			else card.waitingReport = { reason: "Experiment", reportedAt: 1 };
 		};
 		const quotaScreen = async () => ({ snapshot: "You’ve hit your usage limit", cols: 80, rows: 24 });
+
+		it("does not restore a waiting review on startup", async () => {
+			block();
+			const { service } = await startUsageLimitTurn({ agentId: "claude", reviewRound: 1, sidebarIdle: true });
+			expect(sendPromptToSession).not.toHaveBeenCalled();
+			service.dispose();
+		});
+
+		it("drops an already queued review before the sidebar becomes idle", async () => {
+			const { listeners, service } = await startUsageLimitTurn({ agentId: "claude" });
+			for (const listener of listeners) listener(summary("task-1", "awaiting_review"));
+			await vi.waitFor(() => expect(workspaceState.board.columns[0].cards[0].reviewRound).toBe(1));
+			block();
+			for (const listener of listeners) listener(summary("__home_agent__:workspace-1:claude", "running"));
+			for (const listener of listeners) listener(summary("__home_agent__:workspace-1:claude", "awaiting_review"));
+			await settle();
+			expect(sendPromptToSession).not.toHaveBeenCalled();
+			service.dispose();
+		});
 
 		it("does not queue a review or count a round on turn end, until the report clears", async () => {
 			block();
@@ -1662,6 +1685,7 @@ describe("createSidebarReviewService", () => {
 			expect(sendPromptToSession).not.toHaveBeenCalled();
 			expect(runGit).not.toHaveBeenCalled();
 			delete card.blockedReport;
+			delete card.waitingReport;
 			for (const listener of listeners) listener(summary("task-1", "running"));
 			for (const listener of listeners) listener(summary("task-1", "awaiting_review"));
 			await vi.waitFor(() => expect(workspaceState.board.columns[0].cards[0].reviewRound).toBe(1));

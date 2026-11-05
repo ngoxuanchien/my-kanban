@@ -11,6 +11,7 @@ import type {
 import { withoutBlockedReport } from "./blocked-report";
 import { createUniqueTaskId } from "./task-id";
 import { resolveTaskTitle } from "./task-title";
+import { withoutWaitingReport } from "./waiting-report";
 
 export interface RuntimeCreateTaskInput {
 	taskId?: string;
@@ -562,7 +563,7 @@ export function moveTaskToColumn(
 		};
 	}
 	const movedTask: RuntimeBoardCard = {
-		...(targetColumnId === "trash" ? withoutBlockedReport(task) : task),
+		...(targetColumnId === "trash" ? withoutWaitingReport(withoutBlockedReport(task)) : task),
 		updatedAt: now,
 	};
 	const targetCards =

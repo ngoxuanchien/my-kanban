@@ -1,8 +1,10 @@
 import type { RuntimeTaskSessionSummary } from "../core/api-contract";
 import { isHomeAgentSessionId } from "../core/home-agent-session";
 import { moveTaskToColumn } from "../core/task-board-mutations";
+import { isTaskWaiting } from "../core/waiting-report";
 import { loadWorkspaceState, mutateWorkspaceState } from "../state/workspace-state";
 import type { TerminalSessionManager } from "../terminal/session-manager";
+import { clearWaitingReportOnSummary } from "./blocked-report-clearing";
 
 interface SessionColumnSyncDependencies {
 	workspaceId: string;
@@ -13,9 +15,10 @@ interface SessionColumnSyncDependencies {
 	warn: (message: string) => void;
 }
 
-interface SessionSummaryEvent {
+export interface SessionSummaryEvent {
 	summary: RuntimeTaskSessionSummary;
 	previous: RuntimeTaskSessionSummary | undefined;
+	waitingReportCleared: boolean;
 }
 
 export function createSessionColumnSync(deps: SessionColumnSyncDependencies) {
@@ -34,7 +37,12 @@ export function createSessionColumnSync(deps: SessionColumnSyncDependencies) {
 			if (
 				!started ||
 				!state.board.columns.some(
-					(column) => column.id === fromColumn && column.cards.some((card) => card.id === summary.taskId),
+					(column) =>
+						column.id === fromColumn &&
+						column.cards.some(
+							(card) =>
+								card.id === summary.taskId && (summary.state !== "awaiting_review" || !isTaskWaiting(card)),
+						),
 				)
 			) {
 				return { board: state.board, value: null, save: false };
@@ -66,8 +74,16 @@ export function createSessionColumnSync(deps: SessionColumnSyncDependencies) {
 				const previous = previousSummaries.get(summary.taskId);
 				if (previous && previous.updatedAt > summary.updatedAt) return;
 				previousSummaries.set(summary.taskId, summary);
+				const waitingReportCleared = await clearWaitingReportOnSummary(
+					deps.workspacePath,
+					{ summary, previous },
+					() => started,
+				);
+				if (waitingReportCleared) {
+					if (started) await deps.onBoardMoved();
+				}
 				if (previous?.state !== summary.state) await moveForSummary(summary);
-				for (const listener of listeners) listener({ summary, previous });
+				for (const listener of listeners) listener({ summary, previous, waitingReportCleared });
 			})
 			.catch((error: unknown) => {
 				deps.warn(
@@ -95,6 +111,11 @@ export function createSessionColumnSync(deps: SessionColumnSyncDependencies) {
 				}
 				for (const summary of previousSummaries.values()) {
 					if (!started) return;
+					if (
+						await clearWaitingReportOnSummary(deps.workspacePath, { summary, previous: undefined }, () => started)
+					) {
+						if (started) await deps.onBoardMoved();
+					}
 					if (summary.state === "awaiting_review") await moveForSummary(summary);
 				}
 			});

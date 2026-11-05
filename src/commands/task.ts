@@ -24,7 +24,7 @@ import {
 	runtimeAgentIdSchema,
 	runtimeClineReasoningEffortSchema,
 } from "../core/api-contract";
-import { BLOCKED_QUESTION_MAX_LENGTH } from "../core/blocked-report";
+import { BLOCKED_QUESTION_MAX_LENGTH, withoutBlockedReport } from "../core/blocked-report";
 import {
 	isRuntimeClaudeModel,
 	type RuntimeClaudeModel,
@@ -45,6 +45,7 @@ import {
 	updateTask,
 } from "../core/task-board-mutations";
 import { createUniqueTaskId } from "../core/task-id";
+import { WAITING_REASON_MAX_LENGTH, withoutWaitingReport } from "../core/waiting-report";
 import { resolveProjectInputPath } from "../projects/project-path";
 import { recordAgentScoreEvent } from "../state/agent-scores";
 import {
@@ -562,6 +563,7 @@ function formatTaskRecord(
 		...(task.agentId ? { agentId: task.agentId } : {}),
 		...(task.claudeModel ? { claudeModel: task.claudeModel } : {}),
 		...(task.blockedReport ? { blockedReport: task.blockedReport } : {}),
+		...(task.waitingReport ? { waitingReport: task.waitingReport } : {}),
 		...formatTaskModelFields(task),
 		...formatTaskClineSettings(task.clineSettings),
 		createdAt: task.createdAt,
@@ -695,6 +697,7 @@ type CompactTaskListRow = {
 	agentReviewEnabled: boolean;
 	difficulty?: TaskDifficulty;
 	blockedQuestion?: string;
+	waitingReason?: string;
 };
 
 function compactTaskList(
@@ -725,6 +728,7 @@ function compactTaskList(
 				agentReviewEnabled: task.agentReviewEnabled === true,
 				...(task.difficulty ? { difficulty: task.difficulty } : {}),
 				...(task.blockedReport ? { blockedQuestion: task.blockedReport.question } : {}),
+				...(task.waitingReport ? { waitingReason: task.waitingReport.reason } : {}),
 			};
 		});
 	});
@@ -762,7 +766,7 @@ function formatTaskListText(list: ReturnType<typeof compactTaskList>): string {
 	};
 	const lines = list.tasks.map((task) => {
 		const round = task.agentReviewEnabled ? `r${task.reviewRound}/${3 * (task.handOffCount + 1)}` : "-";
-		return `${task.id.slice(0, 5).padEnd(widths.id)}  ${task.column.padEnd(widths.column)}  ${(task.agentId ?? "-").padEnd(widths.agent)}  ${round.padEnd(widths.review)}  ${`h${task.handOffCount}`.padEnd(widths.handoff)}  ${(task.session ?? "-").padEnd(widths.session)}  ${task.difficulty ? `d${task.difficulty} ` : ""}${task.title}${task.blockedQuestion ? `  blocked: ${task.blockedQuestion.replace(/\s+/gu, " ")}` : ""}`;
+		return `${task.id.slice(0, 5).padEnd(widths.id)}  ${task.column.padEnd(widths.column)}  ${(task.agentId ?? "-").padEnd(widths.agent)}  ${round.padEnd(widths.review)}  ${`h${task.handOffCount}`.padEnd(widths.handoff)}  ${(task.session ?? "-").padEnd(widths.session)}  ${task.difficulty ? `d${task.difficulty} ` : ""}${task.title}${task.blockedQuestion ? `  blocked: ${task.blockedQuestion.replace(/\s+/gu, " ")}` : ""}${task.waitingReason ? `  waiting: ${task.waitingReason.replace(/\s+/gu, " ")}` : ""}`;
 	});
 	if (list.doneHidden > 0) {
 		lines.push(`(${list.doneHidden} more done not shown; pass --column done or --all)`);
@@ -900,12 +904,21 @@ async function reportTask(input: {
 	taskId?: string;
 	state: string;
 	question?: string;
+	reason?: string;
+	pid?: string;
 }): Promise<JsonRecord> {
-	if (input.state !== "blocked") throw new Error(`Invalid --state "${input.state}". Only "blocked" is supported.`);
-	const question = input.question?.trim() ?? "";
-	if (!question) throw new Error("task report --state blocked requires a non-empty --question.");
-	if (question.length > BLOCKED_QUESTION_MAX_LENGTH) {
-		throw new Error(`--question must be at most ${BLOCKED_QUESTION_MAX_LENGTH} characters.`);
+	if (input.state !== "blocked" && input.state !== "waiting") {
+		throw new Error(`Invalid --state "${input.state}". Only "blocked" and "waiting" are supported.`);
+	}
+	const waiting = input.state === "waiting";
+	const text = (waiting ? input.reason : input.question)?.trim() ?? "";
+	const flag = waiting ? "--reason" : "--question";
+	const maxLength = waiting ? WAITING_REASON_MAX_LENGTH : BLOCKED_QUESTION_MAX_LENGTH;
+	if (!text) throw new Error(`task report --state ${input.state} requires a non-empty ${flag}.`);
+	if (text.length > maxLength) throw new Error(`${flag} must be at most ${maxLength} characters.`);
+	const pid = input.pid === undefined ? undefined : Number(input.pid);
+	if (pid !== undefined && (!Number.isSafeInteger(pid) || pid <= 0)) {
+		throw new Error("--pid must be a positive integer.");
 	}
 	const taskId = input.taskId?.trim() || process.env[KANBAN_HOOK_TASK_ID_ENV]?.trim();
 	if (!taskId) throw new Error("task report requires --task-id or KANBAN_HOOK_TASK_ID.");
@@ -923,7 +936,14 @@ async function reportTask(input: {
 				columns: state.board.columns.map((column) => ({
 					...column,
 					cards: column.cards.map((card) =>
-						card.id === taskId ? { ...card, blockedReport: { question, reportedAt } } : card,
+						card.id !== taskId
+							? card
+							: waiting
+								? {
+										...withoutBlockedReport(card),
+										waitingReport: { reason: text, reportedAt, ...(pid === undefined ? {} : { pid }) },
+									}
+								: { ...withoutWaitingReport(card), blockedReport: { question: text, reportedAt } },
 					),
 				})),
 			},
@@ -931,7 +951,13 @@ async function reportTask(input: {
 		};
 	});
 	if (!found) throw new Error(`Task not found: ${taskId}`);
-	return { ok: true, taskId, state: "blocked", question, reportedAt };
+	return {
+		ok: true,
+		taskId,
+		state: input.state,
+		...(waiting ? { reason: text, ...(pid === undefined ? {} : { pid }) } : { question: text }),
+		reportedAt,
+	};
 }
 
 async function stopTaskRuntimeSession(
@@ -1873,14 +1899,25 @@ export function registerTaskCommand(program: Command): void {
 
 	task
 		.command("report")
-		.description("Report that the task is blocked and needs one decision from the owner.")
-		.requiredOption("--state <state>", "Report state. Only blocked is supported.")
-		.option("--question <text>", "The one concrete question for the owner (max 500 characters).")
+		.description("Report that the task is blocked on an owner decision or waiting on a background job.")
+		.requiredOption("--state <state>", "Report state: blocked or waiting.")
+		.option("--question <text>", "The one concrete question for the owner (blocked, max 500 characters).")
+		.option("--reason <text>", "What the task is waiting for (waiting, max 500 characters).")
+		.option("--pid <pid>", "Background process to watch (positive integer).")
 		.option("--task-id <id>", "Task ID. Defaults to KANBAN_HOOK_TASK_ID in a task session.")
 		.option("--project-path <path>", "Workspace path. Defaults to current directory workspace.")
-		.action(async (options: { state: string; question?: string; taskId?: string; projectPath?: string }) => {
-			await runTaskCommand(() => reportTask({ cwd: process.cwd(), ...options }));
-		});
+		.action(
+			async (options: {
+				state: string;
+				question?: string;
+				reason?: string;
+				pid?: string;
+				taskId?: string;
+				projectPath?: string;
+			}) => {
+				await runTaskCommand(() => reportTask({ cwd: process.cwd(), ...options }));
+			},
+		);
 
 	task
 		.command("create")

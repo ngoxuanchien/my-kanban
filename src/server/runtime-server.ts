@@ -45,6 +45,7 @@ import {
 	loadWorkspaceContextById,
 	loadWorkspaceState,
 } from "../state/workspace-state";
+import { sendPromptToSession } from "../terminal/send-prompt-to-session";
 import type { TerminalSessionManager } from "../terminal/session-manager";
 import { createTerminalWebSocketBridge } from "../terminal/ws-server";
 import { type RuntimeTrpcContext, type RuntimeTrpcWorkspaceScope, runtimeAppRouter } from "../trpc/app-router";
@@ -61,6 +62,7 @@ import { resumeInterruptedTasks } from "./resume-interrupted-tasks";
 import type { RuntimeStateHub } from "./runtime-state-hub";
 import { createSessionColumnSync } from "./session-column-sync";
 import { createSidebarReviewService, type SidebarReviewService } from "./sidebar-review-service";
+import { createWaitingPidWatcher } from "./waiting-pid-watcher";
 import type { WorkspaceRegistry } from "./workspace-registry";
 
 interface DisposeTrackedWorkspaceResult {
@@ -210,16 +212,26 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 		let service = sessionColumnSyncByWorkspaceId.get(workspaceId);
 		if (!service) {
 			const created = (async () => {
+				const terminalManager = await deps.ensureTerminalManagerForWorkspace(workspaceId, workspacePath);
+				const clineService = await getOrCreateClineTaskSessionService({ workspaceId, workspacePath });
+				const broadcastStateUpdated = async () => {
+					onWorkspaceStateChanged(workspaceId, workspacePath);
+					await deps.runtimeStateHub.broadcastRuntimeProjectsUpdated(workspaceId);
+					await deps.runtimeStateHub.broadcastRuntimeWorkspaceStateUpdated(workspaceId, workspacePath);
+				};
 				const instance = createSessionColumnSync({
 					workspaceId,
 					workspacePath,
-					terminalManager: await deps.ensureTerminalManagerForWorkspace(workspaceId, workspacePath),
-					clineService: await getOrCreateClineTaskSessionService({ workspaceId, workspacePath }),
-					onBoardMoved: async () => {
-						onWorkspaceStateChanged(workspaceId, workspacePath);
-						await deps.runtimeStateHub.broadcastRuntimeProjectsUpdated(workspaceId);
-						await deps.runtimeStateHub.broadcastRuntimeWorkspaceStateUpdated(workspaceId, workspacePath);
-					},
+					terminalManager,
+					clineService,
+					onBoardMoved: broadcastStateUpdated,
+					warn: deps.warn,
+				});
+				const watcher = createWaitingPidWatcher({
+					workspacePath,
+					listSummaries: () => terminalManager.listSummaries(),
+					sendPrompt: (input) => sendPromptToSession({ ...input, terminalManager, clineService }),
+					broadcastStateUpdated,
 					warn: deps.warn,
 				});
 				instance.onSummary((event) => {
@@ -235,7 +247,14 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 						});
 				});
 				await instance.start();
-				return instance;
+				await watcher.start();
+				return {
+					...instance,
+					stop: () => {
+						watcher.stop();
+						instance.stop();
+					},
+				};
 			})();
 			service = created;
 			sessionColumnSyncByWorkspaceId.set(workspaceId, created);
@@ -256,12 +275,13 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 		workspaceId: string,
 		workspacePath: string,
 	): Promise<SidebarReviewService> => {
-		await ensureSessionColumnSync(workspaceId, workspacePath);
+		const sessionColumnSync = await ensureSessionColumnSync(workspaceId, workspacePath);
 		let service = sidebarReviewServiceByWorkspaceId.get(workspaceId);
 		if (!service) {
 			const scope = { workspaceId, workspacePath };
 			const created = (async () => {
 				const instance = createSidebarReviewService({
+					onSessionSummary: sessionColumnSync.onSummary,
 					workspaceId,
 					workspacePath,
 					terminalManager: await deps.ensureTerminalManagerForWorkspace(workspaceId, workspacePath),

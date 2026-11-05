@@ -103,6 +103,7 @@ export async function handOffTask(
 						handedOff: _legacyHandedOff,
 						quotaBlockedAt: _quotaBlockedAt,
 						blockedReport: _blockedReport,
+						waitingReport: _waitingReport,
 						agentModel: _agentModel,
 						agentReasoningEffort: _agentReasoningEffort,
 						...updatedCandidate

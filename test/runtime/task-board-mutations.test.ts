@@ -392,22 +392,34 @@ describe("per-task agent/model/provider overrides", () => {
 });
 
 describe("blocked report clearing", () => {
-	it("drops blockedReport when a task moves to trash but keeps it for other moves", () => {
-		const added = addTaskToColumn(createBoard(), "review", { prompt: "A", baseRef: "main" }, () => "aaaaa111");
-		const board: RuntimeBoardData = {
-			...added.board,
-			columns: added.board.columns.map((column) => ({
-				...column,
-				cards: column.cards.map((card) => ({ ...card, blockedReport: { question: "A or B?", reportedAt: 1 } })),
-			})),
-		};
+	it.each(["blockedReport", "waitingReport"] as const)(
+		"drops %s when a task moves to Done/Trash but keeps it for other moves",
+		(field) => {
+			const added = addTaskToColumn(createBoard(), "review", { prompt: "A", baseRef: "main" }, () => "aaaaa111");
+			const board: RuntimeBoardData = {
+				...added.board,
+				columns: added.board.columns.map((column) => ({
+					...column,
+					cards: column.cards.map((card) => ({
+						...card,
+						...(field === "blockedReport"
+							? { blockedReport: { question: "A or B?", reportedAt: 1 } }
+							: { waitingReport: { reason: "Experiment", reportedAt: 1 } }),
+					})),
+				})),
+			};
 
-		const moved = moveTaskToColumn(board, "aaaaa", "in_progress");
-		expect(moved.task?.blockedReport).toEqual({ question: "A or B?", reportedAt: 1 });
-		const trashed = trashTaskAndGetReadyLinkedTaskIds(board, "aaaaa");
-		expect(trashed.task).not.toHaveProperty("blockedReport");
-		const trashCards = trashed.board.columns.find((column) => column.id === "trash")?.cards ?? [];
-		expect(trashCards[0]).not.toHaveProperty("blockedReport");
-		expect(moveTaskToColumn(board, "aaaaa", "trash").task).not.toHaveProperty("blockedReport");
-	});
+			const moved = moveTaskToColumn(board, "aaaaa", "in_progress");
+			expect(moved.task?.[field]).toEqual(
+				field === "blockedReport"
+					? { question: "A or B?", reportedAt: 1 }
+					: { reason: "Experiment", reportedAt: 1 },
+			);
+			const trashed = trashTaskAndGetReadyLinkedTaskIds(board, "aaaaa");
+			expect(trashed.task).not.toHaveProperty(field);
+			const trashCards = trashed.board.columns.find((column) => column.id === "trash")?.cards ?? [];
+			expect(trashCards[0]).not.toHaveProperty(field);
+			expect(moveTaskToColumn(board, "aaaaa", "trash").task).not.toHaveProperty(field);
+		},
+	);
 });
