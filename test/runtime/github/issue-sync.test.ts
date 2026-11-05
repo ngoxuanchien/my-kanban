@@ -379,6 +379,43 @@ describe("reconcileGithubIssues", () => {
 		]);
 		expect(JSON.stringify(calls)).not.toContain(secret);
 	});
+	it("comments only the first time a card enters each column", async () => {
+		await seed({ one: mapped });
+		for (const column of ["in_progress", "review", "in_progress", "review"] as const) {
+			mocks.board.mockResolvedValue(board(column));
+			await reconcile();
+		}
+		expect(calls.filter((args) => args[1] === "comment").map((args) => args[4])).toEqual([
+			"**Agent:** codex\n**Status:** In progress\n\n<!-- kanban-sync -->",
+			"**Agent:** codex\n**Status:** Review\n\n<!-- kanban-sync -->",
+		]);
+		expect(calls.filter((args) => args[1] === "edit")).toHaveLength(4);
+		expect((await readGithubIssueMap(input.workspaceId)).one.commentedColumns).toEqual(["in_progress", "review"]);
+	});
+	it("reopens with a comment even when the card returns to a column already commented", async () => {
+		await seed({
+			one: { ...mapped, syncedColumn: "trash", closed: true, commentedColumns: ["backlog", "review"] },
+		});
+		mocks.board.mockResolvedValue(board("backlog"));
+		await reconcile();
+		expect(calls.filter((args) => args[1] === "comment")).toEqual([
+			[
+				"issue",
+				"comment",
+				"12",
+				"--body",
+				"**Agent:** codex\n**Status:** Reopened, moved to Backlog\n\n<!-- kanban-sync -->",
+			],
+		]);
+		expect(calls).toContainEqual(["issue", "reopen", "12"]);
+		expect((await readGithubIssueMap(input.workspaceId)).one.commentedColumns).toEqual(["backlog"]);
+	});
+	it("keeps commentedColumns when the issue map is saved and read again", async () => {
+		await seed({ one: { ...mapped, commentedColumns: ["review"] } });
+		mocks.board.mockResolvedValue(board("in_progress"));
+		await reconcile();
+		expect((await readGithubIssueMap(input.workspaceId)).one.commentedColumns).toEqual(["review", "in_progress"]);
+	});
 	describe("column move swaps label and comments", () => {
 		it.each<{ name: string; card: Partial<RuntimeBoardCard>; suffix: string }>([
 			{

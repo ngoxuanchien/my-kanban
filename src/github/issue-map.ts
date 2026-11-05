@@ -22,6 +22,9 @@ export interface GithubIssueEntry {
 	issueNumber?: number;
 	issueUrl?: string;
 	syncedColumn?: RuntimeBoardColumnId;
+	// Columns whose status comment was already posted for this open issue. A move into a listed column
+	// only swaps the label; the comment is noise when the runtime flips the card back and forth.
+	commentedColumns?: RuntimeBoardColumnId[];
 	closed?: boolean;
 	summary?: string;
 	syncedSummary?: string;
@@ -53,6 +56,7 @@ const issueMapSchema = z.record(
 		issueNumber: z.number().int().positive().optional(),
 		issueUrl: z.string().url().optional(),
 		syncedColumn: runtimeBoardColumnIdSchema.optional(),
+		commentedColumns: z.array(runtimeBoardColumnIdSchema).optional(),
 		closed: z.boolean().optional(),
 		summary: z.string().optional(),
 		syncedSummary: z.string().optional(),

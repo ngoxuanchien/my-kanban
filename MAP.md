@@ -96,6 +96,7 @@ Update this file whenever a file or folder is created or moved.
 | `docs/superpowers/specs/2026-11-04-needs-owner-label-design.md` | Spec: Review cards labeled "Needs you" / "Sidebar" (Sidebar only when the runtime will act); owner cards and approval waits sorted first. |
 | `docs/superpowers/specs/2026-11-04-runtime-column-sync-design.md` | Spec: runtime (not the UI) moves cards In Progress ↔ Review on session state transitions. |
 | `docs/superpowers/specs/2026-11-04-blocked-report-design.md` | Spec: `task report --state blocked --question` stores one question on the card; all automation skips it; clears on next run/Done/handoff. |
+| `docs/superpowers/specs/2026-11-05-issue-status-comment-once-design.md` | Spec: post the GitHub status comment only the first time a card enters a column (and on reopen); later label swaps comment nothing. |
 | `docs/superpowers/plans/2026-11-04-dsh-lessons.md` | Plan for the four specs above plus a sidebar scope-check prompt change, split into 6 Kanban tasks (1 → 3, 1 → 4 → 5, 3 + 5 → 6; 2 independent). |
 | `docs/agents/task-prompt-template.md` | Prompt template the planner fills in for every Kanban task. |
 | `.plan/` | Older internal plans, handoffs, investigations (`.plan/docs/`). |

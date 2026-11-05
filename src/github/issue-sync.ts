@@ -347,23 +347,32 @@ export async function reconcileGithubIssues(
 								const prior = entry.syncedColumn && labels[entry.syncedColumn];
 								if (prior && prior !== label) args.push("--remove-label", prior);
 								await gh(args);
-								const agent = entry.closed ? "" : await describeTaskRun(card, config, input.repoPath);
-								await gh([
-									"issue",
-									"comment",
-									number,
-									"--body",
-									formatStatusComment(
-										agent || card.agentId || "unknown",
-										entry.closed ? `Reopened, moved to ${titles[column.id]}` : titles[column.id],
-									),
-								]);
+								// The label already shows the current column, so the runtime's In progress ↔ Review flips
+								// only comment the first time in each column (and on reopen); later moves just swap the label.
+								const commentedColumns = entry.commentedColumns ?? [];
+								const comment = entry.closed || !commentedColumns.includes(column.id);
+								if (comment) {
+									const agent = entry.closed ? "" : await describeTaskRun(card, config, input.repoPath);
+									await gh([
+										"issue",
+										"comment",
+										number,
+										"--body",
+										formatStatusComment(
+											agent || card.agentId || "unknown",
+											entry.closed ? `Reopened, moved to ${titles[column.id]}` : titles[column.id],
+										),
+									]);
+								}
 								map[card.id] = {
 									...entry,
 									syncedColumn: column.id,
 									closed: false,
 									doneCommented: false,
 									lastError: undefined,
+									...(comment
+										? { commentedColumns: entry.closed ? [column.id] : [...commentedColumns, column.id] }
+										: {}),
 								};
 								await save();
 								changed = true;
