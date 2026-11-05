@@ -123,7 +123,7 @@ afterEach(() => {
 });
 
 describe("reconcileGithubIssues", () => {
-	it("posts a stored fail then a pass with the latest commit, saving each before later failures", async () => {
+	it("posts a stored fail then a pass as soon as each is stored, saving each before later failures", async () => {
 		const failed = {
 			id: "r1",
 			status: "fail" as const,
@@ -138,7 +138,7 @@ describe("reconcileGithubIssues", () => {
 		expect(comments[0]?.[4]).toContain("Changes Requested");
 		expect(comments[0]?.[4]).toContain("[internal path]");
 		expect(comments[0]?.[4]).not.toContain("/Users/");
-		const entry = (await readGithubIssueMap(input.workspaceId)).one;
+		let entry = (await readGithubIssueMap(input.workspaceId)).one;
 		expect(entry.postedReviewIds).toEqual(["r1"]);
 		await seed({
 			one: {
@@ -149,9 +149,16 @@ describe("reconcileGithubIssues", () => {
 				],
 			},
 		});
-		// A pass is stored before task done records its commit; don't publish it early.
+		// A pass no longer waits for Done; it posts on the next reconcile with no commit.
 		await reconcile();
-		expect(calls.filter((args) => args[1] === "comment")).toHaveLength(1);
+		comments = calls.filter((args) => args[1] === "comment");
+		expect(comments).toHaveLength(2);
+		expect(comments[1]?.[4]).toContain("**Review Status:** Approved");
+		expect(comments[1]?.[4]).not.toContain("**Commit:**");
+		expect(comments[1]?.[4]).toContain("**Reviewer:** claude, model: opus");
+		entry = (await readGithubIssueMap(input.workspaceId)).one;
+		expect(entry.postedReviewIds).toEqual(["r1", "r2"]);
+		expect(entry.doneCommented).toBeFalsy();
 		mocks.board.mockResolvedValue(board("trash"));
 		mocks.history.mockResolvedValue([
 			{ type: "pass", at: 1, commit: "old" },
@@ -168,30 +175,44 @@ describe("reconcileGithubIssues", () => {
 		gh.mockImplementation(runFakeGh);
 		await reconcile();
 		comments = calls.filter((args) => args[1] === "comment");
-		expect(comments).toHaveLength(2);
-		expect(comments[1]?.[4]).toContain("**Review Status:** Approved");
-		expect(comments[1]?.[4]).toContain("**Commit:** full-sha");
-		expect(comments[1]?.[4]).toContain("**Reviewer:** claude, model: opus");
+		expect(comments).toHaveLength(3);
+		expect(comments[2]?.[4]).toContain("**Status:** Done");
+		expect(comments[2]?.[4]).toContain("**Commit:** full-sha");
 		expect(calls.at(-1)?.slice(0, 3)).toEqual(["issue", "close", "12"]);
 		expect((await readGithubIssueMap(input.workspaceId)).one.closed).toBe(true);
 	});
 
-	it("does not reuse an older commit when the latest pass has none", async () => {
+	it("posts a pass in Review without a commit, then one Done comment with the base commit and closes", async () => {
 		await seed({
 			one: {
 				...mapped,
+				syncedColumn: "review",
 				pendingReviews: [
 					{ id: "pass", status: "pass", reviewer: "claude", reviewedAt: "2026-11-04", body: "Review" },
 				],
 			},
 		});
-		mocks.board.mockResolvedValue(board("trash"));
-		mocks.history.mockResolvedValue([
-			{ type: "pass", at: 1, commit: "stale" },
-			{ type: "pass", at: 2 },
-		]);
+		mocks.board.mockResolvedValue(board("review"));
+		mocks.history.mockResolvedValue([{ type: "pass", at: 1, commit: "full-sha" }]);
 		await reconcile();
-		expect(calls.find((args) => args[1] === "comment")?.[4]).not.toContain("**Commit:**");
+		let comments = calls.filter((args) => args[1] === "comment");
+		expect(comments).toHaveLength(1);
+		expect(comments[0]?.[4]).toContain("**Review Status:** Approved");
+		expect(comments[0]?.[4]).not.toContain("**Commit:**");
+		const entry = (await readGithubIssueMap(input.workspaceId)).one;
+		expect(entry.postedReviewIds).toEqual(["pass"]);
+		expect(entry.doneCommented).toBeFalsy();
+
+		mocks.board.mockResolvedValue(board("trash"));
+		await reconcile();
+		comments = calls.filter((args) => args[1] === "comment");
+		expect(comments).toHaveLength(2);
+		expect(comments[1]?.[4]).toContain("**Status:** Done");
+		expect(comments[1]?.[4]).toContain("**Commit:** full-sha");
+		expect(calls.at(-1)).toEqual(["issue", "close", "12", "--reason", "completed"]);
+		const saved = (await readGithubIssueMap(input.workspaceId)).one;
+		expect(saved.postedReviewIds).toEqual(["pass"]);
+		expect(saved.closed).toBe(true);
 	});
 	it("saves each fail comment before the next comment and retries only the unposted review", async () => {
 		const review = { status: "fail" as const, reviewer: "claude", reviewedAt: "2026-11-04", body: "Review" };
@@ -233,7 +254,7 @@ describe("reconcileGithubIssues", () => {
 		expect((await readGithubIssueMap(input.workspaceId)).one.postedReviewIds).toEqual(["first"]);
 	});
 
-	it("posts a later failed round while an earlier approval waits for Done", async () => {
+	it("posts a later failed round right after an earlier approval", async () => {
 		const review = { reviewer: "claude", reviewedAt: "2026-11-04", body: "Review" };
 		await seed({
 			one: {
@@ -245,9 +266,11 @@ describe("reconcileGithubIssues", () => {
 			},
 		});
 		await reconcile();
-		expect((await readGithubIssueMap(input.workspaceId)).one.postedReviewIds).toEqual(["failure"]);
-		expect(calls.filter((args) => args[1] === "comment")).toHaveLength(1);
-		expect(calls.find((args) => args[1] === "comment")?.[4]).toContain("Changes Requested");
+		expect((await readGithubIssueMap(input.workspaceId)).one.postedReviewIds).toEqual(["approval", "failure"]);
+		const comments = calls.filter((args) => args[1] === "comment");
+		expect(comments).toHaveLength(2);
+		expect(comments[0]?.[4]).toContain("**Review Status:** Approved");
+		expect(comments[1]?.[4]).toContain("Changes Requested");
 	});
 
 	it("resolves origin when upstream is also configured", async () => {

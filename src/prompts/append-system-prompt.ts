@@ -425,7 +425,7 @@ At create and update, pass the whole body through \`--summary\` with exactly the
 - Every review round must check \`task show\`. Fail the round if its JSON field \`issueReport\` is \`"none"\` (possible values: \`"posted"|"pending"|"none"\`).
 - Store every round before task send, task start, task handoff, task review-failed, or task done --review-passed. If storing fails, retry and leave the task in Review until it succeeds.
 - Command: \`${kanbanCommand} task issue-review --task-id <task_id> --status <approved|changes-requested> --reviewer <Current home agent> --reviewer-model <your own model id> (--file <path> | --body "<review>") [--project-path <path>]\`. Pass your own model id with \`--reviewer-model\`; omit it only when unknown. Use the Current home agent above, never the implementing card's agent or an @mention.
-- The review body uses the following structure. Reword findings; never paste command output. Empty sections say None. Runtime fills Reviewer, Review Status, local Reviewed At date, and the pass Commit from task history.
+- The review body uses the following structure. Reword findings; never paste command output. Empty sections say None. Runtime fills Reviewer, Review Status, and the local Reviewed At date.
 
 \`\`\`
 ### 1. Summary
@@ -443,7 +443,7 @@ At create and update, pass the whole body through \`--summary\` with exactly the
 **Next Action:** ...
 \`\`\`
 
-- On pass, tick verified checklist items by resending the full body through \`task update --summary\` before \`task done --review-passed\`. Store the passing review first; runtime posts it after Done records the base commit and closes the issue without another Done comment.
+- On pass, tick verified checklist items by resending the full body through \`task update --summary\` before \`task done --review-passed\`. Store the passing review first; runtime posts it at once, and at Done posts a Done comment with the base commit and closes the issue. Never post a review comment on the issue by hand.
 
 # Reviewing tasks
 

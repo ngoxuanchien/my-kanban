@@ -290,18 +290,11 @@ export async function reconcileGithubIssues(
 							}
 							for (const review of entry.pendingReviews ?? []) {
 								if (entry.postedReviewIds?.includes(review.id)) continue;
-								// task done records the base commit after the sidebar stores its passing review.
-								if (review.status === "pass" && column.id !== "trash") continue;
-								const history =
-									review.status === "pass" ? await loadTaskHistory(input.workspaceId, card.id) : [];
-								const commit = history
-									.filter((event) => event.type === "pass")
-									.sort((a, b) => b.at - a.at)[0]?.commit;
-								await gh(["issue", "comment", number, "--body", formatIssueReview(review, commit)]);
+								// A pass has no commit here; the Done comment carries the base commit.
+								await gh(["issue", "comment", number, "--body", formatIssueReview(review)]);
 								entry = {
 									...entry,
 									postedReviewIds: [...(entry.postedReviewIds ?? []), review.id],
-									doneCommented: review.status === "pass" || entry.doneCommented,
 								};
 								map[card.id] = entry;
 								await save();
