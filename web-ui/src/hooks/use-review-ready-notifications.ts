@@ -179,6 +179,7 @@ export function useReviewReadyNotifications({
 			return;
 		}
 		const selection = findCardSelection(board, latestTaskReadyForReview.taskId);
+		if (selection?.card.waitingReport) return;
 		const taskTitle = selection
 			? truncateTaskPromptLabel(selection.card.prompt) || `Task ${latestTaskReadyForReview.taskId}`
 			: `Task ${latestTaskReadyForReview.taskId}`;

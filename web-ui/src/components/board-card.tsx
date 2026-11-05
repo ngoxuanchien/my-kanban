@@ -306,7 +306,10 @@ export function BoardCard({
 	if (rawSessionActivity) {
 		lastSessionActivityRef.current = rawSessionActivity;
 	}
-	const sessionActivity = rawSessionActivity ?? lastSessionActivityRef.current;
+	const sessionActivity =
+		columnId === "in_progress" && card.waitingReport
+			? { dotColor: SESSION_ACTIVITY_COLOR.waiting, text: `Waiting: ${card.waitingReport.reason}` }
+			: (rawSessionActivity ?? lastSessionActivityRef.current);
 	const displayTitle = useMemo(
 		() => normalizePromptForDisplay(card.title) || truncateTaskPromptLabel(card.prompt),
 		[card.prompt, card.title],

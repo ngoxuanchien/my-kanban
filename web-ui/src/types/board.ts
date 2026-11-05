@@ -1,5 +1,6 @@
 import type {
 	RuntimeAgentId,
+	RuntimeBoardCard,
 	RuntimeBoardColumnId,
 	RuntimeClaudeModel,
 	RuntimeTaskAutoReviewMode,
@@ -51,6 +52,7 @@ export interface BoardCard {
 	handedOff?: boolean;
 	quotaBlockedAt?: number;
 	blockedReport?: { question: string; reportedAt: number };
+	waitingReport?: RuntimeBoardCard["waitingReport"];
 	images?: TaskImage[];
 	agentId?: RuntimeAgentId;
 	claudeModel?: RuntimeClaudeModel;

@@ -77,6 +77,15 @@ describe("getCardAttention", () => {
 			getCardAttention({ ...card, blockedReport: { question: "Q?", reportedAt: 1 } }, columnId, summary),
 		).toBeNull();
 	});
+	it.each(["in_progress", "review"] as const)("waiting has no attention or sort priority in %s", (columnId) => {
+		const waiting = { ...card, id: "waiting", waitingReport: { reason: "Experiment", reportedAt: 1 } };
+		expect(getCardAttention(waiting, columnId, summary)).toBeNull();
+		const ordinary = { ...card, id: "ordinary" };
+		const blocked = { ...card, id: "blocked", blockedReport: { question: "Q?", reportedAt: 1 } };
+		expect(
+			sortCardsByAttention([ordinary, waiting, blocked], columnId, { ordinary: summary }).map(({ id }) => id),
+		).toEqual(["blocked", "ordinary", "waiting"]);
+	});
 	it("prioritizes approval activity in In Progress", () => {
 		expect(
 			getCardAttention(card, "in_progress", {

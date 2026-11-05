@@ -82,13 +82,20 @@ import type { RuntimeTrpcContext, RuntimeTrpcWorkspaceScope } from "./app-router
 const warnAgentScoreRecording = console.warn.bind(console);
 
 function appendKanbanNotesFooter(prompt: string, issueSyncEnabled: boolean): string {
-	if (prompt.includes("[Kanban notes]") && (!issueSyncEnabled || prompt.includes(issueReportInstruction())))
+	if (
+		prompt.includes("[Kanban notes]") &&
+		prompt.includes("task report --state waiting") &&
+		(!issueSyncEnabled || prompt.includes(issueReportInstruction()))
+	)
 		return prompt;
 	const command = resolveAppendSystemPromptCommandPrefix();
 	const notes = prompt.includes("[Kanban notes]")
 		? ""
 		: `\n\n---\n[Kanban notes] Record key decisions, progress, and blockers for the next agent with:\n${command} task comment --message "<1-3 lines>"\nComment when you make a non-obvious decision and before you stop with work unfinished. Keep it short; never paste diffs or secrets.\nIf you cannot finish without a decision from the owner, run \`${command} task report --state blocked --question "<one concrete question>"\` and stop. Ask one question only.`;
-	return `${prompt}${notes}${issueSyncEnabled ? `\n\n${issueReportInstruction()}` : ""}`;
+	const waiting = prompt.includes("task report --state waiting")
+		? ""
+		: `\nIf a command will run longer than 10 minutes, start it in the background, then run \`${command} task report --state waiting --reason "<what and how long>" --pid <pid>\` before you end your turn. Kanban wakes you when the process exits.`;
+	return `${prompt}${notes}${waiting}${issueSyncEnabled ? `\n\n${issueReportInstruction()}` : ""}`;
 }
 
 export interface CreateRuntimeApiDependencies {

@@ -8,6 +8,7 @@ export function getCardAttention(
 	columnId: BoardColumnId,
 	summary: RuntimeTaskSessionSummary | undefined,
 ): "owner" | "sidebar" | "approval" | null {
+	if (card.waitingReport) return null;
 	if (card.blockedReport && (columnId === "in_progress" || columnId === "review")) return "owner";
 	if (columnId === "in_progress") {
 		return isPermissionWaitActivity(summary?.latestHookActivity) ? "approval" : null;

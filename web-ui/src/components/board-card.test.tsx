@@ -335,6 +335,23 @@ describe("BoardCard", () => {
 		expect(container.textContent).toContain("Use A or B?");
 	});
 
+	it("shows a truncated waiting activity without Needs you", async () => {
+		await act(async () => {
+			root.render(
+				<BoardCard
+					card={createCard({
+						agentId: "codex",
+						waitingReport: { reason: "Experiment, about 3 hours", reportedAt: 1 },
+					})}
+					index={0}
+					columnId="in_progress"
+				/>,
+			);
+		});
+		expect(container.textContent).not.toContain("Needs you");
+		expect(container.querySelector("p.truncate")?.textContent).toBe("Waiting: Experiment, about 3 hours");
+	});
+
 	it("shows handoff and extended review state on the agent line", async () => {
 		await act(async () => {
 			root.render(

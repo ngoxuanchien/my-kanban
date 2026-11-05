@@ -23,6 +23,7 @@ import {
 	type TaskImage,
 } from "@/types";
 import { runtimeTaskDifficultySchema, type TaskDifficulty } from "../../../src/core/agent-model";
+import { runtimeBoardCardSchema } from "../../../src/core/api-contract";
 
 export interface TaskDraft {
 	title?: string;
@@ -186,6 +187,7 @@ function normalizeCard(rawCard: unknown): BoardCard | null {
 		handedOff?: unknown;
 		quotaBlockedAt?: unknown;
 		blockedReport?: unknown;
+		waitingReport?: unknown;
 		images?: unknown;
 		baseRef?: unknown;
 		agentId?: unknown;
@@ -232,6 +234,8 @@ function normalizeCard(rawCard: unknown): BoardCard | null {
 			? { question: rawBlocked.question, reportedAt: rawBlocked.reportedAt }
 			: undefined;
 
+	const waitingReport = runtimeBoardCardSchema.in.shape.waitingReport.safeParse(card.waitingReport);
+
 	const now = Date.now();
 
 	return {
@@ -258,6 +262,7 @@ function normalizeCard(rawCard: unknown): BoardCard | null {
 			? { quotaBlockedAt: card.quotaBlockedAt }
 			: {}),
 		...(blockedReport ? { blockedReport } : {}),
+		...(waitingReport.success && waitingReport.data ? { waitingReport: waitingReport.data } : {}),
 		images: normalizeTaskImages(card.images),
 		baseRef,
 		...(typeof card.agentId === "string" && card.agentId ? { agentId: card.agentId as RuntimeAgentId } : {}),

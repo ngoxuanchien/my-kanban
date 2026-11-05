@@ -192,6 +192,90 @@ describe("board dependency state", () => {
 		});
 	});
 
+	describe("waitingReport", () => {
+		const waitingReport = { reason: "Experiment, about 3 hours", reportedAt: 5, pid: 123 };
+		const waitingBoard = (card: Record<string, unknown> = {}) => {
+			const board = normalizeBoardData({
+				columns: [
+					{
+						id: "review",
+						cards: [{ id: "task-1", prompt: "Task", baseRef: "main", waitingReport, ...card }],
+					},
+					{ id: "backlog", cards: [] },
+					{ id: "in_progress", cards: [] },
+					{ id: "trash", cards: [] },
+				],
+				dependencies: [],
+			});
+			if (!board) throw new Error("board did not normalize");
+			return board;
+		};
+		const waitingOf = (board: ReturnType<typeof waitingBoard>) =>
+			board.columns.flatMap((column) => column.cards).find((card) => card.id === "task-1")?.waitingReport;
+
+		it("normalizeCard keeps a valid report and drops an invalid one", () => {
+			expect(waitingOf(waitingBoard())).toEqual(waitingReport);
+			expect(waitingOf(waitingBoard({ waitingReport: { reason: "  Experiment  ", reportedAt: 5 } }))).toEqual({
+				reason: "Experiment",
+				reportedAt: 5,
+			});
+			for (const invalid of [
+				{ reason: "   ", reportedAt: 5 },
+				{ reason: "x".repeat(501), reportedAt: 5 },
+				{ reason: "Experiment", reportedAt: 5, pid: 0 },
+				{ reason: "Experiment", reportedAt: 5, pid: 1.5 },
+				{ reason: "Experiment", reportedAt: Number.NaN },
+			]) {
+				expect(waitingOf(waitingBoard({ waitingReport: invalid }))).toBeUndefined();
+			}
+			expect(waitingOf(waitingBoard({ waitingReport: { reason: "", reportedAt: 5 } }))).toBeUndefined();
+			expect(waitingOf(waitingBoard({ waitingReport: { reason: "Q" } }))).toBeUndefined();
+		});
+
+		it("addTaskToColumnWithResult keeps it on existing cards", () => {
+			const result = addTaskToColumnWithResult(waitingBoard(), "backlog", { prompt: "Other", baseRef: "main" });
+			expect(waitingOf(result.board)).toEqual(waitingReport);
+		});
+
+		it("updateTask keeps it", () => {
+			const result = updateTask(waitingBoard(), "task-1", { prompt: "Edited", baseRef: "main" });
+			expect(result.updated).toBe(true);
+			expect(waitingOf(result.board)).toEqual(waitingReport);
+		});
+
+		it("updateTaskTitle keeps it", () => {
+			const result = updateTaskTitle(waitingBoard(), "task-1", "New title");
+			expect(result.updated).toBe(true);
+			expect(waitingOf(result.board)).toEqual(waitingReport);
+		});
+
+		it("applyTaskDetailClineSettingsSelection keeps it", () => {
+			const result = applyTaskDetailClineSettingsSelection(waitingBoard({ agentId: "cline" }), "task-1", {
+				agentId: "cline",
+				clineSettings: { providerId: "p", modelId: "m" },
+			});
+			expect(result.updated).toBe(true);
+			expect(waitingOf(result.board)).toEqual(waitingReport);
+		});
+
+		it("applyTaskDetailClineSettingsChange keeps it", () => {
+			const result = applyTaskDetailClineSettingsChange(
+				waitingBoard({ agentId: "cline" }),
+				"task-1",
+				{ providerId: "p", modelId: "m", reasoningEffort: "" },
+				{},
+			);
+			expect(result.updated).toBe(true);
+			expect(waitingOf(result.board)).toEqual(waitingReport);
+		});
+
+		it("disableTaskAutoReview keeps it", () => {
+			const result = disableTaskAutoReview(waitingBoard(), "task-1");
+			expect(result.updated).toBe(true);
+			expect(waitingOf(result.board)).toEqual(waitingReport);
+		});
+	});
+
 	it("creates tasks when randomUUID is unavailable", () => {
 		vi.stubGlobal("crypto", { randomUUID: undefined });
 

@@ -18,6 +18,8 @@ The planner fills this template in for every Kanban task.
 - <things not to do>
 
 ## When done
+
+If a command will run longer than 10 minutes, start it in the background, then run `<kanban prefix> task report --state waiting --reason "<what and how long>" --pid <pid>` before you end your turn. Kanban wakes you when the process exits.
 Run every acceptance command yourself and paste the output in your last message.
 If you cannot finish without a decision from the owner, run `<kanban prefix> task report --state blocked --question "<one concrete question>"` and stop. Ask one question only.
 If you made a decision others need later, record it with the memory tool in contexte/<topic>.md.

@@ -143,6 +143,45 @@ describe("useReviewReadyNotifications", () => {
 		expect(notification).toHaveBeenCalledExactlyOnceWith(title, expect.objectContaining({ body }));
 	});
 
+	it("suppresses notifications and the unread badge for waiting cards", () => {
+		const board: BoardData = {
+			columns: [
+				{
+					id: "in_progress",
+					title: "In progress",
+					cards: [
+						{
+							id: "task-1",
+							title: "Task",
+							prompt: "Task",
+							baseRef: "main",
+							startInPlanMode: false,
+							createdAt: 1,
+							updatedAt: 1,
+							waitingReport: { reason: "Experiment", reportedAt: 1 },
+						},
+					],
+				},
+			],
+			dependencies: [],
+		};
+		act(() =>
+			root.render(
+				<Harness
+					board={board}
+					message={{
+						type: "task_ready_for_review",
+						workspaceId: "workspace-1",
+						taskId: "task-1",
+						triggeredAt: 2,
+					}}
+				/>,
+			),
+		);
+		expect(notification).not.toHaveBeenCalled();
+		expect(document.title).toBe("my-kanban");
+	});
+
 	it.each(["disabled", "visible", "peer"])("keeps permission notifications gated when %s", (gate) => {
 		if (gate === "visible") {
 			vi.mocked(document.hasFocus).mockReturnValue(true);

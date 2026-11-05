@@ -188,6 +188,15 @@ describe("renderAppendSystemPrompt", () => {
 		expect(reviewing).toContain("question to the user in one chat line");
 	});
 
+	it("documents waiting reports and excludes them from review", () => {
+		const rendered = renderAppendSystemPrompt("kanban");
+		expect(rendered).toContain('kanban task report --state waiting --reason "<what and how long>" [--pid <pid>]');
+		const reviewing = rendered.slice(rendered.indexOf("# Reviewing tasks"));
+		expect(reviewing).toContain("waitingReport");
+		expect(reviewing).toContain("do not review it");
+		expect(reviewing).toContain("reason to the user in one chat line");
+	});
+
 	it("defaults task creation to the handoff agent cycle", () => {
 		const rendered = renderAppendSystemPrompt("kanban");
 		const workflowNotes = rendered.slice(rendered.indexOf("# Workflow Notes"), rendered.indexOf("# Reviewing tasks"));

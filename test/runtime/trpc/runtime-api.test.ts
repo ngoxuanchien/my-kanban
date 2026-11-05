@@ -531,6 +531,9 @@ describe("createRuntimeApi startTaskSession", () => {
 			"[Kanban notes] Record key decisions, progress, and blockers for the next agent with:",
 		);
 		expect(startedPrompt?.match(/\[Kanban notes\]/gu)).toHaveLength(1);
+		expect(startedPrompt).toContain('task report --state waiting --reason "<what and how long>" --pid <pid>');
+		expect(startedPrompt).toContain("If a command will run longer than 10 minutes");
+		expect(startedPrompt).toContain("Kanban wakes you when the process exits.");
 		expect(startedPrompt).toContain(".kanban-issue-report.md");
 		loadScopedRuntimeConfig.mockResolvedValue(createRuntimeConfigState());
 		await api.startTaskSession(
@@ -538,6 +541,17 @@ describe("createRuntimeApi startTaskSession", () => {
 			{ taskId: "task-1", baseRef: "main", prompt: "Continue with sync disabled" },
 		);
 		expect(terminalManager.startTaskSession.mock.calls[1]?.[0].prompt).not.toContain(".kanban-issue-report.md");
+		await api.startTaskSession(
+			{ workspaceId: "workspace-1", workspacePath: "/tmp/repo" },
+			{ taskId: "task-1", baseRef: "main", prompt: "Continue\n[Kanban notes] Existing notes" },
+		);
+		const existingNotesPrompt = terminalManager.startTaskSession.mock.calls[2]?.[0].prompt;
+		expect(existingNotesPrompt).toContain('task report --state waiting --reason "<what and how long>" --pid <pid>');
+		await api.startTaskSession(
+			{ workspaceId: "workspace-1", workspacePath: "/tmp/repo" },
+			{ taskId: "task-1", baseRef: "main", prompt: existingNotesPrompt },
+		);
+		expect(terminalManager.startTaskSession.mock.calls[3]?.[0].prompt).toBe(existingNotesPrompt);
 	});
 
 	it("does not append the Kanban notes footer to an empty task prompt", async () => {
