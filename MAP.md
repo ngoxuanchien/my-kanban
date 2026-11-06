@@ -20,6 +20,7 @@ Update this file whenever a file or folder is created or moved.
 | `docs/superpowers/specs/2026-11-05-waiting-report-design.md` | Waiting reports: task 1 runtime/CLI and PID watcher; task 2 UI/prompts. |
 | `docs/superpowers/specs/2026-11-05-post-pass-review-at-once-design.md` | Spec: issue sync posts the stored pass review at once (not at Done); Done comment carries the commit. |
 | `docs/superpowers/specs/2026-11-06-handoff-fail-score-model-design.md` | Spec: handoff fail score records `codex:<model>` from the session record, not plain `codex` (1 Kanban task, no separate plan). |
+| `docs/superpowers/specs/2026-11-06-no-changes-expected-design.md` | Spec: `--no-changes-expected` task flag skips the empty-worktree nudge for research/spike tasks; sidebar passes them without a commit (1 Kanban task, no separate plan). |
 | `docs/superpowers/plans/2026-11-05-post-pass-review-at-once.md` | Plan for the pass review at once spec (1 Kanban task). |
 | `docs/superpowers/plans/` | Implementation plans (`YYYY-MM-DD-<topic>.md`). |
 | `docs/superpowers/specs/2026-10-28-agent-review-design.md` | Superseded (removed 2026-10-29). |
