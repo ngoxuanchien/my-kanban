@@ -372,27 +372,11 @@ Command:
 - \`--message <text>\` required reason for the handoff.
 - \`--project-path <path>\` optional workspace path. If not already registered in Kanban, it is auto-added for git repos.
 
-## employee list / show / set / rank
-
-Purpose: employees are agent + model pairs with a score, areas of work, and declared tags.
-
-Commands:
-\`${kanbanCommand} employee list [--project-path <path>]\`
-\`${kanbanCommand} employee show --employee <key> [--project-path <path>]\`
-\`${kanbanCommand} employee set --employee <key> [--status active|inactive] [--strong <areas>] [--avoid <areas>] [--notes "<text>"] [--skills <plugin:name,...>] [--mcp <server,...>] [--project-path <path>]\`
-\`${kanbanCommand} employee rank (--area <areas> | --files <paths>) --difficulty <1-5> [--all-agents] [--project-path <path>]\`
-
-- \`--employee <key>\` such as codex:gpt-5, opencode, opus.
-- \`--area\` / \`--files\` / \`--strong\` / \`--avoid\` take comma-separated values.
-- \`--skills\` (names like plugin:name, a trailing * is a prefix) and \`--mcp\` add extras to that employee's lean task-session set; \`show\` prints effectiveSkills and effectiveMcp.
-- \`rank\` prints at most 5 lines: \`<key>  <reason>  --agent-id <id> [--model <model>]\`. It prints \`no data\` when nobody qualifies.
-- \`rank\` lists only ${HAND_OFF_CYCLE.join("/")} employees. Pass \`--all-agents\` only when the user asks for Claude.
-
 # Workflow Notes
 
 - Prefer \`task list\` first when task IDs or dependency IDs are needed.
 - To create multiple linked tasks, create tasks first, then call \`task link\` for each dependency edge.
-- When creating a task and the user did not name an agent, first run \`employee rank --files <the prompt's Files you may change> --difficulty <n>\` and pass the top line's \`--agent-id\` (and \`--model\`). If it prints \`no data\`, use this rotation rule instead: always pass \`--agent-id\`. Rotate through ${HAND_OFF_CYCLE.join(", ")} in that order, starting after the agent of the most recently created task in \`task list\` (start with ${HAND_OFF_CYCLE[0]} if none uses one of them). Use any other agent, such as claude or cline, only when the user asks for it, because only these agents can be handed off when a task gets stuck. Never pick Claude or a model on your own.
+- When creating a task and the user did not name an agent, always pass \`--agent-id\`. Rotate through ${HAND_OFF_CYCLE.join(", ")} in that order, starting after the agent of the most recently created task in \`task list\` (start with ${HAND_OFF_CYCLE[0]} if none uses one of them). Use any other agent, such as claude or cline, only when the user asks for it, because only these agents can be handed off when a task gets stuck. Never pick Claude or a model on your own.
 
 # Task difficulty
 
@@ -405,7 +389,7 @@ Score every task you create:
 
 Rules:
 - Always pass --difficulty on \`task create\`; Kanban picks the model from the difficulty table.
-- Pass --model/--reasoning-effort only when the user names a model or \`employee rank\` suggests one.
+- Pass --model/--reasoning-effort only when the user names a model.
 - Run task models once before creating tasks, to see the live table and available models.
 - Record the score reason as a task comment: \`task comment --task-id <task_id> --message "<one-line reason>"\`.
 

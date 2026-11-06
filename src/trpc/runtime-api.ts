@@ -5,7 +5,7 @@
 
 import { rm } from "node:fs/promises";
 import { homedir } from "node:os";
-import { basename, join } from "node:path";
+import { join } from "node:path";
 import { TRPCError } from "@trpc/server";
 import { createClineMcpRuntimeService } from "../cline-sdk/cline-mcp-runtime-service";
 import { createClineMcpSettingsService } from "../cline-sdk/cline-mcp-settings-service";
@@ -59,7 +59,6 @@ import {
 } from "../core/api-validation";
 import { isRuntimeClaudeModel, type RuntimeClaudeModel, resolveScoreAgentKey } from "../core/claude-model";
 import { resolveEffectiveTaskAgentId } from "../core/effective-task-agent";
-import { type EffectiveSkillSet, resolveEffectiveSkillSet } from "../core/employee-skill-set";
 import { isHomeAgentSessionId } from "../core/home-agent-session";
 import { resolveTaskTitle } from "../core/task-title.js";
 import { issueReportInstruction } from "../github/issue-report";
@@ -68,10 +67,7 @@ import { openInBrowser } from "../server/browser";
 import { EditorFileLinkError, resolveEditorFileUrl } from "../server/editor-link";
 import { handOffTask as handOffTaskInWorkspace } from "../server/hand-off-task";
 import { recordAgentScoreEvent } from "../state/agent-scores";
-import { loadAgentMcpUsage } from "../state/agent-tool-usage";
 import { readAgentTranscript } from "../state/agent-transcripts";
-import { loadDeclaredEmployees } from "../state/employees";
-import { loadReferenceSkills } from "../state/reference-skills";
 import { loadTaskHistory, recordTaskHistoryEvent } from "../state/task-history";
 import { getTaskWorktreesHomePath, loadWorkspaceBoardById } from "../state/workspace-state";
 import { loadAgentModelCatalog } from "../terminal/agent-model-catalog";
@@ -271,49 +267,6 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 			...(checked.reasoningEffort ? { agentReasoningEffort: checked.reasoningEffort } : {}),
 		};
 	};
-	const MCP_USAGE_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
-	/** The employee's skill set for a lean codex/opencode/antigravity session; undefined launches as before. */
-	const resolveLeanSkillSet = async (
-		workspaceScope: RuntimeTrpcWorkspaceScope,
-		taskId: string,
-		agentId: RuntimeAgentId,
-		agentModel: string | undefined,
-		runtimeConfig: RuntimeConfigState,
-	): Promise<EffectiveSkillSet | undefined> => {
-		if (
-			!runtimeConfig.leanTaskSessionsEnabled ||
-			isHomeAgentSessionId(taskId) ||
-			(agentId !== "codex" && agentId !== "opencode" && agentId !== "antigravity")
-		) {
-			return undefined;
-		}
-		try {
-			const home = homedir();
-			const now = Date.now();
-			const [declared, reference, mcpUsage] = await Promise.all([
-				loadDeclaredEmployees(workspaceScope.workspaceId),
-				loadReferenceSkills({
-					workspaceId: workspaceScope.workspaceId,
-					home,
-					repoName: basename(workspaceScope.workspacePath),
-					now,
-				}),
-				loadAgentMcpUsage({ agentId, home, sinceMs: now - MCP_USAGE_WINDOW_MS }),
-			]);
-			return await resolveEffectiveSkillSet({
-				agentId,
-				model: agentModel ?? null,
-				declared,
-				reference,
-				mcpUsage,
-				home,
-			});
-		} catch (error) {
-			// Fail open: a broken scan must never block a launch, it only loses the token savings.
-			warnAgentScoreRecording("Could not resolve the lean skill set; launching with global skills.", error);
-			return undefined;
-		}
-	};
 	const debugResetTargetPaths = [
 		join(homedir(), ".cline", "data"),
 		join(homedir(), ".cline", "kanban"),
@@ -323,7 +276,6 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 	const buildConfigResponse = (runtimeConfig: RuntimeConfigState) => ({
 		...buildRuntimeConfigResponse(runtimeConfig, clineProviderService.getProviderSettingsSummary()),
 		difficultyModelMap: runtimeConfig.difficultyModelMap,
-		leanTaskSessionsEnabled: runtimeConfig.leanTaskSessionsEnabled,
 	});
 
 	const runHandOffTask = async (
@@ -565,13 +517,6 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 					resolved.agentId,
 					scopedRuntimeConfig,
 				);
-				const leanSkillSet = await resolveLeanSkillSet(
-					workspaceScope,
-					body.taskId,
-					resolved.agentId,
-					launchModel.agentModel,
-					scopedRuntimeConfig,
-				);
 				const summary = await terminalManager.startTaskSession({
 					taskId: body.taskId,
 					agentId: resolved.agentId,
@@ -581,7 +526,6 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 					agentModel: launchModel.agentModel,
 					agentReasoningEffort: launchModel.agentReasoningEffort,
 					autonomousModeEnabled: scopedRuntimeConfig.agentAutonomousModeEnabled,
-					...(leanSkillSet ? { leanSkillSet } : {}),
 					cwd: taskCwd,
 					prompt,
 					images: body.images,

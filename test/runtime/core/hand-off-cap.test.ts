@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { getHandOffCount, getReviewRoundCap, nextEligibleHandOffAgent } from "../../../src/core/hand-off-cap";
+import { getHandOffCount, getReviewRoundCap } from "../../../src/core/hand-off-cap";
 
 describe("hand-off review caps", () => {
 	it.each([
@@ -14,15 +14,5 @@ describe("hand-off review caps", () => {
 
 	it("prefers handOffCount to the legacy flag", () => {
 		expect(getHandOffCount({ handOffCount: 0, handedOff: true })).toBe(0);
-	});
-});
-
-describe("nextEligibleHandOffAgent", () => {
-	it("skips ineligible agents", () => {
-		expect(nextEligibleHandOffAgent("codex", (agent) => agent === "antigravity")).toBe("antigravity");
-	});
-
-	it("falls back to the plain next agent when none is eligible", () => {
-		expect(nextEligibleHandOffAgent("codex", () => false)).toBe("opencode");
 	});
 });

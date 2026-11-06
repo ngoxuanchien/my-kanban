@@ -45,7 +45,6 @@ import type {
 	RuntimeDebugResetAllStateResponse,
 	RuntimeDirectoryListRequest,
 	RuntimeDirectoryListResponse,
-	RuntimeEmployeeProfile,
 	RuntimeFeaturebaseTokenResponse,
 	RuntimeGitCheckoutRequest,
 	RuntimeGitCheckoutResponse,
@@ -159,7 +158,6 @@ import {
 	runtimeDebugResetAllStateResponseSchema,
 	runtimeDirectoryListRequestSchema,
 	runtimeDirectoryListResponseSchema,
-	runtimeEmployeeProfileSchema,
 	runtimeFeaturebaseTokenResponseSchema,
 	runtimeGitCheckoutRequestSchema,
 	runtimeGitCheckoutResponseSchema,
@@ -237,7 +235,7 @@ import { resolveScoreAgentKey } from "../core/claude-model";
 import type { GithubIssueSyncResult } from "../github/issue-sync";
 import { recordAgentScoreEvent } from "../state/agent-scores";
 import { recordTaskHistoryEvent } from "../state/task-history";
-import { loadWorkspaceBoardById, loadWorkspaceState } from "../state/workspace-state";
+import { loadWorkspaceBoardById } from "../state/workspace-state";
 
 const warnAgentScoreRecording = console.warn.bind(console);
 
@@ -398,10 +396,6 @@ export interface RuntimeTrpcContext {
 		) => Promise<{ ok: true }>;
 		syncGithubIssues: (scope: RuntimeTrpcWorkspaceScope) => Promise<GithubIssueSyncResult>;
 		getGithubIssues: (scope: RuntimeTrpcWorkspaceScope) => Promise<RuntimeGithubIssuesResponse>;
-		getEmployeeProfile: (
-			scope: RuntimeTrpcWorkspaceScope,
-			input: { key: string },
-		) => Promise<RuntimeEmployeeProfile | null>;
 		loadGitSummary: (
 			scope: RuntimeTrpcWorkspaceScope,
 			input: RuntimeTaskWorkspaceInfoRequest | null,
@@ -592,10 +586,7 @@ export const runtimeAppRouter = t.router({
 			.output(runtimeTaskHandOffResponseSchema)
 			.mutation(async ({ ctx, input }) => {
 				let reviewRound: number | null = null;
-				let sessionAgentModel: string | null = null;
 				try {
-					const state = await loadWorkspaceState(ctx.workspaceScope.workspacePath);
-					sessionAgentModel = state.sessions[input.taskId]?.agentModel ?? null;
 					const board = await loadWorkspaceBoardById(ctx.workspaceScope.workspaceId);
 					const card = board.columns
 						.find((column) => column.id === "review")
@@ -614,10 +605,7 @@ export const runtimeAppRouter = t.router({
 							if (
 								await recordAgentScoreEvent(ctx.workspaceScope.workspaceId, {
 									type: "fail",
-									agentId: resolveScoreAgentKey({
-										agentId: result.fromAgentId,
-										sessionAgentModel,
-									}),
+									agentId: resolveScoreAgentKey({ agentId: result.fromAgentId }),
 									taskId: input.taskId,
 									round: reviewRound,
 								})
@@ -810,10 +798,6 @@ export const runtimeAppRouter = t.router({
 		getGithubIssues: workspaceProcedure
 			.output(runtimeGithubIssuesResponseSchema)
 			.query(async ({ ctx }) => await ctx.workspaceApi.getGithubIssues(ctx.workspaceScope)),
-		getEmployeeProfile: workspaceProcedure
-			.input(z.object({ key: z.string().min(1) }))
-			.output(runtimeEmployeeProfileSchema.nullable())
-			.query(async ({ ctx, input }) => await ctx.workspaceApi.getEmployeeProfile(ctx.workspaceScope, input)),
 		getGitSummary: workspaceProcedure
 			.input(optionalTaskWorkspaceInfoRequestSchema)
 			.output(runtimeGitSummaryResponseSchema)

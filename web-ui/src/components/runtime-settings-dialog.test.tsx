@@ -286,26 +286,6 @@ describe("RuntimeSettingsDialog", () => {
 		expect(saveRuntimeConfigMock).toHaveBeenCalledWith(expect.objectContaining({ claudeDefaultModel: "haiku" }));
 	});
 
-	it("saves leanTaskSessionsEnabled false when the Lean task sessions switch is turned off", async () => {
-		await act(async () => {
-			root.render(
-				<RuntimeSettingsDialog
-					open={true}
-					workspaceId="workspace-1"
-					initialConfig={savedClineOauthConfig}
-					onOpenChange={() => {}}
-				/>,
-			);
-		});
-		const toggle = findButtonByAriaLabel(document.body, "Lean task sessions");
-		expect(toggle?.getAttribute("aria-checked")).toBe("true");
-		await act(async () => toggle?.click());
-		expect(toggle?.getAttribute("aria-checked")).toBe("false");
-		await act(async () => findButtonByText(document.body, "Save")?.click());
-
-		expect(saveRuntimeConfigMock).toHaveBeenCalledWith(expect.objectContaining({ leanTaskSessionsEnabled: false }));
-	});
-
 	async function renderWithGithubSync(enabled: boolean, onSaved?: () => void): Promise<void> {
 		await act(async () => {
 			root.render(

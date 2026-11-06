@@ -19,7 +19,6 @@ export interface UseRuntimeConfigResult {
 		claudeDefaultModel?: RuntimeClaudeModel;
 		selectedShortcutLabel?: string | null;
 		agentAutonomousModeEnabled?: boolean;
-		leanTaskSessionsEnabled?: boolean;
 		shortcuts?: RuntimeProjectShortcut[];
 		readyForReviewNotificationsEnabled?: boolean;
 		commitPromptTemplate?: string;
@@ -87,7 +86,6 @@ export function useRuntimeConfig(
 			selectedAgentId?: RuntimeAgentId;
 			selectedShortcutLabel?: string | null;
 			agentAutonomousModeEnabled?: boolean;
-			leanTaskSessionsEnabled?: boolean;
 			shortcuts?: RuntimeProjectShortcut[];
 			readyForReviewNotificationsEnabled?: boolean;
 			commitPromptTemplate?: string;

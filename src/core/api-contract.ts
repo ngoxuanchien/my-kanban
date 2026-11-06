@@ -405,19 +405,6 @@ export const runtimeAgentScoreSchema = z.object({
 });
 export type RuntimeAgentScore = z.infer<typeof runtimeAgentScoreSchema>;
 
-export const runtimeEmployeeProfileSchema = z.object({
-	key: z.string(),
-	agentId: z.string(),
-	model: z.string().nullable(),
-	status: z.enum(["active", "inactive"]),
-	strong: z.array(z.string()),
-	avoid: z.array(z.string()),
-	notes: z.string(),
-	score: runtimeAgentScoreSchema,
-	areas: z.record(z.string(), z.object({ passes: z.number().int().min(0), fails: z.number().int().min(0) })),
-});
-export type RuntimeEmployeeProfile = z.infer<typeof runtimeEmployeeProfileSchema>;
-
 export const runtimeWorkspaceStateResponseSchema = z.object({
 	repoPath: z.string(),
 	statePath: z.string(),
@@ -1087,7 +1074,6 @@ export const runtimeConfigResponseSchema = z.object({
 	selectedAgentId: runtimeAgentIdSchema,
 	selectedShortcutLabel: z.string().nullable(),
 	agentAutonomousModeEnabled: z.boolean(),
-	leanTaskSessionsEnabled: z.boolean().optional(),
 	debugModeEnabled: z.boolean().optional(),
 	effectiveCommand: z.string().nullable(),
 	globalConfigPath: z.string(),
@@ -1111,7 +1097,6 @@ export const runtimeConfigSaveRequestSchema = z.object({
 	selectedAgentId: runtimeAgentIdSchema.optional(),
 	selectedShortcutLabel: z.string().nullable().optional(),
 	agentAutonomousModeEnabled: z.boolean().optional(),
-	leanTaskSessionsEnabled: z.boolean().optional(),
 	shortcuts: z.array(runtimeProjectShortcutSchema).optional(),
 	readyForReviewNotificationsEnabled: z.boolean().optional(),
 	commitPromptTemplate: z.string().optional(),

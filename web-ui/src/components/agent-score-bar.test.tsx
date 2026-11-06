@@ -1,15 +1,9 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { AgentScoreBar } from "@/components/agent-score-bar";
 import { TooltipProvider } from "@/components/ui/tooltip";
-
-const getEmployeeProfileQueryMock = vi.hoisted(() => vi.fn());
-
-vi.mock("@/runtime/trpc-client", () => ({
-	getRuntimeTrpcClient: () => ({ workspace: { getEmployeeProfile: { query: getEmployeeProfileQueryMock } } }),
-}));
 
 describe("AgentScoreBar", () => {
 	let container: HTMLDivElement;
@@ -69,40 +63,6 @@ describe("AgentScoreBar", () => {
 			await new Promise((resolve) => setTimeout(resolve, 450));
 		});
 		expect(document.body.textContent).toContain("6 pass · 2 fail · 6 task");
-	});
-
-	it("opens the employee profile popover from a score entry", async () => {
-		getEmployeeProfileQueryMock.mockResolvedValue({
-			key: "codex",
-			agentId: "codex",
-			model: null,
-			status: "active",
-			strong: ["web-ui"],
-			avoid: [],
-			notes: "",
-			score: { agentId: "codex", score: 1, passes: 1, fails: 0, tasks: 1 },
-			areas: { "web-ui": { passes: 1, fails: 0 } },
-		});
-		await act(async () => {
-			root.render(
-				<TooltipProvider>
-					<AgentScoreBar
-						workspaceId="workspace-1"
-						agentScores={[{ agentId: "codex", score: 1, passes: 1, fails: 0, tasks: 1 }]}
-					/>
-				</TooltipProvider>,
-			);
-		});
-
-		const trigger = container.querySelector<HTMLButtonElement>('[data-testid="agent-score-strip"] button');
-		await act(async () => {
-			trigger?.click();
-		});
-
-		expect(getEmployeeProfileQueryMock).toHaveBeenCalledWith({ key: "codex" });
-		expect(document.body.textContent).toContain("web-ui 1/0");
-		expect(document.body.textContent).toContain("+web-ui");
-		expect(document.body.textContent).toContain("Edit: kanban employee set --employee codex");
 	});
 
 	it.each([undefined, []])("hides the agent score strip when scores are empty", async (agentScores) => {

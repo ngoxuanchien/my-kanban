@@ -378,7 +378,6 @@ export function RuntimeSettingsDialog({
 	const [difficultyModelMap, setDifficultyModelMap] = useState<DifficultyModelMap>(DEFAULT_DIFFICULTY_MODEL_MAP);
 	const { catalogs: modelCatalogs, refresh: refreshModelCatalogs } = useAgentModelCatalogs(open, workspaceId);
 	const [agentAutonomousModeEnabled, setAgentAutonomousModeEnabled] = useState(true);
-	const [leanTaskSessionsEnabled, setLeanTaskSessionsEnabled] = useState(true);
 	const [readyForReviewNotificationsEnabled, setReadyForReviewNotificationsEnabled] = useState(true);
 	const [githubIssueSyncEnabled, setGithubIssueSyncEnabled] = useState(false);
 	const [isGithubIssueSyncSaving, setIsGithubIssueSyncSaving] = useState(false);
@@ -489,7 +488,6 @@ export function RuntimeSettingsDialog({
 	const fallbackAgentId = firstInstalledAgentId ?? displayedAgents[0]?.id ?? "claude";
 	const initialSelectedAgentId = configuredAgentId ?? fallbackAgentId;
 	const initialAgentAutonomousModeEnabled = config?.agentAutonomousModeEnabled ?? true;
-	const initialLeanTaskSessionsEnabled = config?.leanTaskSessionsEnabled ?? true;
 	const initialClaudeDefaultModel = config?.claudeDefaultModel ?? "opus";
 	const initialDifficultyModelMap = config?.difficultyModelMap ?? DEFAULT_DIFFICULTY_MODEL_MAP;
 	const initialReadyForReviewNotificationsEnabled = config?.readyForReviewNotificationsEnabled ?? true;
@@ -522,9 +520,6 @@ export function RuntimeSettingsDialog({
 			return true;
 		}
 		if (agentAutonomousModeEnabled !== initialAgentAutonomousModeEnabled) {
-			return true;
-		}
-		if (leanTaskSessionsEnabled !== initialLeanTaskSessionsEnabled) {
 			return true;
 		}
 		if (readyForReviewNotificationsEnabled !== initialReadyForReviewNotificationsEnabled) {
@@ -560,8 +555,6 @@ export function RuntimeSettingsDialog({
 		config,
 		draftThemeId,
 		initialAgentAutonomousModeEnabled,
-		initialLeanTaskSessionsEnabled,
-		leanTaskSessionsEnabled,
 		initialClaudeDefaultModel,
 		initialDifficultyModelMap,
 		difficultyModelMap,
@@ -586,7 +579,6 @@ export function RuntimeSettingsDialog({
 		setClaudeDefaultModel(config?.claudeDefaultModel ?? "opus");
 		setDifficultyModelMap(config?.difficultyModelMap ?? DEFAULT_DIFFICULTY_MODEL_MAP);
 		setAgentAutonomousModeEnabled(config?.agentAutonomousModeEnabled ?? true);
-		setLeanTaskSessionsEnabled(config?.leanTaskSessionsEnabled ?? true);
 		setReadyForReviewNotificationsEnabled(config?.readyForReviewNotificationsEnabled ?? true);
 		setGithubIssueSyncEnabled(config?.githubIssueSyncEnabled ?? false);
 		setShortcuts(config?.shortcuts ?? []);
@@ -597,7 +589,6 @@ export function RuntimeSettingsDialog({
 		config?.agentAutonomousModeEnabled,
 		config?.claudeDefaultModel,
 		config?.difficultyModelMap,
-		config?.leanTaskSessionsEnabled,
 		config?.commitPromptTemplate,
 		config?.githubIssueSyncEnabled,
 		config?.openPrPromptTemplate,
@@ -778,7 +769,6 @@ export function RuntimeSettingsDialog({
 			claudeDefaultModel,
 			difficultyModelMap,
 			agentAutonomousModeEnabled,
-			leanTaskSessionsEnabled,
 			readyForReviewNotificationsEnabled,
 			shortcuts,
 			commitPromptTemplate,
@@ -891,22 +881,6 @@ export function RuntimeSettingsDialog({
 						</label>
 						<p className="text-text-secondary text-[13px] ml-6 mt-0 mb-0">
 							Allows agents to use tools without stopping for permission. Use at your own risk.
-						</p>
-						<div className="flex items-center gap-2 mt-3">
-							<RadixSwitch.Root
-								aria-label="Lean task sessions"
-								checked={leanTaskSessionsEnabled}
-								disabled={controlsDisabled}
-								onCheckedChange={setLeanTaskSessionsEnabled}
-								className="relative h-5 w-9 rounded-full bg-surface-4 data-[state=checked]:bg-accent cursor-pointer disabled:opacity-40"
-							>
-								<RadixSwitch.Thumb className="block h-4 w-4 rounded-full bg-white shadow-sm transition-transform translate-x-0.5 data-[state=checked]:translate-x-[18px]" />
-							</RadixSwitch.Root>
-							<span className="text-[13px] text-text-primary">Lean task sessions</span>
-						</div>
-						<p className="text-text-secondary text-[13px] mt-1 mb-0">
-							Codex, OpenCode and Antigravity tasks get only the skills Claude used here, with other skills,
-							plugins and unused MCP servers off.
 						</p>
 						<label
 							htmlFor="runtime-settings-claude-default-model"

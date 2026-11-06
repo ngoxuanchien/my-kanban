@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
-import { rm } from "node:fs/promises";
+import { readFile, rm } from "node:fs/promises";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { isAbsolute, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
 import type {
@@ -11,25 +11,18 @@ import type {
 	RuntimeTaskImage,
 	RuntimeTaskSessionSummary,
 } from "../core/api-contract";
-import type { EffectiveSkillSet } from "../core/employee-skill-set";
 import { isHomeAgentSessionId } from "../core/home-agent-session";
 import { buildKanbanCommandParts } from "../core/kanban-command";
 import { quoteShellArg } from "../core/shell";
 import { lockedFileSystem } from "../fs/locked-file-system";
 import { resolveHomeAgentAppendSystemPrompt } from "../prompts/append-system-prompt";
 import { getRuntimeHomePath } from "../state/workspace-state";
+import { getGitStdout } from "../workspace/git-utils";
 import { configureCodexHooks, hasCodexConfigOverride } from "./codex-hook-config";
 import { createHookRuntimeEnv } from "./hook-runtime-context";
 import { stripAnsi } from "./output-utils";
 import type { SessionTransitionEvent } from "./session-state-machine";
 import { prepareTaskPromptWithImages } from "./task-image-prompt";
-import {
-	appendGitExcludeLines,
-	buildCodexLeanOverrides,
-	buildOpencodeLeanConfig,
-	deliverTaskSkills,
-	loadCodexLeanInventory,
-} from "./task-skill-delivery";
 
 export interface AgentAdapterLaunchInput {
 	taskId: string;
@@ -47,8 +40,6 @@ export interface AgentAdapterLaunchInput {
 	claudeModel?: RuntimeClaudeModel;
 	agentModel?: string;
 	agentReasoningEffort?: string;
-	/** Lean session: deliver these skills and turn the rest off. Absent = launch exactly as before. */
-	leanSkillSet?: EffectiveSkillSet;
 }
 
 export type AgentOutputTransitionDetector = (
@@ -615,12 +606,6 @@ const codexAdapter: AgentSessionAdapter = {
 		}
 		const launched = readCodexLaunchedModel(codexArgs);
 
-		if (input.leanSkillSet) {
-			await deliverTaskSkills({ cwd: input.cwd, agentId: "codex", skills: input.leanSkillSet.skills });
-			const inventory = await loadCodexLeanInventory(binary ?? "codex", homedir());
-			codexArgs.push(...buildCodexLeanOverrides(inventory, input.leanSkillSet));
-		}
-
 		if (input.autonomousModeEnabled && !hasCliOption(codexArgs, "--dangerously-bypass-approvals-and-sandbox")) {
 			codexArgs.push("--dangerously-bypass-approvals-and-sandbox");
 		}
@@ -772,15 +757,29 @@ const antigravityAdapter: AgentSessionAdapter = {
 		if (input.resumeFromTrash && !hasCliOption(args, "--continue")) {
 			args.push("--continue");
 		}
-		// Delivery only: agy has no per-session skill or MCP switch (spike, contexte/employee-skill-sets.md).
-		if (input.leanSkillSet) {
-			await deliverTaskSkills({ cwd: input.cwd, agentId: "antigravity", skills: input.leanSkillSet.skills });
-		}
 
 		const hooks = resolveHookContext(input);
 		if (hooks) {
 			const hooksDirectory = join(input.cwd, ".agents");
-			await appendGitExcludeLines(input.cwd, [".agents/"]);
+			const excludePath = await getGitStdout(["rev-parse", "--git-path", "info/exclude"], input.cwd);
+			const absoluteExcludePath = isAbsolute(excludePath) ? excludePath : resolve(input.cwd, excludePath);
+			await lockedFileSystem.withLock({ path: absoluteExcludePath }, async () => {
+				const excludeContents = await readFile(absoluteExcludePath, "utf8").catch(
+					(error: NodeJS.ErrnoException) => {
+						if (error.code === "ENOENT") {
+							return "";
+						}
+						throw error;
+					},
+				);
+				if (!excludeContents.split(/\r?\n/u).includes(".agents/")) {
+					await lockedFileSystem.writeTextFileAtomic(
+						absoluteExcludePath,
+						`${excludeContents}${excludeContents && !excludeContents.endsWith("\n") ? "\n" : ""}.agents/\n`,
+						{ lock: null },
+					);
+				}
+			});
 			const hook = (event: string) => ({
 				type: "command",
 				command: buildHooksCommand(["antigravity-hook", "--event", event]),
@@ -869,12 +868,8 @@ const opencodeAdapter: AgentSessionAdapter = {
 		}
 
 		// No --model: OpenCode v2's TUI rejects it (only `opencode run` has it), so a per-task config carries the model.
-		// A lean session also needs its own file: the shared hook config is used by every task and is never changed.
 		let cleanup: (() => Promise<void>) | undefined;
-		if (input.leanSkillSet) {
-			await deliverTaskSkills({ cwd: input.cwd, agentId: "opencode", skills: input.leanSkillSet.skills });
-		}
-		if (input.agentModel || input.leanSkillSet) {
+		if (input.agentModel) {
 			// Unique per launch: a restart's new file cannot be removed by the stopped session's cleanup.
 			const taskConfigPath = join(
 				getHookAgentDirectory("opencode"),
@@ -882,8 +877,7 @@ const opencodeAdapter: AgentSessionAdapter = {
 				`${encodeURIComponent(input.taskId)}-${randomUUID()}.json`,
 			);
 			const plugin = hooks ? [pathToFileURL(join(getHookAgentDirectory("opencode"), "kanban")).href] : [];
-			const lean = input.leanSkillSet ? await buildOpencodeLeanConfig(input.leanSkillSet, homedir()) : {};
-			await ensureTextFile(taskConfigPath, JSON.stringify({ plugin, model: input.agentModel, ...lean }));
+			await ensureTextFile(taskConfigPath, JSON.stringify({ plugin, model: input.agentModel }));
 			env.OPENCODE_CONFIG = taskConfigPath;
 			cleanup = () => rm(taskConfigPath, { force: true });
 		}

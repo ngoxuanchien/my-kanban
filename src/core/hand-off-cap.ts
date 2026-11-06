@@ -12,18 +12,6 @@ export function nextHandOffAgent(agentId: HandOffAgentId): HandOffAgentId {
 	return HAND_OFF_CYCLE[(HAND_OFF_CYCLE.indexOf(agentId) + 1) % HAND_OFF_CYCLE.length] ?? HAND_OFF_CYCLE[0];
 }
 
-export function nextEligibleHandOffAgent(
-	agentId: HandOffAgentId,
-	eligible: (candidate: HandOffAgentId) => boolean,
-): HandOffAgentId {
-	const start = HAND_OFF_CYCLE.indexOf(agentId);
-	for (let step = 1; step < HAND_OFF_CYCLE.length; step += 1) {
-		const candidate = HAND_OFF_CYCLE[(start + step) % HAND_OFF_CYCLE.length];
-		if (candidate && eligible(candidate)) return candidate;
-	}
-	return nextHandOffAgent(agentId);
-}
-
 export function handOffHistory(agentId: HandOffAgentId, handOffCount: number): HandOffAgentId[] {
 	const currentIndex = HAND_OFF_CYCLE.indexOf(agentId);
 	return Array.from(

@@ -1,21 +1,15 @@
 import type { RuntimeBoardCard } from "../core/api-contract";
-import { areasOfFiles, type EmployeeArea } from "../core/employee-areas";
-import { outOfQuotaAgentIds, rankEmployees } from "../core/employee-rank";
 import {
 	getHandOffCount,
-	HAND_OFF_CYCLE,
 	type HandOffAgentId,
 	handOffHistory,
 	isHandOffAgentId,
 	MAX_HAND_OFFS,
-	nextEligibleHandOffAgent,
+	nextHandOffAgent,
 } from "../core/hand-off-cap";
 import { moveTaskToColumn } from "../core/task-board-mutations";
-import { type EmployeeProfile, loadEmployeeProfiles } from "../state/employees";
-import { formatRecentTaskComments, loadTaskHistory, type TaskHistoryEvent } from "../state/task-history";
+import { formatRecentTaskComments, loadTaskHistory } from "../state/task-history";
 import { loadWorkspaceContext, loadWorkspaceState, mutateWorkspaceState } from "../state/workspace-state";
-import { runGit } from "../workspace/git-utils";
-import { resolveTaskCwd } from "../workspace/task-worktree";
 
 export interface HandOffTaskDependencies {
 	workspacePath: string;
@@ -64,45 +58,6 @@ function refusal(card: RuntimeBoardCard | null, quotaRetry = false): string | nu
 	return null;
 }
 
-async function readTaskAreas(workspacePath: string, card: RuntimeBoardCard): Promise<EmployeeArea[]> {
-	try {
-		const cwd = await resolveTaskCwd({ cwd: workspacePath, taskId: card.id, baseRef: card.baseRef });
-		const [changed, untracked] = await Promise.all([
-			runGit(cwd, ["diff", "--name-only", card.baseRef]),
-			runGit(cwd, ["ls-files", "--others", "--exclude-standard"]),
-		]);
-		const files = [changed, untracked]
-			.filter((result) => result.ok)
-			.flatMap((result) => result.stdout.split("\n"))
-			.filter((line) => line.length > 0);
-		return areasOfFiles(files);
-	} catch {
-		return [];
-	}
-}
-
-async function loadProfilesOrEmpty(workspaceId: string, repoPath: string): Promise<EmployeeProfile[]> {
-	try {
-		return await loadEmployeeProfiles({ workspaceId, repoPath });
-	} catch {
-		return [];
-	}
-}
-
-// Agents that really ran, oldest first, read from handoff events. Skipped agents never appear.
-function previousAgentsFromHistory(events: TaskHistoryEvent[], fromAgentId: HandOffAgentId): HandOffAgentId[] | null {
-	const handoffs = events.filter((event) => event.type === "handoff");
-	const first = handoffs[0]?.agentId;
-	if (!isHandOffAgentId(first)) return null;
-	const chain: HandOffAgentId[] = [first];
-	for (const event of handoffs) {
-		const next = event.toAgentId;
-		if (isHandOffAgentId(next) && chain[chain.length - 1] !== next) chain.push(next);
-	}
-	if (chain[chain.length - 1] !== fromAgentId) chain.push(fromAgentId);
-	return chain;
-}
-
 export async function handOffTask(
 	deps: HandOffTaskDependencies,
 	input: { taskId: string; reason: string; quotaRetry?: boolean; expectedFromAgentId?: HandOffAgentId },
@@ -118,28 +73,9 @@ export async function handOffTask(
 
 	const fromAgentId = card.agentId;
 	const handOffCount = getHandOffCount(card);
+	const toAgentId = nextHandOffAgent(fromAgentId);
 	const workspace = await loadWorkspaceContext(deps.workspacePath, { autoCreateIfMissing: false });
-	const history = await loadTaskHistory(workspace.workspaceId, input.taskId);
-	const comments = formatRecentTaskComments(history);
-	const profiles = await loadProfilesOrEmpty(workspace.workspaceId, workspace.repoPath);
-	const ranked = rankEmployees({
-		profiles,
-		areas: await readTaskAreas(deps.workspacePath, card),
-		difficulty: card.difficulty ?? 3,
-		outOfQuota: outOfQuotaAgentIds(state.board, Date.now()),
-		agentIds: [...HAND_OFF_CYCLE],
-	});
-	// An agent with no profiles at all has no data, so it stays eligible.
-	const toAgentId = nextEligibleHandOffAgent(
-		fromAgentId,
-		(candidate) =>
-			ranked.some((employee) => employee.agentId === candidate) ||
-			!profiles.some((profile) => profile.agentId === candidate),
-	);
-	const rankedModel =
-		toAgentId === "codex" || toAgentId === "opencode"
-			? ranked.find((employee) => employee.agentId === toAgentId)?.model
-			: null;
+	const comments = formatRecentTaskComments(await loadTaskHistory(workspace.workspaceId, input.taskId));
 	await deps.stopTaskSession(input.taskId);
 	const mutation = await mutateWorkspaceState<HandOffTaskResult>(deps.workspacePath, (current) => {
 		const currentCard = findCard(current.board, input.taskId);
@@ -172,23 +108,13 @@ export async function handOffTask(
 						agentReasoningEffort: _agentReasoningEffort,
 						...updatedCandidate
 					} = candidate;
-					return {
-						...updatedCandidate,
-						agentId: toAgentId,
-						handOffCount: getHandOffCount(candidate) + 1,
-						...(rankedModel ? { agentModel: rankedModel } : {}),
-					};
+					return { ...updatedCandidate, agentId: toAgentId, handOffCount: getHandOffCount(candidate) + 1 };
 				}),
 			})),
 		};
 		return {
 			board: moveTaskToColumn(updatedBoard, input.taskId, "in_progress").board,
-			value: {
-				ok: true,
-				taskId: input.taskId,
-				fromAgentId,
-				toAgentId,
-			},
+			value: { ok: true, taskId: input.taskId, fromAgentId, toAgentId },
 			save: true,
 		};
 	});
@@ -198,7 +124,7 @@ export async function handOffTask(
 		taskId: input.taskId,
 		prompt: buildHandOffPrompt({
 			originalPrompt: card.prompt,
-			previousAgentIds: previousAgentsFromHistory(history, fromAgentId) ?? handOffHistory(fromAgentId, handOffCount),
+			previousAgentIds: handOffHistory(fromAgentId, handOffCount),
 			baseRef: card.baseRef,
 			reason: input.reason,
 			comments,
@@ -209,5 +135,5 @@ export async function handOffTask(
 	});
 	await deps.broadcastStateUpdated();
 	if (!started.ok) return { ok: false, error: started.error || "Could not start handed-off task session" };
-	return mutation.value;
+	return { ok: true, taskId: input.taskId, fromAgentId, toAgentId };
 }

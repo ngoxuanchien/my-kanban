@@ -23,7 +23,6 @@ function createRuntimeConfigState(overrides: Partial<RuntimeConfigState> = {}): 
 		selectedAgentId: "claude",
 		selectedShortcutLabel: null,
 		agentAutonomousModeEnabled: true,
-		leanTaskSessionsEnabled: true,
 		readyForReviewNotificationsEnabled: true,
 		shortcuts: [],
 		githubIssueSyncEnabled: false,

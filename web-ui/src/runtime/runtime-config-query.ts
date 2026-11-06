@@ -46,7 +46,6 @@ export async function saveRuntimeConfig(
 		claudeDefaultModel?: RuntimeClaudeModel;
 		selectedShortcutLabel?: string | null;
 		agentAutonomousModeEnabled?: boolean;
-		leanTaskSessionsEnabled?: boolean;
 		shortcuts?: RuntimeProjectShortcut[];
 		readyForReviewNotificationsEnabled?: boolean;
 		commitPromptTemplate?: string;
