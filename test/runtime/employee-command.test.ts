@@ -114,6 +114,33 @@ describe("employee command", () => {
 		});
 	});
 
+	it("set --skills makes the skill show up in effectiveSkills for the model employee", async () => {
+		await withRepo(async (repo, workspaceId) => {
+			const skillDir = join(
+				process.env.HOME ?? "",
+				".claude/plugins/cache/market/superpowers/1.0.0/skills/verification-before-completion",
+			);
+			mkdirSync(skillDir, { recursive: true });
+			writeFileSync(join(skillDir, "SKILL.md"), "# skill\n");
+			await recordAgentScoreEvent(workspaceId, { type: "pass", agentId: "codex:gpt-6-luna", taskId: "t1" });
+			const set = await runEmployee(repo, [
+				"set",
+				"--employee",
+				"codex",
+				"--skills",
+				"superpowers:verification-before-completion",
+				"--mcp",
+				"playwright",
+			]);
+			expect(set.exitCode).toBe(0);
+			const show = await runEmployee(repo, ["show", "--employee", "codex:gpt-6-luna"]);
+			expect(show.exitCode).toBe(0);
+			const parsed: { effectiveSkills: string[]; effectiveMcp: string[] | null } = JSON.parse(show.stdout);
+			expect(parsed.effectiveSkills).toContain("verification-before-completion");
+			expect(parsed.effectiveMcp === null || parsed.effectiveMcp.includes("playwright")).toBe(true);
+		});
+	});
+
 	it("rank puts the employee with the best area record first", async () => {
 		await withRepo(async (repo, workspaceId) => {
 			const commit = commitFile(repo, "web-ui/src/a.tsx");

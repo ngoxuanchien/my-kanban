@@ -379,11 +379,12 @@ Purpose: employees are agent + model pairs with a score, areas of work, and decl
 Commands:
 \`${kanbanCommand} employee list [--project-path <path>]\`
 \`${kanbanCommand} employee show --employee <key> [--project-path <path>]\`
-\`${kanbanCommand} employee set --employee <key> [--status active|inactive] [--strong <areas>] [--avoid <areas>] [--notes "<text>"] [--project-path <path>]\`
+\`${kanbanCommand} employee set --employee <key> [--status active|inactive] [--strong <areas>] [--avoid <areas>] [--notes "<text>"] [--skills <plugin:name,...>] [--mcp <server,...>] [--project-path <path>]\`
 \`${kanbanCommand} employee rank (--area <areas> | --files <paths>) --difficulty <1-5> [--all-agents] [--project-path <path>]\`
 
 - \`--employee <key>\` such as codex:gpt-5, opencode, opus.
 - \`--area\` / \`--files\` / \`--strong\` / \`--avoid\` take comma-separated values.
+- \`--skills\` (names like plugin:name, a trailing * is a prefix) and \`--mcp\` add extras to that employee's lean task-session set; \`show\` prints effectiveSkills and effectiveMcp.
 - \`rank\` prints at most 5 lines: \`<key>  <reason>  --agent-id <id> [--model <model>]\`. It prints \`no data\` when nobody qualifies.
 - \`rank\` lists only ${HAND_OFF_CYCLE.join("/")} employees. Pass \`--all-agents\` only when the user asks for Claude.
 

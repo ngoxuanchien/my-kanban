@@ -1,19 +1,31 @@
+import { homedir } from "node:os";
+import { basename } from "node:path";
 import type { Command } from "commander";
 import { areasOfFiles, EMPLOYEE_AREAS, type EmployeeArea, isEmployeeArea } from "../core/employee-areas";
 import { outOfQuotaAgentIds, rankEmployees } from "../core/employee-rank";
+import { resolveEffectiveSkillSet } from "../core/employee-skill-set";
 import { HAND_OFF_CYCLE } from "../core/hand-off-cap";
 import { resolveProjectInputPath } from "../projects/project-path";
+import { loadAgentMcpUsage, loadAgentSkillUsage, type ToolUsageAgentId } from "../state/agent-tool-usage";
 import {
 	type DeclaredEmployee,
 	type EmployeeProfile,
+	loadDeclaredEmployees,
 	loadEmployeeProfiles,
 	updateDeclaredEmployee,
 } from "../state/employees";
+import { loadReferenceSkills } from "../state/reference-skills";
 import { loadWorkspaceBoardById, loadWorkspaceContext } from "../state/workspace-state";
 
 const EMPLOYEE_STATUSES = ["active", "inactive"] as const;
 const NO_DATA_MESSAGE = "no data: use the rotation rule";
 const MAX_RANK_LINES = 5;
+const USAGE_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
+const TOOL_USAGE_AGENTS: readonly string[] = ["codex", "opencode", "antigravity"] satisfies ToolUsageAgentId[];
+
+function isToolUsageAgent(agentId: string): agentId is ToolUsageAgentId {
+	return TOOL_USAGE_AGENTS.includes(agentId);
+}
 
 class EmployeeInputError extends Error {}
 
@@ -82,6 +94,38 @@ function formatProfileLine(profile: EmployeeProfile): string {
 		.join("  ");
 }
 
+/** Effective lean-session skills/MCP and usage for one employee. Only agents with a lean launch have them. */
+async function loadToolSets(
+	context: Awaited<ReturnType<typeof resolveWorkspace>>,
+	profile: EmployeeProfile,
+): Promise<Record<string, unknown>> {
+	if (!isToolUsageAgent(profile.agentId)) return {};
+	const agentId = profile.agentId;
+	const home = homedir();
+	const now = Date.now();
+	const usageInput = { agentId, home, sinceMs: now - USAGE_WINDOW_MS };
+	const [declared, reference, mcpUsage, skillUsage] = await Promise.all([
+		loadDeclaredEmployees(context.workspaceId),
+		loadReferenceSkills({ workspaceId: context.workspaceId, home, repoName: basename(context.repoPath), now }),
+		loadAgentMcpUsage(usageInput),
+		loadAgentSkillUsage(usageInput),
+	]);
+	const effective = await resolveEffectiveSkillSet({
+		agentId,
+		model: profile.model,
+		declared,
+		reference,
+		mcpUsage,
+		home,
+	});
+	return {
+		effectiveSkills: effective.skills.map((skill) => skill.name),
+		effectiveMcp: effective.mcpEnabled,
+		skillUsage: skillUsage ? Object.fromEntries(skillUsage) : null,
+		mcpUsage: mcpUsage ? Object.fromEntries(mcpUsage) : null,
+	};
+}
+
 async function runEmployeeCommand(handler: () => Promise<void>): Promise<void> {
 	try {
 		await handler();
@@ -110,7 +154,7 @@ export function registerEmployeeCommand(program: Command): void {
 
 	employee
 		.command("show")
-		.description("Print one employee profile as JSON.")
+		.description("Print one employee profile as JSON, with effective skills/MCP and their usage.")
 		.requiredOption("--employee <key>", "Employee key, e.g. codex:gpt-5, opencode, opus.")
 		.option("--project-path <path>", projectPathDescription)
 		.action(async (options: ProjectOption & { employee: string }) => {
@@ -120,18 +164,21 @@ export function registerEmployeeCommand(program: Command): void {
 				if (!profile) {
 					throw new EmployeeInputError(`Unknown employee "${options.employee}".`);
 				}
-				process.stdout.write(`${JSON.stringify(profile, null, 2)}\n`);
+				const toolSets = await loadToolSets(context, profile);
+				process.stdout.write(`${JSON.stringify({ ...profile, ...toolSets }, null, 2)}\n`);
 			});
 		});
 
 	employee
 		.command("set")
-		.description("Declare status, strong/avoid areas or notes for an employee.")
+		.description("Declare status, strong/avoid areas, notes, extra skills or MCP servers for an employee.")
 		.requiredOption("--employee <key>", "Employee key, e.g. codex:gpt-5, opencode, opus.")
 		.option("--status <status>", `Status: ${EMPLOYEE_STATUSES.join(" | ")}.`)
 		.option("--strong <areas>", "Comma-separated areas this employee is strong in.")
 		.option("--avoid <areas>", "Comma-separated areas to avoid for this employee.")
 		.option("--notes <text>", "Free-text notes.")
+		.option("--skills <names>", "Comma-separated extra skills (plugin:name, a trailing * is a prefix glob).")
+		.option("--mcp <names>", "Comma-separated extra MCP server names kept on.")
 		.option("--project-path <path>", projectPathDescription)
 		.action(
 			async (
@@ -141,6 +188,8 @@ export function registerEmployeeCommand(program: Command): void {
 					strong?: string;
 					avoid?: string;
 					notes?: string;
+					skills?: string;
+					mcp?: string;
 				},
 			) => {
 				await runEmployeeCommand(async () => {
@@ -150,6 +199,8 @@ export function registerEmployeeCommand(program: Command): void {
 					if (options.strong !== undefined) patch.strong = parseAreas("--strong", options.strong);
 					if (options.avoid !== undefined) patch.avoid = parseAreas("--avoid", options.avoid);
 					if (options.notes !== undefined) patch.notes = options.notes;
+					if (options.skills !== undefined) patch.skills = parseCsv(options.skills);
+					if (options.mcp !== undefined) patch.mcp = parseCsv(options.mcp);
 					const context = await resolveWorkspace(options);
 					const updated = await updateDeclaredEmployee(context.workspaceId, options.employee, patch);
 					process.stdout.write(`${JSON.stringify({ employee: options.employee, ...updated }, null, 2)}\n`);

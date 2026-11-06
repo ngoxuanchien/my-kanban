@@ -174,6 +174,8 @@ describe("renderAppendSystemPrompt", () => {
 	it("documents employee rank and keeps the rotation rule as fallback", () => {
 		const rendered = renderAppendSystemPrompt("kanban");
 		expect(rendered).toContain("employee rank");
+		expect(rendered).toContain("[--skills <plugin:name,...>] [--mcp <server,...>]");
+		expect(rendered).toContain("effectiveSkills");
 		expect(rendered).toContain("Rotate through");
 		expect(rendered).toContain("Pass `--all-agents` only when the user asks for Claude.");
 		expect(rendered).toContain("Never pick Claude or a model on your own.");
