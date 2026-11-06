@@ -8,6 +8,7 @@ import ora, { type Ora } from "ora";
 import packageJson from "../package.json" with { type: "json" };
 import { drainCliOutput } from "./cli-stdout-drain.js";
 import { disposeCliTelemetryService } from "./cline-sdk/cline-telemetry-service.js";
+import { registerEmployeeCommand } from "./commands/employee";
 import { registerHooksCommand } from "./commands/hooks";
 import { registerTaskCommand } from "./commands/task";
 import { loadGlobalRuntimeConfig, loadRuntimeConfig } from "./config/runtime-config";
@@ -656,6 +657,7 @@ function createProgram(invocationArgs: string[]): Command {
 	program.addOption(new Option("--agent <id>", "Deprecated compatibility flag. Ignored.").hideHelp());
 
 	registerTaskCommand(program);
+	registerEmployeeCommand(program);
 	registerHooksCommand(program);
 
 	program
