@@ -19,6 +19,8 @@ Update this file whenever a file or folder is created or moved.
 | `docs/superpowers/specs/` | Design specs (`YYYY-MM-DD-<topic>-design.md`). |
 | `docs/superpowers/specs/2026-11-05-waiting-report-design.md` | Waiting reports: task 1 runtime/CLI and PID watcher; task 2 UI/prompts. |
 | `docs/superpowers/specs/2026-11-05-post-pass-review-at-once-design.md` | Spec: issue sync posts the stored pass review at once (not at Done); Done comment carries the commit. |
+| `docs/superpowers/specs/2026-11-06-employee-profiles-design.md` | Spec part 1/3 "agents as a company": employee (agent + model) profiles with score, derived/declared skills, `employee rank` drives task assignment and handoff model. |
+| `docs/superpowers/plans/2026-11-06-employee-profiles.md` | Plan for the employee profiles spec, split into 4 Kanban tasks (1 → 2, 3, 4). |
 | `docs/superpowers/plans/2026-11-05-post-pass-review-at-once.md` | Plan for the pass review at once spec (1 Kanban task). |
 | `docs/superpowers/plans/` | Implementation plans (`YYYY-MM-DD-<topic>.md`). |
 | `docs/superpowers/specs/2026-10-28-agent-review-design.md` | Superseded (removed 2026-10-29). |
