@@ -82,10 +82,30 @@ describe("declared employees", () => {
 			mkdirSync(getWorkspaceDirectoryPath(WORKSPACE_ID), { recursive: true });
 			writeFileSync(employeesPath(), JSON.stringify({ version: 1, employees: {}, extra: { a: 1 } }));
 			const updated = await updateDeclaredEmployee(WORKSPACE_ID, "codex", { strong: ["web-ui"] });
-			expect(updated).toEqual({ status: "active", strong: ["web-ui"], avoid: [], notes: "" });
+			expect(updated).toEqual({ status: "active", strong: ["web-ui"], avoid: [], notes: "", skills: [], mcp: [] });
 			const raw = JSON.parse(readFileSync(employeesPath(), "utf8")) as Record<string, unknown>;
 			expect(raw.extra).toEqual({ a: 1 });
 			expect((await loadDeclaredEmployees(WORKSPACE_ID)).codex?.strong).toEqual(["web-ui"]);
+		});
+	});
+});
+
+describe("declared skills and mcp", () => {
+	it("keeps skills and mcp like strong and drops non-strings", async () => {
+		await withTemporaryHome(async () => {
+			await updateDeclaredEmployee(WORKSPACE_ID, "codex", {
+				skills: ["superpowers:*", "graphify"],
+				mcp: ["playwright"],
+			});
+			mkdirSync(getWorkspaceDirectoryPath(WORKSPACE_ID), { recursive: true });
+			const raw = JSON.parse(readFileSync(employeesPath(), "utf8")) as { employees: Record<string, unknown> };
+			raw.employees.opencode = { skills: ["a", 3, ""], mcp: "nope" };
+			writeFileSync(employeesPath(), JSON.stringify(raw));
+			const loaded = await loadDeclaredEmployees(WORKSPACE_ID);
+			expect(loaded.codex?.skills).toEqual(["superpowers:*", "graphify"]);
+			expect(loaded.codex?.mcp).toEqual(["playwright"]);
+			expect(loaded.opencode?.skills).toEqual(["a"]);
+			expect(loaded.opencode?.mcp).toEqual([]);
 		});
 	});
 });

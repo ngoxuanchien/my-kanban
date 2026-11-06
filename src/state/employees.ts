@@ -28,6 +28,10 @@ export interface DeclaredEmployee {
 	strong: EmployeeArea[];
 	avoid: EmployeeArea[];
 	notes: string;
+	/** Extra skills for this employee, on top of the reference set. A trailing `*` is a prefix glob. */
+	skills: string[];
+	/** Extra MCP server names kept on for this employee, on top of the ones it used. */
+	mcp: string[];
 }
 
 export interface EmployeeProfile {
@@ -56,6 +60,10 @@ function toAreaList(value: unknown): EmployeeArea[] {
 		: [];
 }
 
+function toStringList(value: unknown): string[] {
+	return Array.isArray(value) ? value.filter((v): v is string => typeof v === "string" && v.length > 0) : [];
+}
+
 function toDeclared(value: unknown): DeclaredEmployee {
 	const raw = isRecord(value) ? value : {};
 	return {
@@ -63,6 +71,8 @@ function toDeclared(value: unknown): DeclaredEmployee {
 		strong: toAreaList(raw.strong),
 		avoid: toAreaList(raw.avoid),
 		notes: typeof raw.notes === "string" ? raw.notes : "",
+		skills: toStringList(raw.skills),
+		mcp: toStringList(raw.mcp),
 	};
 }
 
