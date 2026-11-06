@@ -27,6 +27,7 @@ import {
 } from "../github/issue-map";
 import { readIssueReport } from "../github/issue-report";
 import type { GithubIssueSyncService } from "../github/issue-sync";
+import { loadEmployeeProfiles } from "../state/employees";
 import { deleteTaskHistory } from "../state/task-history";
 import {
 	loadWorkspaceBoardById,
@@ -246,6 +247,10 @@ export function createWorkspaceApi(deps: CreateWorkspaceApiDependencies): Runtim
 		syncGithubIssues: async (scope) => {
 			if (!deps.githubIssueSync) throw new Error("GitHub issue sync service is unavailable.");
 			return await deps.githubIssueSync.syncNow(scope.workspaceId, scope.workspacePath, { pull: true });
+		},
+		getEmployeeProfile: async (scope, { key }) => {
+			const profiles = await loadEmployeeProfiles({ workspaceId: scope.workspaceId, repoPath: scope.workspacePath });
+			return profiles.find((profile) => profile.key === key) ?? null;
 		},
 		getGithubIssues: async (scope) => {
 			const config = await loadRuntimeConfig(scope.workspacePath);

@@ -1130,7 +1130,7 @@ export default function App(): ReactElement {
 							</div>
 						) : null}
 					</div>
-					<AgentScoreBar agentScores={streamedWorkspaceState?.agentScores} />
+					<AgentScoreBar agentScores={streamedWorkspaceState?.agentScores} workspaceId={currentProjectId} />
 				</div>
 				<RuntimeSettingsDialog
 					open={isSettingsOpen}

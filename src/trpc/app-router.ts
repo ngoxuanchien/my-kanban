@@ -45,6 +45,7 @@ import type {
 	RuntimeDebugResetAllStateResponse,
 	RuntimeDirectoryListRequest,
 	RuntimeDirectoryListResponse,
+	RuntimeEmployeeProfile,
 	RuntimeFeaturebaseTokenResponse,
 	RuntimeGitCheckoutRequest,
 	RuntimeGitCheckoutResponse,
@@ -158,6 +159,7 @@ import {
 	runtimeDebugResetAllStateResponseSchema,
 	runtimeDirectoryListRequestSchema,
 	runtimeDirectoryListResponseSchema,
+	runtimeEmployeeProfileSchema,
 	runtimeFeaturebaseTokenResponseSchema,
 	runtimeGitCheckoutRequestSchema,
 	runtimeGitCheckoutResponseSchema,
@@ -396,6 +398,10 @@ export interface RuntimeTrpcContext {
 		) => Promise<{ ok: true }>;
 		syncGithubIssues: (scope: RuntimeTrpcWorkspaceScope) => Promise<GithubIssueSyncResult>;
 		getGithubIssues: (scope: RuntimeTrpcWorkspaceScope) => Promise<RuntimeGithubIssuesResponse>;
+		getEmployeeProfile: (
+			scope: RuntimeTrpcWorkspaceScope,
+			input: { key: string },
+		) => Promise<RuntimeEmployeeProfile | null>;
 		loadGitSummary: (
 			scope: RuntimeTrpcWorkspaceScope,
 			input: RuntimeTaskWorkspaceInfoRequest | null,
@@ -798,6 +804,10 @@ export const runtimeAppRouter = t.router({
 		getGithubIssues: workspaceProcedure
 			.output(runtimeGithubIssuesResponseSchema)
 			.query(async ({ ctx }) => await ctx.workspaceApi.getGithubIssues(ctx.workspaceScope)),
+		getEmployeeProfile: workspaceProcedure
+			.input(z.object({ key: z.string().min(1) }))
+			.output(runtimeEmployeeProfileSchema.nullable())
+			.query(async ({ ctx, input }) => await ctx.workspaceApi.getEmployeeProfile(ctx.workspaceScope, input)),
 		getGitSummary: workspaceProcedure
 			.input(optionalTaskWorkspaceInfoRequestSchema)
 			.output(runtimeGitSummaryResponseSchema)

@@ -27,6 +27,14 @@ vi.mock("../../../src/workspace/get-workspace-changes.js", () => ({
 	getWorkspaceChangesFromRef: workspaceChangesMocks.getWorkspaceChangesFromRef,
 }));
 
+const employeeMocks = vi.hoisted(() => ({
+	loadEmployeeProfiles: vi.fn(),
+}));
+
+vi.mock("../../../src/state/employees.js", () => ({
+	loadEmployeeProfiles: employeeMocks.loadEmployeeProfiles,
+}));
+
 import { createRuntimeStateHub } from "../../../src/server/runtime-state-hub";
 import { createWorkspaceApi } from "../../../src/trpc/workspace-api";
 
@@ -324,6 +332,39 @@ describe("createWorkspaceApi loadChanges", () => {
 		expect(response).toBe(emptyResponse);
 		expect(workspaceChangesMocks.createEmptyWorkspaceChangesResponse).toHaveBeenCalledWith("/tmp/repo");
 		expect(workspaceChangesMocks.getWorkspaceChanges).not.toHaveBeenCalled();
+	});
+});
+
+describe("createWorkspaceApi getEmployeeProfile", () => {
+	const profile = {
+		key: "codex",
+		agentId: "codex",
+		model: null,
+		status: "active" as const,
+		strong: ["web-ui"],
+		avoid: [],
+		notes: "",
+		score: { agentId: "codex", score: 1, passes: 1, fails: 0, tasks: 1 },
+		areas: { "web-ui": { passes: 1, fails: 0 } },
+	};
+
+	it("returns the profile for a known key and null for an unknown key", async () => {
+		employeeMocks.loadEmployeeProfiles.mockResolvedValue([profile]);
+		const api = createWorkspaceApi({
+			ensureTerminalManagerForWorkspace: vi.fn(),
+			getScopedClineTaskSessionService: vi.fn(),
+			broadcastRuntimeWorkspaceStateUpdated: vi.fn(),
+			broadcastRuntimeProjectsUpdated: vi.fn(),
+			buildWorkspaceStateSnapshot: vi.fn(),
+		});
+		const scope = { workspaceId: "workspace-1", workspacePath: "/tmp/repo" };
+
+		expect(await api.getEmployeeProfile(scope, { key: "codex" })).toEqual(profile);
+		expect(await api.getEmployeeProfile(scope, { key: "nobody" })).toBeNull();
+		expect(employeeMocks.loadEmployeeProfiles).toHaveBeenCalledWith({
+			workspaceId: "workspace-1",
+			repoPath: "/tmp/repo",
+		});
 	});
 });
 
