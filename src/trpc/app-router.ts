@@ -237,7 +237,7 @@ import { resolveScoreAgentKey } from "../core/claude-model";
 import type { GithubIssueSyncResult } from "../github/issue-sync";
 import { recordAgentScoreEvent } from "../state/agent-scores";
 import { recordTaskHistoryEvent } from "../state/task-history";
-import { loadWorkspaceBoardById } from "../state/workspace-state";
+import { loadWorkspaceBoardById, loadWorkspaceState } from "../state/workspace-state";
 
 const warnAgentScoreRecording = console.warn.bind(console);
 
@@ -592,7 +592,10 @@ export const runtimeAppRouter = t.router({
 			.output(runtimeTaskHandOffResponseSchema)
 			.mutation(async ({ ctx, input }) => {
 				let reviewRound: number | null = null;
+				let sessionAgentModel: string | null = null;
 				try {
+					const state = await loadWorkspaceState(ctx.workspaceScope.workspacePath);
+					sessionAgentModel = state.sessions[input.taskId]?.agentModel ?? null;
 					const board = await loadWorkspaceBoardById(ctx.workspaceScope.workspaceId);
 					const card = board.columns
 						.find((column) => column.id === "review")
@@ -611,7 +614,10 @@ export const runtimeAppRouter = t.router({
 							if (
 								await recordAgentScoreEvent(ctx.workspaceScope.workspaceId, {
 									type: "fail",
-									agentId: resolveScoreAgentKey({ agentId: result.fromAgentId }),
+									agentId: resolveScoreAgentKey({
+										agentId: result.fromAgentId,
+										sessionAgentModel,
+									}),
 									taskId: input.taskId,
 									round: reviewRound,
 								})

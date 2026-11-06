@@ -32,6 +32,29 @@ vi.mock("../../../src/state/workspace-state", () => ({
 	),
 }));
 vi.mock("../../../src/state/task-history", () => taskHistory);
+const employees = vi.hoisted(() => ({ loadEmployeeProfiles: vi.fn(async () => [] as unknown[]) }));
+vi.mock("../../../src/state/employees", () => employees);
+vi.mock("../../../src/workspace/task-worktree", () => ({
+	resolveTaskCwd: vi.fn(async () => {
+		throw new Error("no worktree in unit tests");
+	}),
+}));
+
+const profile = (key: string, overrides: Record<string, unknown> = {}) => {
+	const [agentId = key, model = null] = key.split(":");
+	return {
+		key,
+		agentId,
+		model,
+		status: "active",
+		strong: [],
+		avoid: [],
+		notes: "",
+		score: { agentId: key, score: 0, passes: 0, fails: 0, tasks: 0 },
+		areas: {},
+		...overrides,
+	};
+};
 
 import { buildHandOffPrompt, type HandOffTaskDependencies, handOffTask } from "../../../src/server/hand-off-task";
 
@@ -68,6 +91,51 @@ describe("handOffTask", () => {
 		];
 		taskHistory.loadTaskHistory.mockResolvedValue([]);
 		taskHistory.formatRecentTaskComments.mockReturnValue("");
+		employees.loadEmployeeProfiles.mockResolvedValue([]);
+	});
+
+	it("skips an agent whose employees are all inactive", async () => {
+		employees.loadEmployeeProfiles.mockResolvedValue([
+			profile("opencode:m1", { status: "inactive" }),
+			profile("antigravity"),
+		]);
+		const deps = dependencies();
+		const result = await handOffTask(deps, { taskId: "task-1", reason: "Stuck" });
+		expect(result).toMatchObject({ ok: true, fromAgentId: "codex", toAgentId: "antigravity" });
+		expect(workspaceState.board.columns[1]?.cards[0]).toMatchObject({ agentId: "antigravity" });
+	});
+
+	it("sets agentModel from the top ranked employee of the next agent", async () => {
+		employees.loadEmployeeProfiles.mockResolvedValue([profile("opencode:m1"), profile("antigravity")]);
+		await handOffTask(dependencies(), { taskId: "task-1", reason: "Stuck" });
+		expect(workspaceState.board.columns[1]?.cards[0]).toMatchObject({ agentId: "opencode", agentModel: "m1" });
+	});
+
+	it("lists the agents that really ran after a skip", async () => {
+		employees.loadEmployeeProfiles.mockResolvedValue([profile("opencode", { status: "inactive" })]);
+		workspaceState.board.columns[2]?.cards.splice(0, 1, { ...card("antigravity"), handOffCount: 1 });
+		taskHistory.loadTaskHistory.mockResolvedValue([
+			{ type: "handoff", agentId: "codex", toAgentId: "antigravity", at: 1 },
+		] as never);
+		const deps = dependencies();
+		await handOffTask(deps, { taskId: "task-1", reason: "Stuck" });
+		expect(deps.startTaskSession).toHaveBeenCalledWith(
+			expect.objectContaining({
+				agentId: "codex",
+				prompt: expect.stringContaining("Other agents (codex, then antigravity) worked"),
+			}),
+		);
+	});
+
+	it("hands off to the plain next agent when every agent is ineligible", async () => {
+		employees.loadEmployeeProfiles.mockResolvedValue([
+			profile("opencode", { status: "inactive" }),
+			profile("antigravity", { status: "inactive" }),
+		]);
+		expect(await handOffTask(dependencies(), { taskId: "task-1", reason: "Stuck" })).toMatchObject({
+			ok: true,
+			toAgentId: "opencode",
+		});
 	});
 
 	it.each(["blockedReport", "waitingReport"])("handoff clears %s", async (field) => {

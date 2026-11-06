@@ -19,6 +19,7 @@ interface HistoryEvent extends Omit<ScoreEvent, "taskId"> {
 const mocks = vi.hoisted(() => ({
 	board: { columns: [] as Array<{ id: string; title: string; cards: unknown[] }> },
 	loadWorkspaceBoardById: vi.fn(),
+	sessions: {} as Record<string, { agentModel?: string | null }>,
 	events: [] as ScoreEvent[],
 	historyEvents: [] as Array<HistoryEvent & { taskId: string }>,
 	recordAgentScoreEvent: vi.fn(async (_workspaceId: string, event: ScoreEvent) => {
@@ -73,6 +74,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("../../src/state/workspace-state", () => ({
 	loadWorkspaceBoardById: mocks.loadWorkspaceBoardById,
+	loadWorkspaceState: vi.fn(async () => ({ sessions: mocks.sessions })),
 }));
 vi.mock("../../src/state/agent-scores", () => ({
 	recordAgentScoreEvent: mocks.recordAgentScoreEvent,
@@ -264,6 +266,7 @@ describe("agent score recording for public review handoffs", () => {
 	beforeEach(() => {
 		mocks.events.splice(0);
 		mocks.historyEvents.splice(0);
+		for (const key of Object.keys(mocks.sessions)) delete mocks.sessions[key];
 		mocks.recordAgentScoreEvent.mockClear();
 		mocks.recordTaskHistoryEvent.mockClear();
 		mocks.notifyStateUpdated.mockReset().mockResolvedValue({ ok: true });
@@ -285,6 +288,18 @@ describe("agent score recording for public review handoffs", () => {
 			{ type: "handoff", agentId: "codex", toAgentId: "opencode", taskId: "task-1", round: 2, detail: "fix it" },
 		]);
 		expect(mocks.notifyStateUpdated).toHaveBeenCalledWith(scope);
+	});
+
+	it("records the handoff fail under the session model key", async () => {
+		mocks.handOffTask.mockResolvedValue({
+			ok: true,
+			taskId: "task-1",
+			fromAgentId: "codex",
+			toAgentId: "opencode",
+		});
+		mocks.sessions["task-1"] = { agentModel: "gpt-5" };
+		await createCaller().runtime.handOffTask({ taskId: "task-1", reason: "fix it" });
+		expect(mocks.events).toEqual([{ type: "fail", agentId: "codex:gpt-5", taskId: "task-1", round: 2 }]);
 	});
 
 	it("task handoff right after task review-failed in the same round keeps one fail with the reason", async () => {
