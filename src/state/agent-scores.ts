@@ -186,8 +186,11 @@ export async function recordAgentScoreEvent(
 	});
 }
 
-export async function loadAgentScores(workspaceId: string): Promise<RuntimeAgentScore[]> {
+export async function loadAgentScoreEvents(workspaceId: string): Promise<AgentScoreEvent[]> {
 	const path = join(getWorkspaceDirectoryPath(workspaceId), AGENT_SCORES_FILENAME);
-	const events = await readAgentScoreEvents(path);
-	return summarizeAgentScoreEvents(events);
+	return await readAgentScoreEvents(path);
+}
+
+export async function loadAgentScores(workspaceId: string): Promise<RuntimeAgentScore[]> {
+	return summarizeAgentScoreEvents(await loadAgentScoreEvents(workspaceId));
 }
