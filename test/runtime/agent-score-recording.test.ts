@@ -18,6 +18,7 @@ interface HistoryEvent extends Omit<ScoreEvent, "taskId"> {
 
 const mocks = vi.hoisted(() => ({
 	board: { columns: [] as Array<{ id: string; title: string; cards: unknown[] }> },
+	workspaceState: { sessions: {} as Record<string, { agentModel?: string }> },
 	loadWorkspaceBoardById: vi.fn(),
 	events: [] as ScoreEvent[],
 	historyEvents: [] as Array<HistoryEvent & { taskId: string }>,
@@ -73,6 +74,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("../../src/state/workspace-state", () => ({
 	loadWorkspaceBoardById: mocks.loadWorkspaceBoardById,
+	loadWorkspaceState: vi.fn(async () => mocks.workspaceState),
 }));
 vi.mock("../../src/state/agent-scores", () => ({
 	recordAgentScoreEvent: mocks.recordAgentScoreEvent,
@@ -267,6 +269,7 @@ describe("agent score recording for public review handoffs", () => {
 		mocks.recordAgentScoreEvent.mockClear();
 		mocks.recordTaskHistoryEvent.mockClear();
 		mocks.notifyStateUpdated.mockReset().mockResolvedValue({ ok: true });
+		mocks.workspaceState.sessions = { "task-1": { agentModel: "gpt-5" } };
 		mocks.handOffTask.mockReset().mockResolvedValue({
 			ok: true,
 			taskId: "task-1",
@@ -279,12 +282,18 @@ describe("agent score recording for public review handoffs", () => {
 	it("records fail with reason and handoff with toAgentId after a successful handoff", async () => {
 		await createCaller().runtime.handOffTask({ taskId: "task-1", reason: "fix it" });
 
-		expect(mocks.events).toEqual([{ type: "fail", agentId: "codex", taskId: "task-1", round: 2 }]);
+		expect(mocks.events).toEqual([{ type: "fail", agentId: "codex:gpt-5", taskId: "task-1", round: 2 }]);
 		expect(mocks.historyEvents).toEqual([
 			{ type: "fail", agentId: "codex", taskId: "task-1", round: 2, detail: "fix it" },
 			{ type: "handoff", agentId: "codex", toAgentId: "opencode", taskId: "task-1", round: 2, detail: "fix it" },
 		]);
 		expect(mocks.notifyStateUpdated).toHaveBeenCalledWith(scope);
+	});
+
+	it("uses the plain agent key when the session record is missing", async () => {
+		mocks.workspaceState.sessions = {};
+		await createCaller().runtime.handOffTask({ taskId: "task-1", reason: "fix it" });
+		expect(mocks.events).toEqual([{ type: "fail", agentId: "codex", taskId: "task-1", round: 2 }]);
 	});
 
 	it("task handoff right after task review-failed in the same round keeps one fail with the reason", async () => {
