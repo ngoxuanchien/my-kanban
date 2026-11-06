@@ -183,7 +183,7 @@ async function queryOpencodeToolCounts(home: string, sinceMs: number): Promise<O
 }
 
 /** Removes `//` and block comments (outside strings) and trailing commas so JSON.parse can read opencode.jsonc. */
-function parseJsonc(text: string): unknown {
+export function parseJsonc(text: string): unknown {
 	let out = "";
 	let inString = false;
 	for (let i = 0; i < text.length; i += 1) {

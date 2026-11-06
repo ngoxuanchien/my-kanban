@@ -98,6 +98,7 @@ export interface StartTaskSessionRequest {
 	claudeModel?: RuntimeClaudeModel;
 	agentModel?: string;
 	agentReasoningEffort?: string;
+	leanSkillSet?: AgentAdapterLaunchInput["leanSkillSet"];
 }
 
 export interface StartShellSessionRequest {
@@ -347,6 +348,7 @@ export class TerminalSessionManager implements TerminalSessionService {
 			agentModel: request.agentModel,
 			agentReasoningEffort: request.agentReasoningEffort,
 			autonomousModeEnabled: request.autonomousModeEnabled,
+			leanSkillSet: request.leanSkillSet,
 			cwd: request.cwd,
 			prompt: request.prompt,
 			images: request.images,

@@ -467,6 +467,44 @@ describe.sequential("runtime-config auto agent selection", () => {
 		}
 	});
 
+	it("defaults lean task sessions to on, persists off, and keeps it across saves that omit it", async () => {
+		const { path: tempHome, cleanup: cleanupHome } = createTempDir("kanban-home-runtime-config-lean-");
+		const { path: tempProject, cleanup: cleanupProject } = createTempDir("kanban-project-runtime-config-lean-");
+
+		try {
+			await withTemporaryEnv({ home: tempHome }, async () => {
+				expect((await loadRuntimeConfig(tempProject)).leanTaskSessionsEnabled).toBe(true);
+
+				const updated = await updateRuntimeConfig(tempProject, { leanTaskSessionsEnabled: false });
+				expect(updated.leanTaskSessionsEnabled).toBe(false);
+				const configPath = join(tempHome, ".cline", "kanban", "config.json");
+				const readPayload = () =>
+					JSON.parse(readFileSync(configPath, "utf8")) as { leanTaskSessionsEnabled?: boolean };
+				expect(readPayload().leanTaskSessionsEnabled).toBe(false);
+
+				// A save path that does not know the setting must not reset it.
+				const saved = await saveRuntimeConfig(tempProject, {
+					selectedAgentId: updated.selectedAgentId,
+					selectedShortcutLabel: null,
+					agentAutonomousModeEnabled: true,
+					readyForReviewNotificationsEnabled: true,
+					shortcuts: [],
+					commitPromptTemplate: updated.commitPromptTemplate,
+					openPrPromptTemplate: updated.openPrPromptTemplate,
+				});
+				expect(saved.leanTaskSessionsEnabled).toBe(false);
+				expect((await loadRuntimeConfig(tempProject)).leanTaskSessionsEnabled).toBe(false);
+
+				await updateRuntimeConfig(tempProject, { leanTaskSessionsEnabled: true });
+				expect(readPayload().leanTaskSessionsEnabled).toBeUndefined();
+				expect((await loadRuntimeConfig(tempProject)).leanTaskSessionsEnabled).toBe(true);
+			});
+		} finally {
+			cleanupProject();
+			cleanupHome();
+		}
+	});
+
 	it("loads legacy reviewerAgent config without exposing the removed setting", async () => {
 		const { path: tempHome, cleanup: cleanupHome } = createTempDir("kanban-home-runtime-config-legacy-reviewer-");
 		const { path: tempProject, cleanup: cleanupProject } = createTempDir(

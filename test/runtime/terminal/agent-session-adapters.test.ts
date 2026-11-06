@@ -1,13 +1,14 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
 import { afterEach, describe, expect, it } from "vitest";
-
+import type { EffectiveSkillSet } from "../../../src/core/employee-skill-set";
 import { createGitProcessEnv } from "../../../src/core/git-process-env";
 import { prepareAgentLaunch } from "../../../src/terminal/agent-session-adapters";
+import { createGitTestEnv } from "../../utilities/git-env";
 
 const originalHome = process.env.HOME;
 const originalAppData = process.env.APPDATA;
@@ -1128,5 +1129,144 @@ describe("prepareAgentLaunch hook strategies", () => {
 			prompt: "",
 		});
 		expect(opencodeLaunch.args).not.toContain("--auto");
+	});
+});
+
+describe("lean task sessions", () => {
+	function createLeanFixture(home: string): { cwd: string; leanSkillSet: EffectiveSkillSet } {
+		const cwd = join(home, "task-worktree");
+		mkdirSync(cwd, { recursive: true });
+		execFileSync("git", ["init", "-q"], { cwd, env: createGitTestEnv() });
+		const skillDir = join(home, "skill-sources", "test-driven-development");
+		mkdirSync(skillDir, { recursive: true });
+		writeFileSync(join(skillDir, "SKILL.md"), "---\nname: test-driven-development\n---\n");
+		return {
+			cwd,
+			leanSkillSet: { skills: [{ name: "test-driven-development", dir: skillDir }], mcpEnabled: ["cua_repl"] },
+		};
+	}
+
+	/** A stand-in `codex` that answers the three inventory commands like Codex 0.166. */
+	function createFakeCodex(home: string): string {
+		const pluginList = JSON.stringify({
+			installed: [
+				{ pluginId: "ponytail@ponytail", installed: true, enabled: true },
+				{ pluginId: "unified-computer-use@openai-bundled", installed: true, enabled: true },
+				{ pluginId: "superpowers@openai-curated-remote", installed: true, enabled: true },
+				{ pluginId: "disabled@market", installed: true, enabled: false },
+			],
+			available: [],
+		});
+		const promptInput = JSON.stringify([
+			{
+				type: "message",
+				content: [
+					{
+						type: "input_text",
+						text: "### Available skills\n- imagegen: Images (file: r2/imagegen/SKILL.md)\n- ponytail:ponytail: Lazy (file: r9/ponytail/SKILL.md)\n",
+					},
+				],
+			},
+		]);
+		const binary = join(home, "fake-codex");
+		writeFileSync(
+			binary,
+			`#!/bin/sh\ncase "$1 $2" in\n"plugin list") cat <<'EOF'\n${pluginList}\nEOF\n;;\n"debug prompt-input") cat <<'EOF'\n${promptInput}\nEOF\n;;\n*) exit 1;;\nesac\n`,
+		);
+		chmodSync(binary, 0o755);
+		mkdirSync(join(home, ".codex", "plugins", "cache", "openai-bundled", "unified-computer-use", "1.0.0"), {
+			recursive: true,
+		});
+		writeFileSync(
+			join(home, ".codex", "plugins", "cache", "openai-bundled", "unified-computer-use", "1.0.0", ".mcp.json"),
+			JSON.stringify({ mcpServers: { cua_repl: { command: "/bin/sh" } } }),
+		);
+		writeFileSync(
+			join(home, ".codex", "config.toml"),
+			'[mcp_servers.node_repl]\ncommand = "node_repl"\n\n[mcp_servers.node_repl.env]\nA = "1"\n',
+		);
+		return binary;
+	}
+
+	it("codex: delivers the set and adds the plugin, skill and MCP overrides from the fake codex", async () => {
+		const home = setupTempHome();
+		const { cwd, leanSkillSet } = createLeanFixture(home);
+		const binary = createFakeCodex(home);
+		const launch = await prepareAgentLaunch({
+			taskId: "task-lean-codex",
+			agentId: "codex",
+			binary,
+			args: [],
+			cwd,
+			prompt: "do X",
+			resumeFromTrash: true,
+			leanSkillSet,
+		});
+		const plugins = launch.args.filter((arg) => arg.startsWith("plugins."));
+		expect(plugins).toEqual([
+			"plugins.ponytail@ponytail.enabled=false",
+			"plugins.superpowers@openai-curated-remote.enabled=false",
+		]);
+		expect(getCodexConfigOverrideValues(launch.args, "skills.bundled.enabled")).toEqual(["false"]);
+		expect(getCodexConfigOverrideValues(launch.args, "skills.config")).toEqual([
+			'[{name="imagegen",enabled=false},{name="ponytail:ponytail",enabled=false}]',
+		]);
+		expect(getCodexConfigOverrideValues(launch.args, "mcp_servers.node_repl.enabled")).toEqual(["false"]);
+		// Overrides go before the `resume` subcommand.
+		expect(launch.args.indexOf("resume")).toBeGreaterThan(
+			launch.args.lastIndexOf("mcp_servers.node_repl.enabled=false"),
+		);
+		expect(existsSync(join(cwd, ".agents", "skills", "test-driven-development", "SKILL.md"))).toBe(true);
+	});
+
+	it("opencode without a model: writes a per-task config with permission.skill and leaves the shared file alone", async () => {
+		const home = setupTempHome();
+		const { cwd, leanSkillSet } = createLeanFixture(home);
+		const opencodeInput = {
+			agentId: "opencode" as const,
+			binary: "opencode",
+			args: [] as string[],
+			cwd,
+			prompt: "",
+			workspaceId: "workspace-1",
+		};
+		await prepareAgentLaunch({ ...opencodeInput, taskId: "task-plain" });
+		const sharedPath = join(home, ".cline", "kanban", "hooks", "opencode", "opencode.json");
+		const sharedBefore = readFileSync(sharedPath);
+
+		const launch = await prepareAgentLaunch({ ...opencodeInput, taskId: "task-lean", leanSkillSet });
+		const configPath = launch.env.OPENCODE_CONFIG as string;
+		expect(configPath).not.toBe(sharedPath);
+		expect(configPath).toContain("task-lean");
+		const config = JSON.parse(readFileSync(configPath, "utf8")) as {
+			plugin: string[];
+			model?: string;
+			permission: { skill: Record<string, string> };
+		};
+		expect(config.permission.skill).toEqual({ "*": "deny", "test-driven-development": "allow" });
+		expect(config.model).toBeUndefined();
+		expect(config.plugin).toHaveLength(1);
+		expect(readFileSync(sharedPath).equals(sharedBefore)).toBe(true);
+		expect(existsSync(join(cwd, ".opencode", "skills", "test-driven-development", "SKILL.md"))).toBe(true);
+		await launch.cleanup?.();
+		expect(existsSync(configPath)).toBe(false);
+	});
+
+	it("antigravity: delivers the set into .agents/skills and adds no switches", async () => {
+		const home = setupTempHome();
+		const { cwd, leanSkillSet } = createLeanFixture(home);
+		const input = {
+			taskId: "task-agy",
+			agentId: "antigravity" as const,
+			binary: "agy",
+			args: [],
+			cwd,
+			prompt: "do X",
+		};
+		const plain = await prepareAgentLaunch(input);
+		const lean = await prepareAgentLaunch({ ...input, leanSkillSet });
+		expect(lean.args).toEqual(plain.args);
+		expect(lean.env).toEqual(plain.env);
+		expect(existsSync(join(cwd, ".agents", "skills", "test-driven-development", "SKILL.md"))).toBe(true);
 	});
 });

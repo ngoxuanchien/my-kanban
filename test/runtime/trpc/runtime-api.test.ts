@@ -153,6 +153,12 @@ vi.mock("../../../src/server/browser.js", () => ({
 vi.mock("../../../src/server/hand-off-task.js", () => ({ handOffTask: handOffTaskMocks.handOffTask }));
 
 const agentModelCatalogMocks = vi.hoisted(() => ({ loadAgentModelCatalog: vi.fn() }));
+const leanSkillSetMocks = vi.hoisted(() => ({
+	loadDeclaredEmployees: vi.fn(),
+	loadReferenceSkills: vi.fn(),
+	loadAgentMcpUsage: vi.fn(),
+	resolveEffectiveSkillSet: vi.fn(),
+}));
 
 const taskHistoryMocks = vi.hoisted(() => ({ recordTaskHistoryEvent: vi.fn(async () => true) }));
 const agentScoreMocks = vi.hoisted(() => ({ recordAgentScoreEvent: vi.fn(async () => true) }));
@@ -164,6 +170,22 @@ vi.mock("../../../src/state/task-history.js", async (importOriginal) => ({
 
 vi.mock("../../../src/state/agent-scores.js", () => ({
 	recordAgentScoreEvent: agentScoreMocks.recordAgentScoreEvent,
+}));
+
+vi.mock("../../../src/state/employees.js", async (importOriginal) => ({
+	...(await importOriginal<typeof import("../../../src/state/employees")>()),
+	loadDeclaredEmployees: leanSkillSetMocks.loadDeclaredEmployees,
+}));
+vi.mock("../../../src/state/reference-skills.js", async (importOriginal) => ({
+	...(await importOriginal<typeof import("../../../src/state/reference-skills")>()),
+	loadReferenceSkills: leanSkillSetMocks.loadReferenceSkills,
+}));
+vi.mock("../../../src/state/agent-tool-usage.js", async (importOriginal) => ({
+	...(await importOriginal<typeof import("../../../src/state/agent-tool-usage")>()),
+	loadAgentMcpUsage: leanSkillSetMocks.loadAgentMcpUsage,
+}));
+vi.mock("../../../src/core/employee-skill-set.js", () => ({
+	resolveEffectiveSkillSet: leanSkillSetMocks.resolveEffectiveSkillSet,
 }));
 
 vi.mock("../../../src/terminal/agent-model-catalog.js", () => ({
@@ -224,6 +246,8 @@ function createRuntimeConfigState(): RuntimeConfigState {
 		selectedAgentId: "claude",
 		selectedShortcutLabel: null,
 		agentAutonomousModeEnabled: true,
+		// Off by default here so launch tests never scan the real HOME; lean tests turn it on.
+		leanTaskSessionsEnabled: false,
 		readyForReviewNotificationsEnabled: true,
 		shortcuts: [],
 		githubIssueSyncEnabled: false,
@@ -636,6 +660,87 @@ describe("createRuntimeApi startTaskSession", () => {
 		expect(terminalManager.startTaskSession).toHaveBeenCalledWith(
 			expect.objectContaining({ agentId, claudeModel: expectedModel }),
 		);
+	});
+
+	describe("lean skill set at session start", () => {
+		const leanSet = { skills: [{ name: "test-driven-development", dir: "/skills/tdd" }], mcpEnabled: ["context7"] };
+
+		async function startLean(agentId: "claude" | "codex" | "opencode" | "antigravity", leanEnabled: boolean) {
+			taskWorktreeMocks.resolveTaskCwd.mockResolvedValue("/tmp/existing-worktree");
+			workspaceStateMocks.loadWorkspaceBoardById.mockResolvedValue({ columns: [], dependencies: [] });
+			agentRegistryMocks.resolveAgentCommand.mockReturnValue({
+				agentId,
+				label: agentId,
+				command: agentId,
+				binary: agentId,
+				args: [],
+			});
+			const terminalManager = {
+				startTaskSession: vi.fn(async (_input: Record<string, unknown>) => createSummary({ agentId })),
+				applyTurnCheckpoint: vi.fn(),
+			};
+			const api = createTestRuntimeApi({
+				getActiveWorkspaceId: vi.fn(() => "workspace-1"),
+				loadScopedRuntimeConfig: vi.fn(async () => ({
+					...createRuntimeConfigState(),
+					leanTaskSessionsEnabled: leanEnabled,
+				})),
+				setActiveRuntimeConfig: vi.fn(),
+				getScopedTerminalManager: vi.fn(async () => terminalManager as never),
+				getScopedClineTaskSessionService: vi.fn(async () => createClineTaskSessionServiceMock() as never),
+				resolveInteractiveShellCommand: vi.fn(),
+				runCommand: vi.fn(),
+			});
+			const response = await api.startTaskSession(
+				{ workspaceId: "workspace-1", workspacePath: "/tmp/my-kanban" },
+				{ taskId: "task-1", baseRef: "main", prompt: "Continue task", agentId },
+			);
+			expect(response.ok).toBe(true);
+			return terminalManager.startTaskSession.mock.calls[0]?.[0];
+		}
+
+		beforeEach(() => {
+			for (const mock of Object.values(leanSkillSetMocks)) mock.mockReset();
+			leanSkillSetMocks.loadDeclaredEmployees.mockResolvedValue({});
+			leanSkillSetMocks.loadReferenceSkills.mockResolvedValue(["superpowers:test-driven-development"]);
+			leanSkillSetMocks.loadAgentMcpUsage.mockResolvedValue(new Map([["context7", 2]]));
+			leanSkillSetMocks.resolveEffectiveSkillSet.mockResolvedValue(leanSet);
+		});
+
+		it("passes the employee's skill set to a codex launch when the setting is on", async () => {
+			const request = await startLean("codex", true);
+			expect(request?.leanSkillSet).toEqual(leanSet);
+			expect(leanSkillSetMocks.loadReferenceSkills).toHaveBeenCalledWith(
+				expect.objectContaining({ workspaceId: "workspace-1", repoName: "my-kanban" }),
+			);
+			expect(leanSkillSetMocks.resolveEffectiveSkillSet).toHaveBeenCalledWith(
+				expect.objectContaining({
+					agentId: "codex",
+					model: null,
+					reference: ["superpowers:test-driven-development"],
+					mcpUsage: new Map([["context7", 2]]),
+				}),
+			);
+		});
+
+		it("passes no skill set when the setting is off", async () => {
+			const request = await startLean("opencode", false);
+			expect(request).toBeDefined();
+			expect(request && "leanSkillSet" in request).toBe(false);
+			expect(leanSkillSetMocks.resolveEffectiveSkillSet).not.toHaveBeenCalled();
+		});
+
+		it("never makes a Claude launch lean", async () => {
+			const request = await startLean("claude", true);
+			expect(request && "leanSkillSet" in request).toBe(false);
+			expect(leanSkillSetMocks.loadReferenceSkills).not.toHaveBeenCalled();
+		});
+
+		it("launches without a skill set when resolving it fails", async () => {
+			leanSkillSetMocks.loadReferenceSkills.mockRejectedValue(new Error("scan failed"));
+			const request = await startLean("antigravity", true);
+			expect(request && "leanSkillSet" in request).toBe(false);
+		});
 	});
 
 	describe("agent model at session start", () => {

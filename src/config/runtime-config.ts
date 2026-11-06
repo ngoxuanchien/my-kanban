@@ -20,6 +20,7 @@ interface RuntimeGlobalConfigFileShape {
 	selectedAgentId?: RuntimeAgentId;
 	selectedShortcutLabel?: string;
 	agentAutonomousModeEnabled?: boolean;
+	leanTaskSessionsEnabled?: boolean;
 	readyForReviewNotificationsEnabled?: boolean;
 	commitPromptTemplate?: string;
 	openPrPromptTemplate?: string;
@@ -39,6 +40,8 @@ export interface RuntimeConfigState {
 	selectedAgentId: RuntimeAgentId;
 	selectedShortcutLabel: string | null;
 	agentAutonomousModeEnabled: boolean;
+	/** Codex/OpenCode/Antigravity task sessions get only the employee's skill set (see task-skill-delivery). */
+	leanTaskSessionsEnabled: boolean;
 	readyForReviewNotificationsEnabled: boolean;
 	shortcuts: RuntimeProjectShortcut[];
 	commitPromptTemplate: string;
@@ -54,6 +57,7 @@ export interface RuntimeConfigUpdateInput {
 	selectedAgentId?: RuntimeAgentId;
 	selectedShortcutLabel?: string | null;
 	agentAutonomousModeEnabled?: boolean;
+	leanTaskSessionsEnabled?: boolean;
 	readyForReviewNotificationsEnabled?: boolean;
 	shortcuts?: RuntimeProjectShortcut[];
 	commitPromptTemplate?: string;
@@ -71,6 +75,7 @@ const PROJECT_CONFIG_FILENAME = "config.json";
 const DEFAULT_AGENT_ID: RuntimeAgentId = "claude";
 const AUTO_SELECT_AGENT_PRIORITY: readonly RuntimeAgentId[] = ["claude", "codex"];
 const DEFAULT_AGENT_AUTONOMOUS_MODE_ENABLED = true;
+const DEFAULT_LEAN_TASK_SESSIONS_ENABLED = true;
 const DEFAULT_READY_FOR_REVIEW_NOTIFICATIONS_ENABLED = true;
 const DEFAULT_COMMIT_PROMPT_TEMPLATE = `You are in a worktree on a detached HEAD. When you are finished with the task, commit the working changes onto {{base_ref}}.
 
@@ -303,6 +308,10 @@ function toRuntimeConfigState({
 			globalConfig?.agentAutonomousModeEnabled,
 			DEFAULT_AGENT_AUTONOMOUS_MODE_ENABLED,
 		),
+		leanTaskSessionsEnabled: normalizeBoolean(
+			globalConfig?.leanTaskSessionsEnabled,
+			DEFAULT_LEAN_TASK_SESSIONS_ENABLED,
+		),
 		readyForReviewNotificationsEnabled: normalizeBoolean(
 			globalConfig?.readyForReviewNotificationsEnabled,
 			DEFAULT_READY_FOR_REVIEW_NOTIFICATIONS_ENABLED,
@@ -336,6 +345,7 @@ async function writeRuntimeGlobalConfigFile(
 		selectedAgentId?: RuntimeAgentId;
 		selectedShortcutLabel?: string | null;
 		agentAutonomousModeEnabled?: boolean;
+		leanTaskSessionsEnabled?: boolean;
 		readyForReviewNotificationsEnabled?: boolean;
 		commitPromptTemplate?: string;
 		openPrPromptTemplate?: string;
@@ -392,6 +402,15 @@ async function writeRuntimeGlobalConfigFile(
 		agentAutonomousModeEnabled !== DEFAULT_AGENT_AUTONOMOUS_MODE_ENABLED
 	) {
 		payload.agentAutonomousModeEnabled = agentAutonomousModeEnabled;
+	}
+	// Undefined keeps the stored value, so writers that do not know the setting never reset it.
+	const leanTaskSessionsEnabled =
+		config.leanTaskSessionsEnabled ??
+		(hasOwnKey(existing, "leanTaskSessionsEnabled")
+			? normalizeBoolean(existing?.leanTaskSessionsEnabled, DEFAULT_LEAN_TASK_SESSIONS_ENABLED)
+			: undefined);
+	if (leanTaskSessionsEnabled !== undefined && leanTaskSessionsEnabled !== DEFAULT_LEAN_TASK_SESSIONS_ENABLED) {
+		payload.leanTaskSessionsEnabled = leanTaskSessionsEnabled;
 	}
 	if (
 		hasOwnKey(existing, "readyForReviewNotificationsEnabled") ||
@@ -502,6 +521,7 @@ function createRuntimeConfigStateFromValues(input: {
 	selectedAgentId: RuntimeAgentId;
 	selectedShortcutLabel: string | null;
 	agentAutonomousModeEnabled: boolean;
+	leanTaskSessionsEnabled: boolean;
 	readyForReviewNotificationsEnabled: boolean;
 	shortcuts: RuntimeProjectShortcut[];
 	commitPromptTemplate: string;
@@ -518,6 +538,7 @@ function createRuntimeConfigStateFromValues(input: {
 			input.agentAutonomousModeEnabled,
 			DEFAULT_AGENT_AUTONOMOUS_MODE_ENABLED,
 		),
+		leanTaskSessionsEnabled: normalizeBoolean(input.leanTaskSessionsEnabled, DEFAULT_LEAN_TASK_SESSIONS_ENABLED),
 		readyForReviewNotificationsEnabled: normalizeBoolean(
 			input.readyForReviewNotificationsEnabled,
 			DEFAULT_READY_FOR_REVIEW_NOTIFICATIONS_ENABLED,
@@ -540,6 +561,7 @@ export function toGlobalRuntimeConfigState(current: RuntimeConfigState): Runtime
 		selectedAgentId: current.selectedAgentId,
 		selectedShortcutLabel: current.selectedShortcutLabel,
 		agentAutonomousModeEnabled: current.agentAutonomousModeEnabled,
+		leanTaskSessionsEnabled: current.leanTaskSessionsEnabled,
 		readyForReviewNotificationsEnabled: current.readyForReviewNotificationsEnabled,
 		shortcuts: [],
 		githubIssueSyncEnabled: false,
@@ -579,6 +601,7 @@ export async function saveRuntimeConfig(
 		selectedAgentId: RuntimeAgentId;
 		selectedShortcutLabel: string | null;
 		agentAutonomousModeEnabled: boolean;
+		leanTaskSessionsEnabled?: boolean;
 		readyForReviewNotificationsEnabled: boolean;
 		shortcuts: RuntimeProjectShortcut[];
 		commitPromptTemplate: string;
@@ -593,6 +616,7 @@ export async function saveRuntimeConfig(
 			selectedAgentId: config.selectedAgentId,
 			selectedShortcutLabel: config.selectedShortcutLabel,
 			agentAutonomousModeEnabled: config.agentAutonomousModeEnabled,
+			leanTaskSessionsEnabled: config.leanTaskSessionsEnabled,
 			readyForReviewNotificationsEnabled: config.readyForReviewNotificationsEnabled,
 			commitPromptTemplate: config.commitPromptTemplate,
 			openPrPromptTemplate: config.openPrPromptTemplate,
@@ -611,6 +635,10 @@ export async function saveRuntimeConfig(
 			selectedAgentId: config.selectedAgentId,
 			selectedShortcutLabel: config.selectedShortcutLabel,
 			agentAutonomousModeEnabled: config.agentAutonomousModeEnabled,
+			leanTaskSessionsEnabled: normalizeBoolean(
+				savedGlobal?.leanTaskSessionsEnabled,
+				DEFAULT_LEAN_TASK_SESSIONS_ENABLED,
+			),
 			readyForReviewNotificationsEnabled: config.readyForReviewNotificationsEnabled,
 			shortcuts: config.shortcuts,
 			githubIssueSyncEnabled,
@@ -634,6 +662,7 @@ export async function updateRuntimeConfig(cwd: string, updates: RuntimeConfigUpd
 			selectedShortcutLabel:
 				updates.selectedShortcutLabel === undefined ? current.selectedShortcutLabel : updates.selectedShortcutLabel,
 			agentAutonomousModeEnabled: updates.agentAutonomousModeEnabled ?? current.agentAutonomousModeEnabled,
+			leanTaskSessionsEnabled: updates.leanTaskSessionsEnabled ?? current.leanTaskSessionsEnabled,
 			readyForReviewNotificationsEnabled:
 				updates.readyForReviewNotificationsEnabled ?? current.readyForReviewNotificationsEnabled,
 			shortcuts: projectConfigPath ? (updates.shortcuts ?? current.shortcuts) : current.shortcuts,
@@ -648,6 +677,7 @@ export async function updateRuntimeConfig(cwd: string, updates: RuntimeConfigUpd
 			nextConfig.selectedAgentId !== current.selectedAgentId ||
 			nextConfig.selectedShortcutLabel !== current.selectedShortcutLabel ||
 			nextConfig.agentAutonomousModeEnabled !== current.agentAutonomousModeEnabled ||
+			nextConfig.leanTaskSessionsEnabled !== current.leanTaskSessionsEnabled ||
 			nextConfig.readyForReviewNotificationsEnabled !== current.readyForReviewNotificationsEnabled ||
 			nextConfig.commitPromptTemplate !== current.commitPromptTemplate ||
 			nextConfig.openPrPromptTemplate !== current.openPrPromptTemplate ||
@@ -664,6 +694,7 @@ export async function updateRuntimeConfig(cwd: string, updates: RuntimeConfigUpd
 			selectedAgentId: nextConfig.selectedAgentId,
 			selectedShortcutLabel: nextConfig.selectedShortcutLabel,
 			agentAutonomousModeEnabled: nextConfig.agentAutonomousModeEnabled,
+			leanTaskSessionsEnabled: nextConfig.leanTaskSessionsEnabled,
 			readyForReviewNotificationsEnabled: nextConfig.readyForReviewNotificationsEnabled,
 			commitPromptTemplate: nextConfig.commitPromptTemplate,
 			openPrPromptTemplate: nextConfig.openPrPromptTemplate,
@@ -680,6 +711,7 @@ export async function updateRuntimeConfig(cwd: string, updates: RuntimeConfigUpd
 			selectedAgentId: nextConfig.selectedAgentId,
 			selectedShortcutLabel: nextConfig.selectedShortcutLabel,
 			agentAutonomousModeEnabled: nextConfig.agentAutonomousModeEnabled,
+			leanTaskSessionsEnabled: nextConfig.leanTaskSessionsEnabled,
 			readyForReviewNotificationsEnabled: nextConfig.readyForReviewNotificationsEnabled,
 			shortcuts: nextConfig.shortcuts,
 			githubIssueSyncEnabled: nextConfig.githubIssueSyncEnabled,
@@ -711,6 +743,7 @@ export async function updateGlobalRuntimeConfig(
 						? current.selectedShortcutLabel
 						: updates.selectedShortcutLabel,
 				agentAutonomousModeEnabled: updates.agentAutonomousModeEnabled ?? current.agentAutonomousModeEnabled,
+				leanTaskSessionsEnabled: updates.leanTaskSessionsEnabled ?? current.leanTaskSessionsEnabled,
 				readyForReviewNotificationsEnabled:
 					updates.readyForReviewNotificationsEnabled ?? current.readyForReviewNotificationsEnabled,
 				shortcuts: current.shortcuts,
@@ -725,6 +758,7 @@ export async function updateGlobalRuntimeConfig(
 				nextConfig.selectedAgentId !== current.selectedAgentId ||
 				nextConfig.selectedShortcutLabel !== current.selectedShortcutLabel ||
 				nextConfig.agentAutonomousModeEnabled !== current.agentAutonomousModeEnabled ||
+				nextConfig.leanTaskSessionsEnabled !== current.leanTaskSessionsEnabled ||
 				nextConfig.readyForReviewNotificationsEnabled !== current.readyForReviewNotificationsEnabled ||
 				nextConfig.commitPromptTemplate !== current.commitPromptTemplate ||
 				nextConfig.openPrPromptTemplate !== current.openPrPromptTemplate ||
@@ -739,6 +773,7 @@ export async function updateGlobalRuntimeConfig(
 				selectedAgentId: nextConfig.selectedAgentId,
 				selectedShortcutLabel: nextConfig.selectedShortcutLabel,
 				agentAutonomousModeEnabled: nextConfig.agentAutonomousModeEnabled,
+				leanTaskSessionsEnabled: nextConfig.leanTaskSessionsEnabled,
 				readyForReviewNotificationsEnabled: nextConfig.readyForReviewNotificationsEnabled,
 				commitPromptTemplate: nextConfig.commitPromptTemplate,
 				openPrPromptTemplate: nextConfig.openPrPromptTemplate,
@@ -752,6 +787,7 @@ export async function updateGlobalRuntimeConfig(
 				selectedAgentId: nextConfig.selectedAgentId,
 				selectedShortcutLabel: nextConfig.selectedShortcutLabel,
 				agentAutonomousModeEnabled: nextConfig.agentAutonomousModeEnabled,
+				leanTaskSessionsEnabled: nextConfig.leanTaskSessionsEnabled,
 				readyForReviewNotificationsEnabled: nextConfig.readyForReviewNotificationsEnabled,
 				shortcuts: nextConfig.shortcuts,
 				githubIssueSyncEnabled: nextConfig.githubIssueSyncEnabled,
