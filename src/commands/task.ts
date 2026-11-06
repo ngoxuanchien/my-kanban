@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createTRPCProxyClient, httpBatchLink } from "@trpc/client";
-import type { Command } from "commander";
+import { type Command, Option } from "commander";
 import { isRuntimeAgentLaunchSupported, RUNTIME_LAUNCH_SUPPORTED_AGENT_IDS } from "../core/agent-catalog";
 import {
 	type DifficultyModelCell,
@@ -558,6 +558,7 @@ function formatTaskRecord(
 		autoReviewEnabled: task.autoReviewEnabled === true,
 		autoReviewMode: task.autoReviewMode ?? "commit",
 		agentReviewEnabled: task.agentReviewEnabled === true,
+		noChangesExpected: task.noChangesExpected === true,
 		reviewRound: task.reviewRound ?? 0,
 		handOffCount: getHandOffCount(task),
 		...(task.agentId ? { agentId: task.agentId } : {}),
@@ -597,6 +598,30 @@ function setTaskAgentReviewEnabled(
 			}
 			changed = true;
 			updatedTask = { ...card, agentReviewEnabled };
+			return updatedTask;
+		});
+		return changed ? { ...column, cards } : column;
+	});
+	if (!updatedTask) {
+		return { board, task: null };
+	}
+	return { board: { ...board, columns }, task: updatedTask };
+}
+
+function setTaskNoChangesExpected(
+	board: RuntimeWorkspaceStateResponse["board"],
+	taskId: string,
+	noChangesExpected: boolean,
+): { board: RuntimeWorkspaceStateResponse["board"]; task: RuntimeBoardCard | null } {
+	let updatedTask: RuntimeBoardCard | null = null;
+	const columns = board.columns.map((column) => {
+		let changed = false;
+		const cards = column.cards.map((card) => {
+			if (card.id !== taskId) {
+				return card;
+			}
+			changed = true;
+			updatedTask = { ...card, noChangesExpected };
 			return updatedTask;
 		});
 		return changed ? { ...column, cards } : column;
@@ -695,6 +720,7 @@ type CompactTaskListRow = {
 	session: string | null;
 	title: string;
 	agentReviewEnabled: boolean;
+	noChangesExpected: boolean;
 	difficulty?: TaskDifficulty;
 	blockedQuestion?: string;
 	waitingReason?: string;
@@ -726,6 +752,7 @@ function compactTaskList(
 				session: session?.state ?? null,
 				title: task.title || task.prompt.split(/\r?\n/u, 1)[0]?.slice(0, 80) || "",
 				agentReviewEnabled: task.agentReviewEnabled === true,
+				noChangesExpected: task.noChangesExpected === true,
 				...(task.difficulty ? { difficulty: task.difficulty } : {}),
 				...(task.blockedReport ? { blockedQuestion: task.blockedReport.question } : {}),
 				...(task.waitingReport ? { waitingReason: task.waitingReport.reason } : {}),
@@ -766,7 +793,7 @@ function formatTaskListText(list: ReturnType<typeof compactTaskList>): string {
 	};
 	const lines = list.tasks.map((task) => {
 		const round = task.agentReviewEnabled ? `r${task.reviewRound}/${3 * (task.handOffCount + 1)}` : "-";
-		return `${task.id.slice(0, 5).padEnd(widths.id)}  ${task.column.padEnd(widths.column)}  ${(task.agentId ?? "-").padEnd(widths.agent)}  ${round.padEnd(widths.review)}  ${`h${task.handOffCount}`.padEnd(widths.handoff)}  ${(task.session ?? "-").padEnd(widths.session)}  ${task.difficulty ? `d${task.difficulty} ` : ""}${task.title}${task.blockedQuestion ? `  blocked: ${task.blockedQuestion.replace(/\s+/gu, " ")}` : ""}${task.waitingReason ? `  waiting: ${task.waitingReason.replace(/\s+/gu, " ")}` : ""}`;
+		return `${task.id.slice(0, 5).padEnd(widths.id)}  ${task.column.padEnd(widths.column)}  ${(task.agentId ?? "-").padEnd(widths.agent)}  ${round.padEnd(widths.review)}  ${`h${task.handOffCount}`.padEnd(widths.handoff)}  ${(task.session ?? "-").padEnd(widths.session)}  ${task.difficulty ? `d${task.difficulty} ` : ""}${task.noChangesExpected ? "no-diff " : ""}${task.title}${task.blockedQuestion ? `  blocked: ${task.blockedQuestion.replace(/\s+/gu, " ")}` : ""}${task.waitingReason ? `  waiting: ${task.waitingReason.replace(/\s+/gu, " ")}` : ""}`;
 	});
 	if (list.doneHidden > 0) {
 		lines.push(`(${list.doneHidden} more done not shown; pass --column done or --all)`);
@@ -841,7 +868,9 @@ async function listTaskModels(input: { cwd: string; projectPath?: string; agent?
 function compactTaskListJson(list: ReturnType<typeof compactTaskList>): JsonRecord {
 	return {
 		ok: true,
-		tasks: list.tasks.map(({ agentReviewEnabled: _agentReviewEnabled, ...task }) => task),
+		tasks: list.tasks.map(
+			({ agentReviewEnabled: _agentReviewEnabled, noChangesExpected: _noChangesExpected, ...task }) => task,
+		),
 		doneHidden: list.doneHidden,
 		dependencies: list.dependencies,
 		lastCreated: list.lastCreated,
@@ -1050,6 +1079,7 @@ async function createTask(input: {
 	baseRef?: string;
 	startInPlanMode?: boolean;
 	agentReviewEnabled?: boolean;
+	noChangesExpected?: boolean;
 	autoReviewEnabled?: boolean;
 	autoReviewMode?: "commit" | "pr";
 	agentId?: RuntimeAgentId;
@@ -1100,9 +1130,13 @@ async function createTask(input: {
 		);
 		const modeled = setTaskModelFields(result.board, result.task.id, modelFields);
 		const reviewed = setTaskAgentReviewEnabled(modeled.board, result.task.id, input.agentReviewEnabled ?? true);
+		const noChanges =
+			input.noChangesExpected === undefined
+				? { board: reviewed.board, task: reviewed.task }
+				: setTaskNoChangesExpected(reviewed.board, result.task.id, input.noChangesExpected);
 		return {
-			board: reviewed.board,
-			value: reviewed.task ?? result.task,
+			board: noChanges.board,
+			value: noChanges.task ?? reviewed.task ?? result.task,
 		};
 	});
 
@@ -1119,6 +1153,7 @@ async function createTask(input: {
 			autoReviewEnabled: created.autoReviewEnabled === true,
 			autoReviewMode: created.autoReviewMode ?? "commit",
 			agentReviewEnabled: created.agentReviewEnabled === true,
+			noChangesExpected: created.noChangesExpected === true,
 			...(created.agentId ? { agentId: created.agentId } : {}),
 			...(created.claudeModel ? { claudeModel: created.claudeModel } : {}),
 			...formatTaskModelFields(created),
@@ -1136,6 +1171,7 @@ async function updateTaskCommand(input: {
 	baseRef?: string;
 	startInPlanMode?: boolean;
 	agentReviewEnabled?: boolean;
+	noChangesExpected?: boolean;
 	autoReviewEnabled?: boolean;
 	autoReviewMode?: "commit" | "pr";
 	agentId?: RuntimeAgentId | null;
@@ -1156,6 +1192,7 @@ async function updateTaskCommand(input: {
 		input.baseRef === undefined &&
 		input.startInPlanMode === undefined &&
 		input.agentReviewEnabled === undefined &&
+		input.noChangesExpected === undefined &&
 		input.autoReviewEnabled === undefined &&
 		input.autoReviewMode === undefined &&
 		input.agentId === undefined &&
@@ -1238,14 +1275,19 @@ async function updateTaskCommand(input: {
 				? { board: modelUpdated.board, task: modelUpdated.task }
 				: setTaskAgentReviewEnabled(modelUpdated.board, input.taskId, input.agentReviewEnabled);
 
+		const noChanges =
+			input.noChangesExpected === undefined
+				? { board: reviewed.board, task: reviewed.task }
+				: setTaskNoChangesExpected(reviewed.board, input.taskId, input.noChangesExpected);
+
 		const nextState: RuntimeWorkspaceStateResponse = {
 			...runtimeState,
-			board: reviewed.board,
+			board: noChanges.board,
 		};
 
 		return {
-			board: reviewed.board,
-			value: formatTaskRecord(nextState, reviewed.task ?? updatedTask.task, taskRecord.columnId),
+			board: noChanges.board,
+			value: formatTaskRecord(nextState, noChanges.task ?? reviewed.task ?? updatedTask.task, taskRecord.columnId),
 		};
 	});
 
@@ -1820,6 +1862,17 @@ async function runTaskCommand(handler: () => Promise<JsonRecord>, print = printJ
 	}
 }
 
+// Commander treats a leading --no- as a negated boolean. This flag takes an explicit value,
+// so keep the user-facing flag but store it under noChangesExpected like any other option.
+function createNoChangesExpectedOption(): Option {
+	const option = new Option(
+		"--no-changes-expected <true|false>",
+		"Mark the task as expected to produce no git changes (research or spike).",
+	);
+	option.negate = false;
+	return option;
+}
+
 export function registerTaskCommand(program: Command): void {
 	const task = program.command("task").alias("tasks").description("Manage Kanban board tasks from the CLI.");
 
@@ -1928,6 +1981,7 @@ export function registerTaskCommand(program: Command): void {
 		.option("--base-ref <branch>", "Task base branch/ref.")
 		.option("--start-in-plan-mode [value]", "Set plan mode (true|false). Flag-only implies true.")
 		.option("--agent-review-enabled [value]", "Enable agent review (true|false). Flag-only implies true.")
+		.addOption(createNoChangesExpectedOption())
 		.option("--auto-review-enabled [value]", "Enable auto-review behavior (true|false). Flag-only implies true.")
 		.option("--auto-review-mode <mode>", "Auto-review mode: commit | pr.", parseAutoReviewMode)
 		.option("--agent-id <id>", `Agent override: ${VALID_AGENT_IDS_TEXT} | default.`)
@@ -1962,6 +2016,7 @@ export function registerTaskCommand(program: Command): void {
 				baseRef?: string;
 				startInPlanMode?: unknown;
 				agentReviewEnabled?: unknown;
+				noChangesExpected?: unknown;
 				autoReviewEnabled?: unknown;
 				autoReviewMode?: "commit" | "pr";
 				agentId?: string;
@@ -1985,6 +2040,7 @@ export function registerTaskCommand(program: Command): void {
 								options.agentReviewEnabled,
 								"--agent-review-enabled",
 							),
+							noChangesExpected: parseOptionalBooleanOption(options.noChangesExpected, "--no-changes-expected"),
 							autoReviewEnabled: parseOptionalBooleanOption(options.autoReviewEnabled, "--auto-review-enabled"),
 							autoReviewMode: options.autoReviewMode,
 							agentId: parseAgentId(options.agentId) ?? undefined,
@@ -2017,6 +2073,7 @@ export function registerTaskCommand(program: Command): void {
 		.option("--base-ref <branch>", "Replacement base branch/ref.")
 		.option("--start-in-plan-mode [value]", "Set plan mode (true|false). Flag-only implies true.")
 		.option("--agent-review-enabled [value]", "Enable agent review (true|false). Flag-only implies true.")
+		.addOption(createNoChangesExpectedOption())
 		.option("--auto-review-enabled [value]", "Enable auto-review behavior (true|false). Flag-only implies true.")
 		.option("--auto-review-mode <mode>", "Auto-review mode: commit | pr.", parseAutoReviewMode)
 		.option("--agent-id <id>", `Agent override: ${VALID_AGENT_IDS_TEXT}. Use "default" to clear.`)
@@ -2048,6 +2105,7 @@ export function registerTaskCommand(program: Command): void {
 				baseRef?: string;
 				startInPlanMode?: unknown;
 				agentReviewEnabled?: unknown;
+				noChangesExpected?: unknown;
 				autoReviewEnabled?: unknown;
 				autoReviewMode?: "commit" | "pr";
 				agentId?: string;
@@ -2074,6 +2132,7 @@ export function registerTaskCommand(program: Command): void {
 								options.agentReviewEnabled,
 								"--agent-review-enabled",
 							),
+							noChangesExpected: parseOptionalBooleanOption(options.noChangesExpected, "--no-changes-expected"),
 							autoReviewEnabled: parseOptionalBooleanOption(options.autoReviewEnabled, "--auto-review-enabled"),
 							autoReviewMode: options.autoReviewMode,
 							agentId: parseAgentId(options.agentId),

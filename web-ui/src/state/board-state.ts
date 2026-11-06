@@ -32,6 +32,7 @@ export interface TaskDraft {
 	autoReviewEnabled?: boolean;
 	autoReviewMode?: TaskAutoReviewMode;
 	agentReviewEnabled?: boolean;
+	noChangesExpected?: boolean;
 	images?: TaskImage[];
 	agentId?: RuntimeAgentId;
 	claudeModel?: RuntimeClaudeModel;
@@ -182,6 +183,7 @@ function normalizeCard(rawCard: unknown): BoardCard | null {
 		autoReviewEnabled?: unknown;
 		autoReviewMode?: unknown;
 		agentReviewEnabled?: unknown;
+		noChangesExpected?: unknown;
 		reviewRound?: unknown;
 		handOffCount?: unknown;
 		handedOff?: unknown;
@@ -248,6 +250,7 @@ function normalizeCard(rawCard: unknown): BoardCard | null {
 			typeof card.autoReviewMode === "string" ? (card.autoReviewMode as TaskAutoReviewMode) : undefined,
 		),
 		agentReviewEnabled: typeof card.agentReviewEnabled === "boolean" ? card.agentReviewEnabled : false,
+		...(card.noChangesExpected === true ? { noChangesExpected: true } : {}),
 		handOffCount:
 			typeof card.handOffCount === "number" && Number.isInteger(card.handOffCount) && card.handOffCount >= 0
 				? card.handOffCount
@@ -428,6 +431,7 @@ export function addTaskToColumnWithResult(
 	const task: BoardCard = {
 		...result.task,
 		agentReviewEnabled: draft.agentReviewEnabled === true,
+		...(draft.noChangesExpected !== undefined ? { noChangesExpected: draft.noChangesExpected } : {}),
 		...(draft.claudeModel !== undefined ? { claudeModel: draft.claudeModel } : {}),
 		...(draft.difficulty ? { difficulty: draft.difficulty } : {}),
 		...(draft.agentModel ? { agentModel: draft.agentModel } : {}),
@@ -629,6 +633,7 @@ export function updateTask(board: BoardData, taskId: string, draft: TaskDraft): 
 				autoReviewMode: resolveTaskAutoReviewMode(draft.autoReviewMode ?? DEFAULT_TASK_AUTO_REVIEW_MODE),
 				agentReviewEnabled:
 					draft.agentReviewEnabled === undefined ? card.agentReviewEnabled : draft.agentReviewEnabled,
+				noChangesExpected: draft.noChangesExpected === undefined ? card.noChangesExpected : draft.noChangesExpected,
 				images:
 					draft.images === undefined
 						? card.images
@@ -673,6 +678,8 @@ export function updateTaskTitle(
 		startInPlanMode: selection.card.startInPlanMode,
 		autoReviewEnabled: selection.card.autoReviewEnabled,
 		autoReviewMode: selection.card.autoReviewMode,
+		agentReviewEnabled: selection.card.agentReviewEnabled,
+		noChangesExpected: selection.card.noChangesExpected,
 		images: selection.card.images,
 		agentId: selection.card.agentId,
 		claudeModel: selection.card.claudeModel,
@@ -705,6 +712,8 @@ export function applyTaskDetailClineSettingsSelection(
 		startInPlanMode: selection.card.startInPlanMode,
 		autoReviewEnabled: selection.card.autoReviewEnabled,
 		autoReviewMode: selection.card.autoReviewMode,
+		agentReviewEnabled: selection.card.agentReviewEnabled,
+		noChangesExpected: selection.card.noChangesExpected,
 		images: selection.card.images,
 		agentId: settings.agentId,
 		claudeModel: selection.card.claudeModel,
@@ -764,6 +773,8 @@ export function disableTaskAutoReview(board: BoardData, taskId: string): { board
 		startInPlanMode: selection.card.startInPlanMode,
 		autoReviewEnabled: false,
 		autoReviewMode: DEFAULT_TASK_AUTO_REVIEW_MODE,
+		agentReviewEnabled: selection.card.agentReviewEnabled,
+		noChangesExpected: selection.card.noChangesExpected,
 		images: selection.card.images,
 		agentId: selection.card.agentId,
 		claudeModel: selection.card.claudeModel,

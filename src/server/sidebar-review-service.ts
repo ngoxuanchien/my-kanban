@@ -463,7 +463,7 @@ export function createSidebarReviewService(deps: CreateSidebarReviewServiceDepen
 				}
 			}
 			if (card.quotaBlockedAt !== undefined) await clearQuotaBlockedAt(summary.taskId);
-			if ((card.reviewRound ?? 0) < getReviewRoundCap(card)) {
+			if (card.noChangesExpected !== true && (card.reviewRound ?? 0) < getReviewRoundCap(card)) {
 				try {
 					const { path: worktreePath } = await getTaskWorkspacePathInfo({
 						cwd: deps.workspacePath,

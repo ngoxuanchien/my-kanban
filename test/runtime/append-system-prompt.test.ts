@@ -70,8 +70,11 @@ describe("renderAppendSystemPrompt", () => {
 			const commandLine = section.split("Command:\n")[1]?.split("\n")[0] ?? "";
 			expect(commandLine).toContain("--agent-id");
 			expect(commandLine).toContain("--agent-review-enabled");
+			expect(commandLine).toContain("--no-changes-expected <true|false>");
 			expect(section).toContain(`- \`${agentIdParameter}\``);
 			expect(section).toContain("- `--agent-review-enabled <true|false>`");
+			expect(section).toContain("- `--no-changes-expected <true|false>`");
+			expect(section).toContain("Set true only for research or spike tasks whose deliverable is outside git");
 			expect(section).toContain("When true, the sidebar agent reviews the task when it reaches Review");
 		}
 		expect(updateSection).toContain("Use `default` to clear the override.");
@@ -285,6 +288,15 @@ describe("renderAppendSystemPrompt", () => {
 
 		expect(reviewSection).toContain(
 			`changes outside the task prompt's scope or "Files you may change" fail the round`,
+		);
+		expect(reviewSection).toContain(
+			"When `task show` reports `noChangesExpected` true, an empty diff is expected; check the deliverable named in the prompt instead.",
+		);
+		expect(reviewSection).toContain(
+			"A task with this flag that does change tracked files fails the round as out of scope.",
+		);
+		expect(reviewSection).toContain(
+			"For a task with `noChangesExpected`, do not commit; run `task done --task-id <task_id> --review-passed` without `--commit`",
 		);
 		expect(reviewSection).toContain("suggest a separate task to the user in chat; do not create it");
 	});

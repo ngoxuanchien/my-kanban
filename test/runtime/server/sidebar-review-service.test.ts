@@ -226,6 +226,7 @@ describe("createSidebarReviewService", () => {
 		workspaceState.board.columns[0].cards[1].handOffCount = 0;
 		workspaceState.board.columns[0].cards[0].agentReviewEnabled = true;
 		workspaceState.board.columns[0].cards[0].agentId = undefined;
+		delete workspaceState.board.columns[0].cards[0].noChangesExpected;
 		workspaceState.board.columns[0].cards[1].agentReviewEnabled = true;
 		workspaceState.board.columns[0].cards[1].agentId = undefined;
 		sendPromptToSession.mockClear();
@@ -1543,6 +1544,36 @@ describe("createSidebarReviewService", () => {
 			}),
 		);
 		expect(workspaceState.board.columns[0].cards[0].reviewRound).toBe(0);
+		service.dispose();
+	});
+
+	it("skips the empty-worktree nudge when the task expects no changes", async () => {
+		const listeners = new Set<(value: RuntimeTaskSessionSummary) => void>();
+		const terminalManager = {
+			listSummaries: () => [summary("task-1", "running")],
+			onSummary: (listener: (value: RuntimeTaskSessionSummary) => void) => {
+				listeners.add(listener);
+				return () => listeners.delete(listener);
+			},
+		};
+		const service = createSidebarReviewService({
+			workspaceId: "workspace-1",
+			workspacePath: "/repo",
+			terminalManager: terminalManager as unknown as TerminalSessionManager,
+			clineService: { listSummaries: () => [], onSummary: () => () => {} } as unknown as ClineTaskSessionService,
+			loadRuntimeConfig: async () => ({ selectedAgentId: "claude" }) as RuntimeConfigState,
+			broadcastStateUpdated: vi.fn(),
+			warn: vi.fn(),
+			handOffTask,
+			retryQuotaBlockedTask,
+		});
+		workspaceState.board.columns[0].cards[0].noChangesExpected = true;
+		runGit.mockReset();
+		await service.start();
+		for (const listener of listeners) listener(summary("task-1", "awaiting_review"));
+		await vi.waitFor(() => expect(workspaceState.board.columns[0].cards[0].reviewRound).toBe(1));
+		expect(sendPromptToSession).not.toHaveBeenCalled();
+		expect(runGit).not.toHaveBeenCalled();
 		service.dispose();
 	});
 

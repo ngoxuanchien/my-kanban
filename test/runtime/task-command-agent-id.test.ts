@@ -177,6 +177,56 @@ describe("task create agent review default", () => {
 	});
 });
 
+describe("task no-changes-expected option", () => {
+	beforeEach(() => {
+		cliMocks.workspaceState.board.columns[0]?.cards.splice(0);
+		cliMocks.client.workspace.getState.query.mockImplementation(async () => cliMocks.workspaceState as never);
+		process.exitCode = 0;
+	});
+
+	async function execute(args: string[]): Promise<string> {
+		let output = "";
+		const write = vi.spyOn(process.stdout, "write").mockImplementation(((chunk: string | Uint8Array) => {
+			output += chunk.toString();
+			return true;
+		}) as typeof process.stdout.write);
+		const program = new Command();
+		registerTaskCommand(program);
+		await program.parseAsync(["node", "kanban", "task", ...args]);
+		write.mockRestore();
+		return output;
+	}
+
+	it("stores the flag on create and update, shows it, and marks the text list", async () => {
+		const created = JSON.parse(
+			await execute(["create", "--prompt", "Research spike", "--no-changes-expected", "true"]),
+		);
+		expect(created.task.noChangesExpected).toBe(true);
+		const taskId = created.task.id as string;
+
+		const shown = JSON.parse(await execute(["show", "--task-id", taskId]));
+		expect(shown.task.noChangesExpected).toBe(true);
+
+		const list = await execute(["list"]);
+		expect(list).toContain("no-diff Research spike");
+
+		const updated = JSON.parse(await execute(["update", "--task-id", taskId, "--no-changes-expected", "false"]));
+		expect(updated.task.noChangesExpected).toBe(false);
+	});
+
+	it("defaults the flag to false and rejects an invalid value", async () => {
+		const created = JSON.parse(await execute(["create", "--prompt", "Normal task"]));
+		expect(created.task.noChangesExpected).toBe(false);
+
+		const invalid = JSON.parse(
+			await execute(["create", "--prompt", "Research spike", "--no-changes-expected", "maybe"]),
+		);
+		expect(invalid.ok).toBe(false);
+		expect(invalid.error).toContain("Invalid boolean value for --no-changes-expected");
+		process.exitCode = 0;
+	});
+});
+
 describe("task create --summary", () => {
 	let cardCountsAtSummary: number[] = [];
 	const backlogIds = () =>
@@ -1317,6 +1367,19 @@ describe("compact task list and task show", () => {
 		expect(output).toContain("backl  backlog      codex   -     h0  -        d3 Waiting task");
 		expect(output).toContain("h2  running  Active task");
 		expect(compact.tasks[0].difficulty).toBe(3);
+	});
+
+	it("shows no-diff after d<n> only on flagged tasks", async () => {
+		const backlog = state.board.columns[0].cards[0] as Record<string, unknown>;
+		backlog.difficulty = 3;
+		backlog.noChangesExpected = true;
+		const output = await execute(["list"]);
+		const compact = JSON.parse(await execute(["list", "--json"]));
+		delete backlog.difficulty;
+		delete backlog.noChangesExpected;
+		expect(output).toContain("d3 no-diff Waiting task");
+		expect(output).not.toContain("no-diff Active task");
+		expect(compact.tasks[0]).not.toHaveProperty("noChangesExpected");
 	});
 
 	it("prints the compact JSON shape and preserves the full JSON list on --full", async () => {

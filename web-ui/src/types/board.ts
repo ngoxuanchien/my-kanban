@@ -47,6 +47,7 @@ export interface BoardCard {
 	autoReviewEnabled?: boolean;
 	autoReviewMode?: TaskAutoReviewMode;
 	agentReviewEnabled?: boolean;
+	noChangesExpected?: boolean;
 	reviewRound?: number;
 	handOffCount?: number;
 	handedOff?: boolean;

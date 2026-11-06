@@ -203,6 +203,7 @@ export const runtimeBoardCardSchema = z
 		autoReviewEnabled: z.boolean().optional(),
 		autoReviewMode: runtimeTaskAutoReviewModeSchema.optional(),
 		agentReviewEnabled: z.boolean().optional(),
+		noChangesExpected: z.boolean().optional(),
 		reviewRound: z.number().int().min(0).optional(),
 		handOffCount: z.number().int().min(0).optional(),
 		handedOff: z.boolean().optional(),

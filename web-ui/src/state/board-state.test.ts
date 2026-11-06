@@ -276,6 +276,84 @@ describe("board dependency state", () => {
 		});
 	});
 
+	describe("noChangesExpected", () => {
+		const noChangesBoard = (card: Record<string, unknown> = {}) => {
+			const board = normalizeBoardData({
+				columns: [
+					{
+						id: "review",
+						cards: [{ id: "task-1", prompt: "Task", baseRef: "main", noChangesExpected: true, ...card }],
+					},
+					{ id: "backlog", cards: [] },
+					{ id: "in_progress", cards: [] },
+					{ id: "trash", cards: [] },
+				],
+				dependencies: [],
+			});
+			if (!board) throw new Error("board did not normalize");
+			return board;
+		};
+		const noChangesOf = (board: ReturnType<typeof noChangesBoard>) =>
+			board.columns.flatMap((column) => column.cards).find((card) => card.id === "task-1")?.noChangesExpected;
+
+		it("normalizeCard keeps true and leaves absent and false unset", () => {
+			expect(noChangesOf(noChangesBoard())).toBe(true);
+			expect(noChangesOf(noChangesBoard({ noChangesExpected: false }))).toBeUndefined();
+			expect(noChangesOf(noChangesBoard({ noChangesExpected: "true" }))).toBeUndefined();
+		});
+
+		it("addTaskToColumnWithResult keeps it on existing cards and sets it from the draft", () => {
+			const kept = addTaskToColumnWithResult(noChangesBoard(), "backlog", { prompt: "Other", baseRef: "main" });
+			expect(noChangesOf(kept.board)).toBe(true);
+
+			const created = addTaskToColumnWithResult(createInitialBoardData(), "backlog", {
+				prompt: "Research",
+				baseRef: "main",
+				noChangesExpected: true,
+			});
+			expect(created.task.noChangesExpected).toBe(true);
+			expect(created.board.columns[0]?.cards[0]?.noChangesExpected).toBe(true);
+		});
+
+		it("updateTask keeps it", () => {
+			const result = updateTask(noChangesBoard(), "task-1", { prompt: "Edited", baseRef: "main" });
+			expect(result.updated).toBe(true);
+			expect(noChangesOf(result.board)).toBe(true);
+		});
+
+		it("updateTaskTitle keeps it", () => {
+			const result = updateTaskTitle(noChangesBoard(), "task-1", "New title");
+			expect(result.updated).toBe(true);
+			expect(noChangesOf(result.board)).toBe(true);
+		});
+
+		it("applyTaskDetailClineSettingsSelection keeps it", () => {
+			const result = applyTaskDetailClineSettingsSelection(noChangesBoard({ agentId: "cline" }), "task-1", {
+				agentId: "cline",
+				clineSettings: { providerId: "p", modelId: "m" },
+			});
+			expect(result.updated).toBe(true);
+			expect(noChangesOf(result.board)).toBe(true);
+		});
+
+		it("applyTaskDetailClineSettingsChange keeps it", () => {
+			const result = applyTaskDetailClineSettingsChange(
+				noChangesBoard({ agentId: "cline" }),
+				"task-1",
+				{ providerId: "p", modelId: "m", reasoningEffort: "" },
+				{},
+			);
+			expect(result.updated).toBe(true);
+			expect(noChangesOf(result.board)).toBe(true);
+		});
+
+		it("disableTaskAutoReview keeps it", () => {
+			const result = disableTaskAutoReview(noChangesBoard(), "task-1");
+			expect(result.updated).toBe(true);
+			expect(noChangesOf(result.board)).toBe(true);
+		});
+	});
+
 	it("creates tasks when randomUUID is unavailable", () => {
 		vi.stubGlobal("crypto", { randomUUID: undefined });
 
