@@ -21,6 +21,7 @@ Update this file whenever a file or folder is created or moved.
 | `docs/superpowers/specs/2026-11-05-post-pass-review-at-once-design.md` | Spec: issue sync posts the stored pass review at once (not at Done); Done comment carries the commit. |
 | `docs/superpowers/specs/2026-11-06-handoff-fail-score-model-design.md` | Spec: handoff fail score records `codex:<model>` from the session record, not plain `codex` (1 Kanban task, no separate plan). |
 | `docs/superpowers/specs/2026-11-06-no-changes-expected-design.md` | Spec: `--no-changes-expected` task flag skips the empty-worktree nudge for research/spike tasks; sidebar passes them without a commit (1 Kanban task, no separate plan). |
+| `docs/superpowers/specs/2026-11-09-task-editor-dialog-design.md` | Spec: create dialog ~90% of the screen with a tall prompt; editing a Backlog task opens the same dialog instead of the inline card (1 Kanban task, no separate plan). |
 | `docs/superpowers/plans/2026-11-05-post-pass-review-at-once.md` | Plan for the pass review at once spec (1 Kanban task). |
 | `docs/superpowers/plans/` | Implementation plans (`YYYY-MM-DD-<topic>.md`). |
 | `docs/superpowers/specs/2026-10-28-agent-review-design.md` | Superseded (removed 2026-10-29). |
@@ -120,6 +121,7 @@ Update this file whenever a file or folder is created or moved.
 | File | Topic |
 |---|---|
 | `contexte/project-goal.md` | Token-reduction + shared-context goal for Claude Code / OpenCode / Codex. |
+| `contexte/research-task-review.md` | Review lessons for research-note tasks: shared checklist scope, notation conversion from source papers. |
 | `contexte/local-only-folders.md` | Which files are local-only, how (`.gitignore`), and the no-push git policy. |
 | `contexte/parallel-sessions.md` | Rule for running agent sessions in parallel without file conflicts. |
 | `contexte/memory-orchestrator.md` | Decisions + measured token findings for shared memory (Basic Memory) and agent orchestration. |
