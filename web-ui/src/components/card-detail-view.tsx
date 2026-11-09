@@ -350,8 +350,6 @@ export function CardDetailView({
 	onStartTask,
 	onStartAllTasks,
 	onClearTrash,
-	editingTaskId,
-	inlineTaskEditor,
 	onEditTask,
 	onSaveTaskTitle,
 	onCommitTask,
@@ -408,8 +406,6 @@ export function CardDetailView({
 	onStartTask?: (taskId: string) => void;
 	onStartAllTasks?: () => void;
 	onClearTrash?: () => void;
-	editingTaskId?: string | null;
-	inlineTaskEditor?: ReactNode;
 	onEditTask?: (card: BoardCard) => void;
 	onSaveTaskTitle?: (taskId: string, title: string) => void;
 	onCommitTask?: (taskId: string) => void;
@@ -842,8 +838,6 @@ export function CardDetailView({
 							onStartTask={onStartTask}
 							onStartAllTasks={onStartAllTasks}
 							onClearTrash={onClearTrash}
-							editingTaskId={editingTaskId}
-							inlineTaskEditor={inlineTaskEditor}
 							onEditTask={onEditTask}
 							onSaveTaskTitle={onSaveTaskTitle}
 							onCommitTask={onCommitTask}

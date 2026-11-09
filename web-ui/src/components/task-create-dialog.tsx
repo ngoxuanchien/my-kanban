@@ -107,6 +107,7 @@ function parseListItems(text: string): string[] {
 }
 
 export function TaskCreateDialog({
+	mode = "create",
 	open,
 	onOpenChange,
 	prompt,
@@ -153,6 +154,7 @@ export function TaskCreateDialog({
 	onAgentModelChange,
 	onAgentReasoningEffortChange,
 }: {
+	mode?: "create" | "edit";
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
 	prompt: string;
@@ -160,8 +162,8 @@ export function TaskCreateDialog({
 	images: TaskImage[];
 	onImagesChange: Dispatch<SetStateAction<TaskImage[]>>;
 	onCreate: (options?: { keepDialogOpen?: boolean }) => string | null;
-	onCreateAndStart?: (options?: { keepDialogOpen?: boolean }) => string | null;
-	onCreateMultiple: (prompts: string[], options?: { keepDialogOpen?: boolean }) => string[];
+	onCreateAndStart?: (options?: { keepDialogOpen?: boolean }) => unknown;
+	onCreateMultiple?: (prompts: string[], options?: { keepDialogOpen?: boolean }) => string[];
 	onCreateAndStartMultiple?: (prompts: string[], options?: { keepDialogOpen?: boolean }) => string[];
 	onCreateStartAndOpen?: (options?: { keepDialogOpen?: boolean }) => string | null;
 	startInPlanMode: boolean;
@@ -204,7 +206,8 @@ export function TaskCreateDialog({
 	onAgentModelChange?: (model: string | undefined) => void;
 	onAgentReasoningEffortChange?: (effort: string | undefined) => void;
 }): ReactElement {
-	const [mode, setMode] = useState<"single" | "multi">("single");
+	const isEditMode = mode === "edit";
+	const [splitMode, setSplitMode] = useState<"single" | "multi">("single");
 	const [createMore, setCreateMore] = useState(false);
 	const [composerResetKey, setComposerResetKey] = useState(0);
 	const [taskPrompts, setTaskPrompts] = useState<string[]>([]);
@@ -250,7 +253,7 @@ export function TaskCreateDialog({
 	// Reset state when dialog closes
 	useEffect(() => {
 		if (!open) {
-			setMode("single");
+			setSplitMode("single");
 			setCreateMore(false);
 			setComposerResetKey(0);
 			setTaskPrompts([]);
@@ -272,7 +275,7 @@ export function TaskCreateDialog({
 
 	const handleSplitIntoTasks = useCallback(() => {
 		setTaskPrompts(detectedItems);
-		setMode("multi");
+		setSplitMode("multi");
 		nextFocusIndexRef.current = 0;
 	}, [detectedItems]);
 
@@ -282,7 +285,7 @@ export function TaskCreateDialog({
 			.map((p, i) => `${i + 1}. ${p}`)
 			.join("\n");
 		onPromptChange(joined);
-		setMode("single");
+		setSplitMode("single");
 		setTaskPrompts([]);
 	}, [taskPrompts, onPromptChange]);
 
@@ -321,12 +324,20 @@ export function TaskCreateDialog({
 	const resetForCreateMore = useCallback(() => {
 		onPromptChange("");
 		onImagesChange([]);
-		setMode("single");
+		setSplitMode("single");
 		setTaskPrompts([]);
 		inputRefs.current = [];
 		nextFocusIndexRef.current = null;
 		setComposerResetKey((current) => current + 1);
 	}, [onImagesChange, onPromptChange]);
+
+	const handleSave = useCallback(() => {
+		onCreate();
+	}, [onCreate]);
+
+	const handleSaveAndStart = useCallback(() => {
+		onCreateAndStart?.();
+	}, [onCreateAndStart]);
 
 	const handleCreateSingle = useCallback(() => {
 		const createdTaskId = onCreate({ keepDialogOpen: createMore });
@@ -366,7 +377,7 @@ export function TaskCreateDialog({
 		if (validPrompts.length === 0) {
 			return;
 		}
-		const createdTaskIds = onCreateMultiple(validPrompts, { keepDialogOpen: createMore });
+		const createdTaskIds = onCreateMultiple?.(validPrompts, { keepDialogOpen: createMore }) ?? [];
 		if (createMore && createdTaskIds.length > 0) {
 			resetForCreateMore();
 		}
@@ -415,7 +426,19 @@ export function TaskCreateDialog({
 	useHotkeys(
 		"mod+enter, mod+shift+enter",
 		(event) => {
-			if (mode === "multi") {
+			if (isEditMode) {
+				if (event.shiftKey) {
+					if (onCreateAndStart && prompt.trim() && branchRef) {
+						handleSaveAndStart();
+					}
+					return;
+				}
+				if (prompt.trim() && branchRef) {
+					handleSave();
+				}
+				return;
+			}
+			if (splitMode === "multi") {
 				if (event.shiftKey) {
 					handleCreateAndStartAll();
 					return;
@@ -443,27 +466,44 @@ export function TaskCreateDialog({
 			},
 			preventDefault: true,
 		},
-		[open, mode, handleCreateAll, handleCreateAndStartAll, handleCreateSingle, handleRunSingleStartAction],
+		[
+			open,
+			isEditMode,
+			splitMode,
+			prompt,
+			branchRef,
+			handleSave,
+			handleSaveAndStart,
+			handleCreateAll,
+			handleCreateAndStartAll,
+			handleCreateSingle,
+			handleRunSingleStartAction,
+			onCreateAndStart,
+		],
 	);
 
-	// Alt/Opt+Shift+Enter → Start & Open (single mode only)
+	// Alt/Opt+Shift+Enter → Start & Open (single mode only, create mode only)
 	useHotkeys(
 		"alt+shift+enter",
 		() => {
-			if (mode === "single") {
+			if (!isEditMode && splitMode === "single") {
 				handleRunSingleStartAction("start_and_open");
 			}
 		},
 		{
-			enabled: open && Boolean(onCreateStartAndOpen),
+			enabled: open && !isEditMode && Boolean(onCreateStartAndOpen),
 			enableOnFormTags: true,
 			enableOnContentEditable: true,
 			preventDefault: true,
 		},
-		[open, mode, handleRunSingleStartAction, onCreateStartAndOpen],
+		[open, isEditMode, splitMode, handleRunSingleStartAction, onCreateStartAndOpen],
 	);
 
-	const dialogTitle = mode === "multi" ? `New tasks${validTaskCount > 0 ? ` (${validTaskCount})` : ""}` : "New task";
+	const dialogTitle = isEditMode
+		? "Edit task"
+		: splitMode === "multi"
+			? `New tasks${validTaskCount > 0 ? ` (${validTaskCount})` : ""}`
+			: "New task";
 
 	const taskCountLabel = validTaskCount === 1 ? "task" : "tasks";
 	const primaryStartLabel = effectivePrimaryStartAction === "start" ? "Start task" : "Start and open";
@@ -472,10 +512,10 @@ export function TaskCreateDialog({
 	const secondaryStartShortcutModifier = secondaryStartAction === "start" ? "mod" : "alt";
 
 	return (
-		<Dialog open={open} onOpenChange={onOpenChange} contentClassName="max-w-2xl">
+		<Dialog open={open} onOpenChange={onOpenChange} contentClassName="w-[90vw] max-w-[90vw] h-[90vh] max-h-[90vh]">
 			<DialogHeader title={dialogTitle} icon={<PencilLine size={16} />} />
 			<DialogBody>
-				{mode === "single" ? (
+				{splitMode === "single" ? (
 					<div>
 						<TaskPromptComposer
 							key={composerResetKey}
@@ -483,12 +523,20 @@ export function TaskCreateDialog({
 							onValueChange={onPromptChange}
 							images={images}
 							onImagesChange={onImagesChange}
-							onSubmit={handleCreateSingle}
-							onSubmitAndStart={() => handleRunSingleStartAction("start")}
+							onSubmit={isEditMode ? handleSave : handleCreateSingle}
+							onSubmitAndStart={
+								isEditMode
+									? onCreateAndStart
+										? handleSaveAndStart
+										: undefined
+									: () => handleRunSingleStartAction("start")
+							}
+							onEscape={() => onOpenChange(false)}
 							placeholder="Describe the task..."
 							autoFocus
 							workspaceId={workspaceId}
 							showAttachImageButton={false}
+							tall
 						/>
 						<div className="flex items-center justify-between mt-1.5">
 							<p className="text-[11px] text-text-tertiary">
@@ -499,7 +547,7 @@ export function TaskCreateDialog({
 								</code>{" "}
 								to add images.
 							</p>
-							{detectedItems.length >= 2 ? (
+							{!isEditMode && detectedItems.length >= 2 ? (
 								<button
 									type="button"
 									onClick={handleSplitIntoTasks}
@@ -510,7 +558,7 @@ export function TaskCreateDialog({
 								</button>
 							) : null}
 						</div>
-						{issueSummaryEnabled && onIssueSummaryChange ? (
+						{!isEditMode && issueSummaryEnabled && onIssueSummaryChange ? (
 							<label className="mt-3 flex flex-col gap-1 text-[12px] text-text-secondary">
 								Issue summary (optional)
 								<textarea
@@ -687,21 +735,47 @@ export function TaskCreateDialog({
 				</div>
 			</DialogBody>
 			<DialogFooter>
-				<label
-					htmlFor={createMoreId}
-					className="mr-auto flex items-center gap-2 text-[12px] text-text-primary cursor-pointer select-none"
-				>
-					<RadixSwitch.Root
-						id={createMoreId}
-						checked={createMore}
-						onCheckedChange={setCreateMore}
-						className="relative h-5 w-9 rounded-full bg-surface-4 data-[state=checked]:bg-accent cursor-pointer"
+				{!isEditMode ? (
+					<label
+						htmlFor={createMoreId}
+						className="mr-auto flex items-center gap-2 text-[12px] text-text-primary cursor-pointer select-none"
 					>
-						<RadixSwitch.Thumb className="block h-4 w-4 rounded-full bg-white shadow-sm transition-transform translate-x-0.5 data-[state=checked]:translate-x-[18px]" />
-					</RadixSwitch.Root>
-					<span>Create more</span>
-				</label>
-				{mode === "single" ? (
+						<RadixSwitch.Root
+							id={createMoreId}
+							checked={createMore}
+							onCheckedChange={setCreateMore}
+							className="relative h-5 w-9 rounded-full bg-surface-4 data-[state=checked]:bg-accent cursor-pointer"
+						>
+							<RadixSwitch.Thumb className="block h-4 w-4 rounded-full bg-white shadow-sm transition-transform translate-x-0.5 data-[state=checked]:translate-x-[18px]" />
+						</RadixSwitch.Root>
+						<span>Create more</span>
+					</label>
+				) : (
+					<div className="mr-auto" />
+				)}
+				{isEditMode ? (
+					<>
+						<Button size="sm" onClick={handleSave} disabled={!prompt.trim() || !branchRef}>
+							<span className="inline-flex items-center">
+								Save
+								<ButtonShortcut />
+							</span>
+						</Button>
+						{onCreateAndStart ? (
+							<Button
+								variant="primary"
+								size="sm"
+								onClick={handleSaveAndStart}
+								disabled={!prompt.trim() || !branchRef}
+							>
+								<span className="inline-flex items-center">
+									Save & Start
+									<ButtonShortcut includeShift />
+								</span>
+							</Button>
+						) : null}
+					</>
+				) : splitMode === "single" ? (
 					<>
 						<Button size="sm" onClick={handleCreateSingle} disabled={!prompt.trim() || !branchRef}>
 							<span className="inline-flex items-center">

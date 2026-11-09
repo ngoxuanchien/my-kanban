@@ -20,8 +20,6 @@ function ColumnSection({
 	onStartTask,
 	onStartAllTasks,
 	onClearTrash,
-	editingTaskId,
-	inlineTaskEditor,
 	onEditTask,
 	onSaveTitle,
 	onCommitTask,
@@ -44,8 +42,6 @@ function ColumnSection({
 	onStartTask?: (taskId: string) => void;
 	onStartAllTasks?: () => void;
 	onClearTrash?: () => void;
-	editingTaskId?: string | null;
-	inlineTaskEditor?: ReactNode;
 	onEditTask?: (card: BoardCardModel) => void;
 	onSaveTitle?: (taskId: string, title: string) => void;
 	onCommitTask?: (taskId: string) => void;
@@ -174,14 +170,6 @@ function ColumnSection({
 									const items: ReactNode[] = [];
 									let draggableIndex = 0;
 									for (const card of column.cards) {
-										if (column.id === "backlog" && editingTaskId === card.id) {
-											items.push(
-												<div key={card.id} style={{ marginBottom: 8 }}>
-													{inlineTaskEditor}
-												</div>,
-											);
-											continue;
-										}
 										items.push(
 											<BoardCard
 												key={card.id}
@@ -238,8 +226,6 @@ export function ColumnContextPanel({
 	onStartTask,
 	onStartAllTasks,
 	onClearTrash,
-	editingTaskId,
-	inlineTaskEditor,
 	onEditTask,
 	onSaveTaskTitle,
 	onCommitTask,
@@ -260,8 +246,6 @@ export function ColumnContextPanel({
 	onStartTask?: (taskId: string) => void;
 	onStartAllTasks?: () => void;
 	onClearTrash?: () => void;
-	editingTaskId?: string | null;
-	inlineTaskEditor?: ReactNode;
 	onEditTask?: (card: BoardCardModel) => void;
 	onSaveTaskTitle?: (taskId: string, title: string) => void;
 	onCommitTask?: (taskId: string) => void;
@@ -349,8 +333,6 @@ export function ColumnContextPanel({
 							onStartTask={column.id === "backlog" ? onStartTask : undefined}
 							onStartAllTasks={column.id === "backlog" ? onStartAllTasks : undefined}
 							onClearTrash={column.id === "trash" ? onClearTrash : undefined}
-							editingTaskId={column.id === "backlog" ? editingTaskId : null}
-							inlineTaskEditor={column.id === "backlog" ? inlineTaskEditor : undefined}
 							onEditTask={column.id === "backlog" ? onEditTask : undefined}
 							onSaveTitle={column.id !== "trash" ? onSaveTaskTitle : undefined}
 							onCommitTask={column.id === "review" ? onCommitTask : undefined}

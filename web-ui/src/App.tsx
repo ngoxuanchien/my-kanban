@@ -19,7 +19,6 @@ import { ProjectNavigationPanel } from "@/components/project-navigation-panel";
 import { RuntimeSettingsDialog, type RuntimeSettingsSection } from "@/components/runtime-settings-dialog";
 import { StartupOnboardingDialog } from "@/components/startup-onboarding-dialog";
 import { TaskCreateDialog } from "@/components/task-create-dialog";
-import { TaskInlineCreateCard } from "@/components/task-inline-create-card";
 import { TopBar } from "@/components/top-bar";
 import { Button } from "@/components/ui/button";
 import {
@@ -785,59 +784,21 @@ export default function App(): ReactElement {
 		[defaultTaskClineProviderId, runtimeProjectConfig, selectedCard, setBoard],
 	);
 
-	const handleCreateDialogOpenChange = useCallback(
+	const isEditingTask = Boolean(editingTaskId);
+	const isTaskEditorDialogOpen = isInlineTaskCreateOpen || isEditingTask;
+
+	const handleTaskEditorDialogOpenChange = useCallback(
 		(open: boolean) => {
 			if (!open) {
-				handleCancelCreateTask();
+				if (editingTaskId) {
+					handleCancelEditTask();
+				} else {
+					handleCancelCreateTask();
+				}
 			}
 		},
-		[handleCancelCreateTask],
+		[editingTaskId, handleCancelCreateTask, handleCancelEditTask],
 	);
-
-	const inlineTaskEditor = editingTaskId ? (
-		<TaskInlineCreateCard
-			prompt={editTaskPrompt}
-			onPromptChange={setEditTaskPrompt}
-			images={editTaskImages}
-			onImagesChange={setEditTaskImages}
-			onCreate={handleSaveEditedTask}
-			onCreateAndStart={handleSaveAndStartEditedTask}
-			onCancel={handleCancelEditTask}
-			startInPlanMode={editTaskStartInPlanMode}
-			onStartInPlanModeChange={setEditTaskStartInPlanMode}
-			startInPlanModeDisabled={isEditTaskStartInPlanModeDisabled}
-			autoReviewEnabled={editTaskAutoReviewEnabled}
-			onAutoReviewEnabledChange={setEditTaskAutoReviewEnabled}
-			agentReviewEnabled={editTaskAgentReviewEnabled}
-			onAgentReviewEnabledChange={setEditTaskAgentReviewEnabled}
-			autoReviewMode={editTaskAutoReviewMode}
-			onAutoReviewModeChange={setEditTaskAutoReviewMode}
-			workspaceId={currentProjectId}
-			branchRef={editTaskBranchRef}
-			branchOptions={createTaskBranchOptions}
-			onBranchRefChange={setEditTaskBranchRef}
-			agentId={editTaskAgentId}
-			onAgentIdChange={setEditTaskAgentId}
-			clineSettings={editTaskClineSettings}
-			onClineSettingsChange={setEditTaskClineSettings}
-			claudeModel={editTaskClaudeModel}
-			claudeDefaultModel={runtimeProjectConfig?.claudeDefaultModel ?? "opus"}
-			onClaudeModelChange={setEditTaskClaudeModel}
-			difficulty={editTaskDifficulty}
-			onDifficultyChange={setEditTaskDifficulty}
-			difficultyModelMap={runtimeProjectConfig?.difficultyModelMap}
-			agentModel={editTaskAgentModel}
-			agentReasoningEffort={editTaskAgentReasoningEffort}
-			onAgentModelChange={setEditTaskAgentModel}
-			onAgentReasoningEffortChange={setEditTaskAgentReasoningEffort}
-			defaultAgentId={runtimeProjectConfig?.selectedAgentId ?? null}
-			defaultProviderId={defaultTaskClineProviderId}
-			defaultModelId={runtimeProjectConfig?.clineProviderSettings?.modelId ?? null}
-			defaultReasoningEffort={runtimeProjectConfig?.clineProviderSettings?.reasoningEffort ?? null}
-			mode="edit"
-			idPrefix={`inline-edit-task-${editingTaskId}`}
-		/>
-	) : undefined;
 
 	if (isRuntimeDisconnected) {
 		return <RuntimeDisconnectedFallback />;
@@ -985,8 +946,6 @@ export default function App(): ReactElement {
 												onStartTask={handleStartTaskFromBoard}
 												onStartAllTasks={handleStartAllBacklogTasksFromBoard}
 												onClearTrash={handleOpenClearTrash}
-												editingTaskId={editingTaskId}
-												inlineTaskEditor={inlineTaskEditor}
 												onEditTask={handleOpenEditTask}
 												onSaveTaskTitle={handleSaveTaskTitle}
 												onCommitTask={handleCommitTask}
@@ -1072,8 +1031,6 @@ export default function App(): ReactElement {
 										onStartTask={handleStartTaskFromBoard}
 										onStartAllTasks={handleStartAllBacklogTasksFromBoard}
 										onClearTrash={handleOpenClearTrash}
-										editingTaskId={editingTaskId}
-										inlineTaskEditor={inlineTaskEditor}
 										onEditTask={(task) => {
 											handleOpenEditTask(task, { preserveDetailSelection: true });
 										}}
@@ -1158,47 +1115,52 @@ export default function App(): ReactElement {
 					onResetAllState={handleResetAllState}
 				/>
 				<TaskCreateDialog
-					open={isInlineTaskCreateOpen}
-					onOpenChange={handleCreateDialogOpenChange}
-					prompt={newTaskPrompt}
-					onPromptChange={setNewTaskPrompt}
-					images={newTaskImages}
-					onImagesChange={setNewTaskImages}
-					onCreate={handleCreateTask}
-					onCreateAndStart={handleCreateAndStartTask}
-					onCreateStartAndOpen={handleCreateStartAndOpenTask}
+					mode={isEditingTask ? "edit" : "create"}
+					open={isTaskEditorDialogOpen}
+					onOpenChange={handleTaskEditorDialogOpenChange}
+					prompt={isEditingTask ? editTaskPrompt : newTaskPrompt}
+					onPromptChange={isEditingTask ? setEditTaskPrompt : setNewTaskPrompt}
+					images={isEditingTask ? editTaskImages : newTaskImages}
+					onImagesChange={isEditingTask ? setEditTaskImages : setNewTaskImages}
+					onCreate={isEditingTask ? handleSaveEditedTask : handleCreateTask}
+					onCreateAndStart={isEditingTask ? handleSaveAndStartEditedTask : handleCreateAndStartTask}
+					onCreateStartAndOpen={isEditingTask ? undefined : handleCreateStartAndOpenTask}
 					onCreateMultiple={handleCreateTasks}
 					onCreateAndStartMultiple={handleCreateAndStartTasks}
-					startInPlanMode={newTaskStartInPlanMode}
-					onStartInPlanModeChange={setNewTaskStartInPlanMode}
-					startInPlanModeDisabled={isNewTaskStartInPlanModeDisabled}
-					autoReviewEnabled={newTaskAutoReviewEnabled}
-					onAutoReviewEnabledChange={setNewTaskAutoReviewEnabled}
-					agentReviewEnabled={newTaskAgentReviewEnabled}
-					onAgentReviewEnabledChange={setNewTaskAgentReviewEnabled}
-					autoReviewMode={newTaskAutoReviewMode}
-					onAutoReviewModeChange={setNewTaskAutoReviewMode}
+					startInPlanMode={isEditingTask ? editTaskStartInPlanMode : newTaskStartInPlanMode}
+					onStartInPlanModeChange={isEditingTask ? setEditTaskStartInPlanMode : setNewTaskStartInPlanMode}
+					startInPlanModeDisabled={
+						isEditingTask ? isEditTaskStartInPlanModeDisabled : isNewTaskStartInPlanModeDisabled
+					}
+					autoReviewEnabled={isEditingTask ? editTaskAutoReviewEnabled : newTaskAutoReviewEnabled}
+					onAutoReviewEnabledChange={isEditingTask ? setEditTaskAutoReviewEnabled : setNewTaskAutoReviewEnabled}
+					agentReviewEnabled={isEditingTask ? editTaskAgentReviewEnabled : newTaskAgentReviewEnabled}
+					onAgentReviewEnabledChange={isEditingTask ? setEditTaskAgentReviewEnabled : setNewTaskAgentReviewEnabled}
+					autoReviewMode={isEditingTask ? editTaskAutoReviewMode : newTaskAutoReviewMode}
+					onAutoReviewModeChange={isEditingTask ? setEditTaskAutoReviewMode : setNewTaskAutoReviewMode}
 					workspaceId={currentProjectId}
-					branchRef={newTaskBranchRef}
+					branchRef={isEditingTask ? editTaskBranchRef : newTaskBranchRef}
 					branchOptions={createTaskBranchOptions}
-					onBranchRefChange={setNewTaskBranchRef}
-					agentId={newTaskAgentId}
-					onAgentIdChange={setNewTaskAgentId}
-					clineSettings={newTaskClineSettings}
-					onClineSettingsChange={setNewTaskClineSettings}
-					claudeModel={newTaskClaudeModel}
+					onBranchRefChange={isEditingTask ? setEditTaskBranchRef : setNewTaskBranchRef}
+					agentId={isEditingTask ? editTaskAgentId : newTaskAgentId}
+					onAgentIdChange={isEditingTask ? setEditTaskAgentId : setNewTaskAgentId}
+					clineSettings={isEditingTask ? editTaskClineSettings : newTaskClineSettings}
+					onClineSettingsChange={isEditingTask ? setEditTaskClineSettings : setNewTaskClineSettings}
+					claudeModel={isEditingTask ? editTaskClaudeModel : newTaskClaudeModel}
 					claudeDefaultModel={runtimeProjectConfig?.claudeDefaultModel ?? "opus"}
-					onClaudeModelChange={setNewTaskClaudeModel}
-					issueSummaryEnabled={runtimeProjectConfig?.githubIssueSyncEnabled === true}
+					onClaudeModelChange={isEditingTask ? setEditTaskClaudeModel : setNewTaskClaudeModel}
+					issueSummaryEnabled={!isEditingTask && runtimeProjectConfig?.githubIssueSyncEnabled === true}
 					issueSummary={newTaskIssueSummary}
 					onIssueSummaryChange={setNewTaskIssueSummary}
-					difficulty={newTaskDifficulty}
-					onDifficultyChange={setNewTaskDifficulty}
+					difficulty={isEditingTask ? editTaskDifficulty : newTaskDifficulty}
+					onDifficultyChange={isEditingTask ? setEditTaskDifficulty : setNewTaskDifficulty}
 					difficultyModelMap={runtimeProjectConfig?.difficultyModelMap}
-					agentModel={newTaskAgentModel}
-					agentReasoningEffort={newTaskAgentReasoningEffort}
-					onAgentModelChange={setNewTaskAgentModel}
-					onAgentReasoningEffortChange={setNewTaskAgentReasoningEffort}
+					agentModel={isEditingTask ? editTaskAgentModel : newTaskAgentModel}
+					agentReasoningEffort={isEditingTask ? editTaskAgentReasoningEffort : newTaskAgentReasoningEffort}
+					onAgentModelChange={isEditingTask ? setEditTaskAgentModel : setNewTaskAgentModel}
+					onAgentReasoningEffortChange={
+						isEditingTask ? setEditTaskAgentReasoningEffort : setNewTaskAgentReasoningEffort
+					}
 					defaultAgentId={runtimeProjectConfig?.selectedAgentId ?? null}
 					defaultProviderId={defaultTaskClineProviderId}
 					defaultModelId={runtimeProjectConfig?.clineProviderSettings?.modelId ?? null}

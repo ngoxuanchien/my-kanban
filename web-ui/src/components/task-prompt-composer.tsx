@@ -40,6 +40,9 @@ interface TaskPromptComposerProps {
 	autoFocus?: boolean;
 	workspaceId?: string | null;
 	showAttachImageButton?: boolean;
+	minHeight?: number;
+	maxHeight?: number | null;
+	tall?: boolean;
 }
 
 export function TaskPromptComposer({
@@ -57,6 +60,9 @@ export function TaskPromptComposer({
 	autoFocus = false,
 	workspaceId = null,
 	showAttachImageButton = true,
+	minHeight,
+	maxHeight,
+	tall = false,
 }: TaskPromptComposerProps): ReactElement {
 	const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 	const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -69,14 +75,19 @@ export function TaskPromptComposer({
 	const [isSuggestionPickerOpen, setIsSuggestionPickerOpen] = useState(false);
 	const [isDragOver, setIsDragOver] = useState(false);
 
+	const effectiveMinHeight = minHeight ?? (tall ? 320 : 80);
+	const effectiveMaxHeight = maxHeight !== undefined ? maxHeight : tall ? null : TEXTAREA_MAX_HEIGHT;
+
 	const autoResizeTextarea = useCallback(() => {
 		const textarea = textareaRef.current;
 		if (!textarea) {
 			return;
 		}
 		textarea.style.height = "auto";
-		textarea.style.height = `${Math.min(textarea.scrollHeight, TEXTAREA_MAX_HEIGHT)}px`;
-	}, []);
+		const targetHeight =
+			effectiveMaxHeight !== null ? Math.min(textarea.scrollHeight, effectiveMaxHeight) : textarea.scrollHeight;
+		textarea.style.height = `${Math.max(effectiveMinHeight, targetHeight)}px`;
+	}, [effectiveMaxHeight, effectiveMinHeight]);
 
 	useEffect(() => {
 		autoResizeTextarea();
@@ -232,8 +243,10 @@ export function TaskPromptComposer({
 			}
 
 			if (event.key === "Escape") {
-				event.preventDefault();
-				onEscape?.();
+				if (onEscape) {
+					event.preventDefault();
+					onEscape();
+				}
 			}
 		},
 		[
@@ -388,8 +401,8 @@ export function TaskPromptComposer({
 							isDragOver ? "border-accent border-dashed" : "border-border-bright",
 						)}
 						style={{
-							minHeight: 80,
-							maxHeight: TEXTAREA_MAX_HEIGHT,
+							minHeight: effectiveMinHeight,
+							maxHeight: effectiveMaxHeight ?? undefined,
 							resize: "none",
 							overflowY: "auto",
 						}}
