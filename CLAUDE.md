@@ -23,3 +23,4 @@ Details and decisions: `contexte/project-goal.md`.
 8. Before claiming "done", run the relevant typecheck, tests, and lint, and include the output as evidence.
 9. Parallel sessions: one task = one Kanban task worktree = one branch. Never run two agents in the main checkout. See `contexte/parallel-sessions.md`.
 10. When creating Kanban tasks from a plan: alternate --agent-id opencode/codex/antigravity, and fill docs/agents/task-prompt-template.md (copy needed context from memory into the prompt).
+11. A user-visible feature or a new/changed CLI flag updates the "Fork features" section of `README.md` in the same change. The task prompt lists `README.md` under "Files you may change", and the reviewer checks the entry.

@@ -70,6 +70,46 @@ When the work looks good, hit **Commit** or **Open PR**. Kanban sends a dynamic 
 ### 7. Keep track with git interface
 Click the branch name in the navbar to open a full git interface to browse commit history, switch branches, fetch, pull, push, and visualize your git all without leaving Kanban. Keep track of everything your agents are doing across branches as work is completed.
 
+## Fork features
+
+This fork adds multi-agent orchestration on top of upstream Kanban. Design specs live in [`docs/superpowers/specs/`](./docs/superpowers/specs/).
+
+### Agents and models
+- **Task agents:** Codex, OpenCode, Antigravity (`agy`) and Claude Code. Pick one per task with `--agent-id`.
+- **Model per task:** `--model haiku|sonnet|opus` for Claude, or a model id for Codex/OpenCode. `--reasoning-effort` sets Codex effort. A default Claude model lives in Settings.
+- **Difficulty:** `--difficulty 1-5` scores a task. Settings holds a difficulty → model/effort table per agent. `kanban task models` prints it.
+
+### Sidebar agent review
+- Agent review is on by default for new tasks (`--agent-review-enabled`). When a task finishes, the sidebar agent reviews the worktree, runs the checks, and sends a fix list back with `kanban task send`.
+- Up to 3 fix rounds per agent. A passed review commits the work and moves the card to Done (`kanban task trash --task-id <id> --review-passed --commit <hash>`).
+- Review cards show who acts next: **Needs you** or **Sidebar**, plus the round (`Review n/3`; the cap grows by 3 per handoff).
+- `--no-changes-expected` marks research/spike tasks that pass without a commit.
+
+### Handoff and quota
+- A task stuck after its review rounds is handed off along `codex → opencode → antigravity` (at most 2 handoffs, 3 review rounds per agent). `kanban task handoff --task-id <id> --message "<reason>"` does it by hand.
+- Usage-limit messages (screen, OpenCode log, Antigravity session log) and Codex `model_not_found` trigger a handoff at once. A stuck agent first gets one `continue` nudge. When no agent is left the card shows **Out of quota** and retries later.
+- Crashed or stopped sessions in Review restart with `kanban task start --task-id <id> --message "<fix list>"`.
+
+### Task reports
+- `kanban task report --state waiting --reason "<text>" --pid <pid>` keeps a long background job In Progress; Kanban wakes the agent when the process exits.
+- `kanban task report --state blocked --question "<text>"` stores one owner question on the card and pauses all automation until the next run.
+- Permission prompts keep the task In Progress with **Waiting for approval**.
+
+### Board and history
+- Linked backlog tasks start only when all their prerequisites are Done.
+- The runtime moves cards In Progress ↔ Review from session state.
+- Done cards open a read-only history: timeline, commit diff (or the saved patch), and the agent transcript.
+- `kanban task list` prints a compact plain-text board; `kanban task show --task-id <id>` and `kanban task comment --message "<text>"` add detail and notes that later handoff/restart prompts include.
+- Backlog tasks open in a large editor dialog for create and edit.
+- A bottom status bar shows each agent's score (+1 pass, −1 fail, split per model) and task count.
+
+### GitHub issue sync
+Opt in per project in Settings. Each task mirrors to a GitHub issue through `gh`: a status label, one comment per column, the passing review, and the commit on Done. The prompt is never posted. Set issue fields with `--summary`, `--labels`, `--milestone`, `--assignee`.
+
+### Desktop and terminal
+- Terminal links (including OSC 8) open in the system browser; `file://` links inside the workspace open in VS Code.
+- The top-bar **Open** button works from the desktop app.
+
 ## Desktop app (macOS)
 
 Install the Apple Silicon desktop app from this checkout with one command:
